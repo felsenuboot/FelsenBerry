@@ -1,3 +1,11 @@
+**CORRECTION (2026-09-01, engine-dev): this file is a point-in-time handoff from
+2026-08-31 ~21:41 and is now STALE in several places — most notably every reference
+below to "port 3106 is free / KloputzKarl is a test bot" is WRONG as of this date:
+3106/KloputzKarl is karl-driver's production farm-building bot, not a free test port.
+Engine is now at v9 (skills.js) with a second engineer (engine-dev-2) also active —
+see FEEDBACK.md and research/SYNTHESIS.md for current state, not this file's
+"process notes" section. Left the historical content below unedited as a record.**
+
 # Engine dev handoff notes (engine-dev teammate, wound down 2026-08-31 ~21:41)
 
 > **SUPERSEDED IN PART — engine is now v7 (2026-09-01).** Everything below about the v5
