@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 12;
+const ENGINE_VERSION = 13;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1199,8 +1199,10 @@ function _startFallback(bot) {
   const spec = S.onEmptySpec;
   if (!spec || S.queueState === 'stopped' || S.queueState === 'halted' || S.queueState === 'paused') return;
   S._fallbackRuns++; spec.runs = (spec.runs || 0) + 1;
-  const quiet = S._fallbackRuns > 1;                            // announce the first run only
-  if (!quiet) say(bot, `Nothing queued — running a ${spec.name} sweep while I wait for orders.`, true);
+  // Every fallback run is quiet. Announcing up front produced a line per sweep whether or
+  // not there was anything to sweep; _onTaskEnd speaks afterwards, and only if the run
+  // actually collected something (team-lead: "narrate only when something was found").
+  const quiet = true;
   pauseIdleGuard(20000);
   const r = S.start(bot, spec.name, spec.args, { fallback: true, quiet });
   if (!r.ok) {
@@ -1260,7 +1262,15 @@ S._onTaskEnd = function (bot, task) {
   if (task.cancelled && !task.error && intent !== 'skip') return;   // stop() already cleared the queue
   if (task.error && !task.fallback) { _handleFailure(bot, task.name, task.error); return; }
   if (task.error && task.fallback) S._fallbackErrBackoff = Math.min((S._fallbackErrBackoff || 20000) * 2, 60000);
-  else if (task.fallback) S._fallbackErrBackoff = 0;
+  else if (task.fallback) {
+    S._fallbackErrBackoff = 0;
+    // a sweep that picked something up is worth a line; one that found nothing is noise
+    const got = Object.entries(task.collected || {});
+    if (got.length) {
+      const n = got.reduce((a, [, v]) => a + v, 0);
+      say(bot, `Picked up ${n} stray item${n === 1 ? '' : 's'} while waiting (${got.map(([k, v]) => `${v} ${k}`).join(', ').slice(0, 80)}).`);
+    }
+  }
   pauseIdleGuard(20000);
   _pump(bot);                                               // <- the instant advance
 };
@@ -1321,7 +1331,10 @@ S.setFallback = function (bot, spec) {
   if (v.error) return { ok: false, error: v.error };
   S.onEmptySpec = {
     name: v.item.name, args: v.item.args,
-    everyMs: Math.max(3000, Math.min(spec.everyMs || 20000, 300000)),
+    // floor 30s: the fallback is a background sweep, not a work loop. A shorter gap
+    // produced the "checking for stray drops / picked up 0" chat spam the user complained
+    // about, and a sweep that found nothing has no reason to run again seconds later.
+    everyMs: Math.max(30000, Math.min(spec.everyMs || 30000, 300000)),
     maxRuns: spec.maxRuns || 0, runs: 0,
   };
   S._fallbackRuns = 0; S._fallbackErrBackoff = 0;
