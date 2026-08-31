@@ -1,4 +1,4 @@
-DRIVER GUIDE — Minecraft bot skill library (__skills v10)
+DRIVER GUIDE — Minecraft bot skill library (__skills v11)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
 HARD LAW: `mcp__minecraft__*` tools are kevin-driver-ONLY, even if they show up as available
@@ -323,3 +323,40 @@ strips the `[TAG] ` prefix when it extracts a bare username for the `chat` event
 runner.js's own `<chat> <username>` log lines will never show the tag even when it's
 correctly present in the real broadcast; that took real debugging to figure out, save
 yourself the trouble).
+
+## Kit preflight (v11) — start() can now refuse to depart
+
+`__skills.start()` checks the bot's kit before a task that leaves base or goes underground,
+and **returns `{ok:false, error:{code:'kit_missing', tier, missing:[...]}}` without creating
+a task**. Nothing is running when you get this — restock and start again. Two of this
+fleet's three deaths were kit failures discovered at depth, so this is a gate, not a warning.
+
+Tiers are cumulative, and which one applies is derived from the skill and its args:
+
+| Tier | Applies to | Requires |
+|---|---|---|
+| `excursion` | `chopTrees`, `huntAnimals` | 8+ torches, 2+ food items, a sword or axe |
+| `underground` | `mineLane`, `safeDescend` | 16+ torches, 4+ food, weapon, **2 pickaxes**, 16+ filler blocks |
+| `deep` | `safeDescend {toY < 0}`, `mineLane` while already below y=0 | 40+ torches, 8+ food, weapon, 2 picks, 16 filler, worn chestplate, shield, water bucket |
+
+The 2-pickaxe rule is bernd-driver's double tool loss made mechanical, and the 16 filler
+blocks are survival.js's wall-off budget — without them the panic reflex can only run.
+
+Check before you commit to a plan (pure inspection, no side effects):
+
+```sh
+./task.sh <port> eval "return __skills.kitCheck(bot, 'deep')"
+# raw: ... -d '{"code":"return __skills.kitCheck(bot, \"deep\")"}'
+# -> {ok, tier, missing:["torches 19/40","shield",...], warnings:["tool_low: iron_pickaxe at 12%"]}
+```
+
+`warnings` never block: they cover tools at or under 20% durability and hunger below 18.
+They also fire on a task that *does* pass, so watch for `tool_low` in `status.log` —
+replacing a breaking tool outranks the job.
+
+**Override:** pass `{"force": true}` in the task args. It runs, and logs
+`kit_missing OVERRIDDEN by force: ...` so the shortcut is visible afterwards. Use it for a
+genuinely short trip, not to get past a restock.
+
+Depot for restocking: chest B `(-5,111,3)` has cobblestone and coal, chest C `(-3,111,1)`
+has bread. Announce transfers in chat as `DEPOT -32 cobblestone` per DEPOT.md.

@@ -249,6 +249,21 @@ bots/
 └── pids/        # <name>.pid, <name>.port
 ```
 
+### Kit preflight (v11)
+
+`__skills.start()` refuses to begin a task that leaves base or goes underground when the
+bot is not carrying the kit for it, returning `{ok:false, error:{code:'kit_missing', tier,
+missing:[...]}}` before any task is created. Three cumulative tiers — `excursion`
+(8 torches, 2 food, a weapon), `underground` (16 torches, 4 food, **2 pickaxes**, 16 filler
+blocks) and `deep` (40 torches, 8 food, worn chestplate, shield, water bucket) — resolved
+from the skill and its arguments, so `safeDescend {toY:-10}` demands the deep kit while the
+same skill to y=40 only needs the underground one. `__skills.kitCheck(bot, tier)` is the
+side-effect-free version for inspection; `{"force":true}` overrides and logs that it did.
+
+The 2-pickaxe rule and the 16 filler blocks are not arbitrary: they are a driver's double
+tool loss at depth and survival.js's wall-off budget respectively. Two of this fleet's three
+deaths were kit failures that only became visible once the bot was already deep.
+
 ## Skill library (skills.js) — injectable Baritone-style task engine
 
 `skills.js` is a single self-contained `/eval` payload that installs `globalThis.__skills`

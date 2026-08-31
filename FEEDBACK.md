@@ -78,7 +78,7 @@ triage: (2026-09-01 synthesis) full replacement spec'd as survival.js in researc
 
 ### 2026-09-01 team-lead — universal torch preflight (user rule)
 type: safety
-status: open
+status: shipped(v11) — engine-dev 2026-09-01. `__skills.start()` now refuses to depart half-kitted: three cumulative tiers (excursion 8 torches / underground 16 + 2 picks + 16 filler / deep 40 + armor + shield + water bucket), resolved per skill and args, returning {code:'kit_missing', tier, missing:[...]} BEFORE the task is created. `__skills.kitCheck(bot,tier)` is the pure-inspection version for drivers. Escape hatch is {"force":true}, which logs the override. Verified live: safeDescend {toY:-10} was refused for the full deep list, and passed once the kit was satisfied.
 what: User rule: every bot carries ≥8 torches on ANY excursion and lights dark workspaces (~7 spacing). v4 autoTorch only covers mineLane/safeDescend.
 fix: ctx preflight for any task leaving base radius: warn "no_torches" universally; auto-place on light<8 during any goto/work loop.
 triage: (2026-09-01 synthesis) kit preflight tiers spec'd (excursion/underground/deep) in research/survival-doctrine.md §5; lighting math + lightSweep skill in §6 (keep every=7 — user rule, 3x spawn-proof minimum, coal is cheap). Plan P1.6.
@@ -120,7 +120,7 @@ triage: (2026-09-01 synthesis) cheap detector found: a leaked goto never removes
 
 ### 2026-09-01 team-lead — panic-retreat useless at depth vs ranged attackers
 type: safety
-status: shipped(survival.js v1, partial) — engine-dev 2026-09-01. BREAK_LOS (corner-step, else 2-block 'arrow shadow', then rush-if-healthy or coffin) and WALL_OFF (seal + eat to 18 + regen + exit away from threat) are implemented and the wall-off half is live-verified. NOT shipped: the kit-preflight half (P1.6) — still open, that's the '40 torches / 2 picks / 8 food below y=0' engine gate.
+status: shipped(survival.js v1 + v11) — engine-dev 2026-09-01. BOTH halves now shipped. Branch half: BREAK_LOS (corner-step, else 2-block 'arrow shadow', then rush-if-healthy or coffin) and WALL_OFF (seal + eat to 18 + regen + exit away from threat), wall-off live-verified. Kit half: v11's preflight enforces the deep tier (40 torches / 2 picks / 8 food / armor / shield / water bucket) in S.start BEFORE departure — verified live, safeDescend {toY:-10} refused with the full missing list.
 what: Bernd died to a skeleton at ~(-22,-31,-16) despite panicguard firing at HP7 — fleeing toward a base 150 blocks up a corridor is no escape from arrows; 40s of steady damage.
 fix: context-aware panic: if home is far/unreachable fast, wall off line-of-sight with cobble + eat; flee only when base is near. Also: deep-work kit preflight (40+ torches, armor, 2 picks, 8+ food below y=0) as an engine check, not just doctrine.
 triage: (2026-09-01 synthesis) implementation-ready: BREAK_LOS 2-cobble "arrow shadow" vs skeletons (kiting them is mechanically impossible — they hold range and fire every 3s), WALL_OFF coffin + eat-to-18, flee-home only ≤40 blocks AND melee-only threat. research/survival-doctrine.md §1 (mob mechanics), §4 (branches), §5 (kit tiers). Plan P1.5+P1.6.
@@ -397,3 +397,37 @@ type: quirk
 status: shipped(survival.js v1)
 what: Second defect from the same live wall-off test. Sealing a 1x2 standing space needs a cap at feet+2, but on open ground that cell's only orthogonal neighbour below is the bot's own head space (air), so there is nothing to place against and the cap silently fails every time — the coffin stays open to the sky, which is precisely where skeletons shoot from.
 fix: lay the four SIDE cells at feet+2 first (each has the head-ring block directly beneath it as a reference), which then gives the cap four solid neighbours. Costs 4 extra blocks on open ground and nothing underground, where those cells are already stone. Verified: 13/13 faces solid, sealed:true. Generally — any "place a block above my head in open air" needs a lateral reference laid first.
+
+### 2026-09-01 team-lead (USER FEATURE) — chat diet: logs out of Minecraft chat
+type: feature-request
+status: open
+what: User directive: routine LOG narration ("Heading to X", "Arrived", "Drop
+sweep done: 0", idle-guard chore lines) must STOP appearing in Minecraft chat —
+only INTERACTION (social messages to players/bots), PROTOCOL ledger lines, and
+IMPORTANT announcements belong in-game. Current chore spam (~30 msg/min across
+both fleets) drowns the channel.
+fix: three-tier routing in graychat v3: default bot.chat() = LOG tier → bot log
+file only (suppressed from game chat entirely); "@"-prefixed = INTERACTION →
+gray via bridge, stays in chat ("@" stripped); "!"-prefixed = IMPORTANT → plain
+white (existing); PROTOCOL regex lines unchanged (white, parseable). skills.js
+ctx.say/idle-guard narration automatically becomes log-tier — no skill changes
+needed. Drivers use "@" for conversational sends. Rollout fleet-wide after
+verify; propose the same convention to CAVECREW (their spam is worse).
+
+### 2026-09-01 friedrich-driver — dirt/leaf_litter accumulate unbounded in depot chests fleet-wide
+type: quirk
+status: open
+what: Multiple times this shift I've found chest A/B/C stuffed with maxed-out stacks of dirt and leaf_litter (peaked at 270+ dirt, 143 leaf_litter in chest B alone) — these are zero-value items every bot's collectDrops sweeps pick up indiscriminately and then deposit alongside real loot. I manually withdrew-and-tossed them twice, but tossing near the depot just gets them re-picked-up by the next collectDrops pass through the same spot, so it's a losing battle by hand. Given every bot does this, it's clearly systemic, not a me-specific habit.
+fix: either (a) collectDrops gets an optional/default ignore-list (dirt, leaf_litter, and other zero-value blocks) so sweeps don't hoover them in the first place, or (b) depositToChest silently discards known-junk items instead of banking them (with a `discarded` field in its result so it's not silent to the driver), or (c) both — the depot has finite chest slots and junk crowding out real materials is a real cost, not just aesthetics.
+
+### 2026-09-01 karl-driver — plaza floor has a dark patch under open sky, light not propagating from new torches
+type: bug
+status: open
+what: During the spawn-proofing sweep, found a ~3x11 strip of plaza_1's own floor (x=0..2, z=-1..9 — no roof registered anywhere over it) reading skyLight 0 / light 0 / surfaceExposed:false with the bot physically standing there (ruled out the known stale-remote-chunk-read quirk — this was a live, in-person read). Placed 11 torches spread across the strip as a direct fix; a follow-up scan showed most CELLS ADJACENT to a freshly-placed torch still read effective light 0, which shouldn't happen — torch block light should propagate outward regardless of skyLight. No hostiles were ever observed there (checked repeatedly), so this reads as a lighting-calculation bug rather than confirmed active danger, but it means "place a torch" isn't a reliable fix verification method right now — the status/light readback can't be trusted to confirm a torch actually resolved a dark spot.
+fix: needs an engine or server-side look — possibly this world's frozen-daylight hack broke normal skylight/blocklight recalculation ticks for parts of the map, or there's a mineflayer lighting-cache staleness issue distinct from the already-known stale-remote-chunk quirk (this was NOT remote, bot was standing in the cell). Worth a repro: place a torch on ground in full daylight, immediately vs. after a delay, and check whether `blockAt(...).light` on the adjacent cell ever updates. If confirmed a world/server bug, drivers need a different way to verify "is this actually spawn-safe now" than reading `.light`/`.skyLight` (e.g., spawn a hostile mob to test, or just trust visual/structural torch placement over the light readback).
+
+### 2026-09-01 karl-driver — sub-plaza cave is much larger than documented, no dedicated cave-mapping/sealing skill
+type: rule-of-twice
+status: open
+what: BASE.md section 7 describes the cave under the plaza as a small "west-centre" pocket; it's actually a connected void spanning roughly x=-9..0, z=-2..9, y=105..109 (measured live). Also: quarry_ladder_1's registered column (-4,4) is actually solid/filled, not the open shaft the registry implies — had to dig a fresh 2-block entry from OUTSIDE the plaza at (-9,108-109,1) instead. Hand-placed ~20 torches across it via raw /eval loops (goto + multi-face placeBlock fallback) since there's no cave-lighting/mapping skill; also manually sealed a 5-block vertical shaft directly under crafting_table_1 with cobblestone the same way.
+fix: (1) correct/expand the section 7 description of the cave extent and the quarry_ladder_1 status once someone maps it properly. (2) a `lightSweep`/`sealVoid` skill (mentioned as planned in an earlier engine triage note) would have made this whole job far more reliable than my hand-rolled multi-face placeBlock loop — this is exactly the kind of repetitive, error-prone-by-hand task the skill library is for.

@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 10;
+const ENGINE_VERSION = 11;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -117,6 +117,23 @@ const HAZARD = new Set(['lava', 'fire', 'soul_fire', 'magma_block', 'powder_snow
 const SOIL = new Set(['grass_block', 'dirt', 'coarse_dirt', 'podzol', 'rooted_dirt', 'mycelium',
   'moss_block', 'pale_moss_block', 'mud', 'muddy_mangrove_roots', 'farmland']);
 const SPECIES = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cherry', 'pale_oak', 'mangrove'];
+// Kit preflight (P1.6, research/survival-doctrine.md ss5). Three CUMULATIVE tiers: a task
+// that leaves base radius needs `excursion`, anything underground adds `underground`,
+// anything below y=0 adds `deep`. Enforced in S.start so a half-kitted bot never departs
+// — two of this fleet's three deaths were kit failures discovered at depth, and the user
+// rule "8+ torches on ANY excursion" is mechanical here rather than doctrine.
+const FOODS = new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken',
+  'cooked_rabbit', 'cooked_cod', 'cooked_salmon', 'baked_potato', 'apple', 'golden_apple',
+  'enchanted_golden_apple', 'carrot', 'beetroot', 'melon_slice', 'sweet_berries', 'glow_berries',
+  'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp']);
+const FILLERS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite',
+  'granite', 'deepslate', 'tuff', 'netherrack']);
+const KIT_TIERS = {
+  excursion: { torches: 8, foodItems: 2, weapon: true },
+  underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16 },
+  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, armor: true, shield: true, water: true },
+};
+const TOOL_LOW_PCT = 20; // preflight durability gate (status warns at 15% mid-task)
 const SAPLING = (sp) => (sp === 'mangrove' ? 'mangrove_propagule' : sp + '_sapling');
 // mcData .drops is unreliable (most leaves report []) — hard-coded drop table:
 const DROPS = {
@@ -827,6 +844,55 @@ function makeCtx(bot, task) {
 // ---------- task runner ----------
 // _q is ENGINE-INTERNAL ({qid,runId} for a queued item, {fallback,quiet} for an
 // onEmpty sweep). Drivers, task.sh and DRIVER_GUIDE never pass it.
+// kitCheck(bot, tier) -> {ok, tier, missing:[...], warnings:[...]}
+// Pure inspection, no side effects — drivers can call it directly to see what to restock
+// before starting anything: __skills.kitCheck(bot, 'deep')
+S.kitCheck = function (bot, tier) {
+  const req = KIT_TIERS[tier];
+  if (!req) return { ok: true, tier: null, missing: [], warnings: [] };
+  const items = (bot && bot.inventory && bot.inventory.items()) || [];
+  const total = (pred) => items.filter(pred).reduce((a, i) => a + i.count, 0);
+  const missing = [], warnings = [];
+
+  const torches = total((i) => i.name === 'torch' || i.name === 'soul_torch');
+  if (torches < req.torches) missing.push(`torches ${torches}/${req.torches}`);
+  const food = total((i) => FOODS.has(i.name));
+  if (food < req.foodItems) missing.push(`food ${food}/${req.foodItems}`);
+  if (req.weapon && !items.some((i) => /_sword$/.test(i.name) || /_axe$/.test(i.name))) missing.push('weapon (any sword)');
+  if (req.picks) {
+    const picks = items.filter((i) => /_pickaxe$/.test(i.name)).length;
+    if (picks < req.picks) missing.push(`pickaxes ${picks}/${req.picks} (backup for the one that breaks)`);
+  }
+  if (req.filler) {
+    const filler = total((i) => FILLERS.has(i.name));
+    if (filler < req.filler) missing.push(`filler blocks ${filler}/${req.filler} (survival.js wall-off budget)`);
+  }
+  if (req.shield && !items.some((i) => i.name === 'shield')
+    && !(bot.inventory.slots[45] && bot.inventory.slots[45].name === 'shield')) missing.push('shield');
+  if (req.water && !items.some((i) => i.name === 'water_bucket')) missing.push('water_bucket');
+  if (req.armor) {
+    const worn = (bot.inventory.slots || []).slice(5, 9).filter(Boolean);
+    if (!worn.some((i) => /_chestplate$/.test(i.name))) missing.push('armor (chestplate minimum)');
+  }
+  // durability gate — "a broken tool outranks the job", made mechanical
+  for (const it of items.filter((i) => /_(pickaxe|axe|sword|shovel|hoe)$/.test(i.name))) {
+    const max = it.maxDurability || (bot.registry.items[it.type] || {}).maxDurability || 0;
+    if (!max) continue;
+    const pct = Math.round(((max - (it.durabilityUsed || 0)) / max) * 100);
+    if (pct <= TOOL_LOW_PCT) warnings.push(`tool_low: ${it.name} at ${pct}%`);
+  }
+  if (typeof bot.food === 'number' && bot.food < 18) warnings.push(`hunger ${bot.food}/20 — eat before departing`);
+  return { ok: missing.length === 0, tier, missing, warnings };
+};
+
+// Resolve a skill's kit tier: spec.kit is a string, or a function (args, bot) -> tier|null.
+function kitTierFor(skill, args, bot) {
+  try {
+    const k = skill.kit;
+    return typeof k === 'function' ? k(args || {}, bot) : (k || null);
+  } catch (_) { return null; }
+}
+
 S.start = function (bot, name, args = {}, _q = null) {
   S._lastBot = bot; _bindEnd(bot);
   if (S.currentTask && S.currentTask.running) {
@@ -839,6 +905,21 @@ S.start = function (bot, name, args = {}, _q = null) {
   try { bad = skill.validate ? skill.validate(args, bot) : null; }
   catch (e) { bad = 'validate threw: ' + e.message; }
   if (bad) return { ok: false, error: { code: 'bad_args', message: bad, params: skill.params } };
+
+  // KIT PREFLIGHT (P1.6) — fail BEFORE the task exists, so a half-kitted bot never departs.
+  // Escape hatch: args.force = true (logged, so a shortcut is always visible after the fact).
+  const tier = kitTierFor(skill, args, bot);
+  if (tier) {
+    const kit = S.kitCheck(bot, tier);
+    for (const w of kit.warnings) pushLog('warn', w);
+    if (!kit.ok && !args.force) {
+      pushLog('warn', `kit_missing (${tier}): ${kit.missing.join(', ')}`);
+      say(bot, `Not setting off half-kitted — I still need: ${kit.missing.join(', ')}.`);
+      return { ok: false, error: { code: 'kit_missing', tier, missing: kit.missing, warnings: kit.warnings,
+        hint: 'restock from the depot (chest B torches/cobble, chest C food), then restart — or pass {"force":true} to override' } };
+    }
+    if (!kit.ok) pushLog('warn', `kit_missing OVERRIDDEN by force: ${kit.missing.join(', ')}`);
+  }
 
   S._cancel = false;
   const task = S.currentTask = {
@@ -1657,6 +1738,7 @@ S.define('collectDrops', {
 
 // ---------- chopTrees ----------
 S.define('chopTrees', {
+  kit: 'excursion',
   description: 'Fell whole trees (flood-filled connected logs, bottom-up), collect all drops, replant saplings when held.',
   params: { types: "'any' or array of species (oak, spruce, birch, jungle, acacia, dark_oak, cherry, pale_oak, mangrove)", count: 'trees to fell (default 1)', maxDist: 'search radius (default 64)', replant: 'bool (default true)' },
   validate: (a) => {
@@ -1783,6 +1865,8 @@ S.define('chopTrees', {
 
 // ---------- mineLane ----------
 S.define('mineLane', {
+  // underground by definition; 'deep' once the bot is already below y=0
+  kit: (a, bot) => { try { return bot.entity.position.y < 0 ? 'deep' : 'underground'; } catch (_) { return 'underground'; } },
   description: 'Mine N blocks of a type (deepslate-aware ore aliases, vein following), verify drops landed in inventory.',
   params: { target: "block name, e.g. 'stone', 'iron_ore' (ore aliases include deepslate variants)", count: 'blocks to bank (default 8)', maxDist: 'search radius (default 32, capped)', vein: 'follow touching veins (default true)', laneY: 'optional: only blocks within 2 of this Y' },
   validate: (a, bot) => {
@@ -1904,6 +1988,7 @@ S.define('mineLane', {
 
 // ---------- huntAnimals ----------
 S.define('huntAnimals', {
+  kit: 'excursion',
   description: 'Hunt N animals of given species, attack on the weapon damage cooldown, collect all drops. NEVER targets players.',
   params: { species: "array, e.g. ['cow','pig'] (default ['cow'])", count: 'kills (default 1)', radius: 'search radius (default 32)', anyMob: 'allow non-animal mobs like zombie (default false; players never allowed)' },
   validate: (a, bot) => {
@@ -2075,6 +2160,8 @@ S.define('depositToChest', {
 
 // ---------- safeDescend ----------
 S.define('safeDescend', {
+  // keyed on the TARGET depth: descending to y<0 needs the deep kit BEFORE setting off
+  kit: (a) => (typeof a.toY === 'number' && a.toY < 0 ? 'deep' : 'underground'),
   description: 'Dig a 45-degree staircase down to a target Y. Never digs straight down; stops at lava/voids; places torches if held.',
   params: { toY: 'target Y (required)', dir: "'north'|'south'|'east'|'west' (default: facing)", torchEvery: 'steps between torches (default 8)', maxSteps: 'cap (default 128)', minY: 'hard floor (default -59)' },
   validate: (a) => (typeof a.toY === 'number' && isFinite(a.toY) ? null : 'need numeric toY'),
