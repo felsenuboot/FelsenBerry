@@ -383,3 +383,26 @@ ingredient drops by more than the recipe asked for. `made` is what actually arri
 that, not your arithmetic. It finds a crafting table within 4 blocks on its own (pass
 `{table:{x,y,z}}` to pin one); 2x2 recipes work without one, and a 3x3 recipe with no table
 in reach comes back with that stated in `reason`.
+
+GITHUB ISSUES (open to every teammate, drivers included — user law, 2026-09-01)
+The repo (`felsenuboot/felcrew-mcp`, `gh` CLI already authenticated machine-wide) has an
+issue tracker anyone can read and file into — a significant finding deserves an issue, not
+just a FEEDBACK.md line; do both (FEEDBACK.md for the raw field entry, an issue for
+tracking), cross-referenced with a `github: felsenuboot/felcrew-mcp#N` line in the
+FEEDBACK.md entry.
+```sh
+gh issue list --state open                      # what's tracked right now
+gh issue view <N> --comments                     # full thread
+gh issue create --title "..." --body "..." --label bug   # labels: bug, enhancement, documentation, ...
+gh issue comment <N> --body "..."                # add evidence without closing
+gh issue close <N> --comment "shipped in <commit-hash>: <what changed, how it was verified>"
+```
+CLOSING REQUIRES EVIDENCE, always — the same audit discipline that flags premature closes
+also flags issues left open after the fix already shipped; both directions are wrong. You
+(any driver) may close an issue YOU filed once you can cite the actual fix/commit that
+resolves it. Engineers close with a commit hash. The rollout manager (engine-dev) audits
+across the board and may reopen a close that turns out to be premature, or push to close
+one that's stale. Alliance channel `#1` (felsenuboot/felcrew-mcp#1, the CAVECREW direct
+line) is READ-open to everyone but WRITE-restricted to team-lead/rollout-manager/
+kevin-driver for outbound diplomacy — no driver freelancing replies there; relay anything
+you want said to whoever currently owns that channel.
