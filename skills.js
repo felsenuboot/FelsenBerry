@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 8;
+const ENGINE_VERSION = 9;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -743,6 +743,25 @@ function makeCtx(bot, task) {
         if (Array.isArray(mv.scafoldingBlocks)) mv.scafoldingBlocks = [];
         bot.pathfinder.setMovements(mv);
       } catch (e) { pushLog('warn', 'enterBuildSafe: movements not applied: ' + e.message); }
+      return () => { try { if (prev) bot.pathfinder.setMovements(prev); } catch (_) {} };
+    },
+
+    // Movements guard for pure travel (FEEDBACK: "travel tasks need a dig-free movement
+    // profile" — long come/goto hauls were silently tunnelling through hills, eating
+    // held-tool durability and leaving ugly tunnels = an aesthetics violation). Switches
+    // to runner.js's HAUL profile (digCost 15 — walking around beats digging through;
+    // sprinting on; wide search radius) for the call's duration, restoring afterward. A
+    // no-op fallback (does nothing, keeps current movements) on an older runner.js
+    // process without globalThis.__movementProfiles — travel still works, just without
+    // the dig-averse tuning. ALWAYS call the returned restore() in a finally.
+    enterHaul() {
+      let prev = null;
+      try {
+        if (G.__movementProfiles && typeof G.__movementProfiles.HAUL === 'function') {
+          prev = bot.pathfinder.movements || null;
+          bot.pathfinder.setMovements(G.__movementProfiles.HAUL(bot));
+        }
+      } catch (e) { pushLog('warn', 'enterHaul: movements not applied: ' + e.message); }
       return () => { try { if (prev) bot.pathfinder.setMovements(prev); } catch (_) {} };
     },
 
@@ -1594,7 +1613,10 @@ S.define('come', {
   fn: async (ctx) => {
     const { args } = ctx;
     ctx.setPhase('travelling', `Heading to ${Math.round(args.x)}, ${Math.round(args.y)}, ${Math.round(args.z)}.`);
-    await ctx.retry('travel', () => ctx.gotoNear(args, args.range || 1, 60000), 2);
+    const restoreMoves = ctx.enterHaul();
+    try {
+      await ctx.retry('travel', () => ctx.gotoNear(args, args.range || 1, 60000), 2);
+    } finally { restoreMoves(); }
     ctx.setPhase('arrived');
   },
   doneMsg: () => 'Arrived.',

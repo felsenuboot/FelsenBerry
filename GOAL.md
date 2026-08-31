@@ -24,7 +24,7 @@ and handle surprises, deterministic engine code does everything routine.
 | Mining / shafts | WORKING (safeDescend staircases, mineLane, torch discipline, 8/8 diamond run) — Baritone sidecar in progress | skills.js; baritone/ workflow |
 | Hunting | WORKING where fauna exists (region depleted; pen_2 ready for husbandry) | huntAnimals; animal acquisition role |
 | Survival / self-preservation | PARTIAL (panic guard, light rule, deep-work kit doctrine) — survival.js + danger scanner queued | research/survival-doctrine.md (P1) |
-| Autonomy floor (no idle, no babysitting) | WORKING (task queue, idle-guard v4, usefulness gating) — auto-inject on spawn is the keystone gap | SYNTHESIS P0.2 |
+| Autonomy floor (no idle, no babysitting) | WORKING (task queue, idle-guard v4, usefulness gating, engine v8: auto-inject on every spawn — skills/digguard/graychat/panicguard/reachguard install with zero manual step, verified live) | SYNTHESIS P0.2 shipped |
 
 Roadmap authority: research/SYNTHESIS.md (P0–P4) + FEEDBACK.md (field findings).
 Everything ships engine-first: behavior rules are stopgaps, engine enforcement is
