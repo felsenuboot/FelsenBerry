@@ -1,6 +1,12 @@
 DRIVER GUIDE — Minecraft bot skill library (__skills v10)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
+HARD LAW: `mcp__minecraft__*` tools are kevin-driver-ONLY, even if they show up as available
+in your environment (MCP config inheritance) — using them from any other driver risks
+spawning a rival KackboonKevin connection (duplicate_login identity war, already cured once).
+Framework bots (a runner.js HTTP port) go through that port; Kevin goes through kevin-driver
+only. See LEARNING_HANDOFF.md's Hard conventions #6 for the full note.
+
 INJECT — engine v8+ CHANGED THIS: check GET /state's `payloads` field first. If it's
 present, your bot is on the NEW runner.js process and skills/dangerscan/survival/
 digguard/graychat/reachguard already auto-reinstall on every spawn/reconnect — you do NOT need

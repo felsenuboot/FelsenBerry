@@ -121,7 +121,10 @@ insight applied to our stack, and it's what keeps token costs near zero at scale
   contents by breaking + re-placing it); no chest access at all — the workaround is
   the FURNACE MAILBOX: Kevin smelts with takeOutput:false and announces in chat for
   a framework bot to collect from the furnace; place-block needs a visible reference
-  face (side-place + reposition on "No suitable reference block found").
+  face (side-place + reposition on "No suitable reference block found");
+  `get-block-info` takes FLAT `x`/`y`/`z` number params, not a nested
+  `{"position":{x,y,z}}` object — the nested form fails validation with
+  "Expected number, received nan" (found live 2026-09-01, kevin-driver).
 - **Crafting-void quirk, correction (verified live 2026-08-31, FurzFriedrich)**: for
   crafts of *unstackable* items (tools/weapons — pickaxe, axe, sword, all max stack
   1), a count-verify using `inventory.items().find(x=>x.name===...)` ALWAYS looks
@@ -226,6 +229,17 @@ insight applied to our stack, and it's what keeps token costs near zero at scale
 - **Driver anti-wedge rules**: never repeat an identical polling eval more than 3
   times (a wedged driver polling a stuck goal froze a bot for minutes); wrap every
   goto in a ~20s Promise.race timeout; batch 20-40 blocks per eval.
+- **Log-mining for chat history beyond the live buffer** (found live 2026-09-01,
+  kevin-driver): `read-chat`/the live chat buffer only holds ~100 messages — at this
+  fleet's chat volume (idle-guard narration from our bots + CAVECREW's) that's under
+  3 minutes of real history, nowhere near enough to reconstruct e.g. a diplomatic
+  negotiation. Any framework bot's `logs/<name>.log` is effectively a full,
+  ISO-timestamped, server-wide chat transcript going back to that bot's spawn
+  (mineflayer logs every `chat` event it observes, not just its own lines) —
+  `grep -h "<chat>" logs/*.log | grep -i "<keyword>"`, sorted by timestamp, recovers
+  history the live buffer can't. This is Kevin's ONLY way to see chat history beyond
+  the live buffer (MCP-driven, no log file of his own) but it's useful for any driver
+  reconstructing something that happened more than a few minutes ago.
 - **Tool durability on travel**: pathfinder digs traversal blocks with the HELD tool
   — a long move can silently eat an iron pickaxe's 250 durability (happened live).
   Equip a cheap stone tool (or nothing) before long moves; save the good tool for
@@ -323,6 +337,14 @@ coordination bus — bots announce phases (English) and DEPOT/USING/FREE ledger 
 4. Check BASE.md before building infrastructure (no duplicates); lease exclusive
    things via chat. Deposit excess per DEPOT.md.
 5. Extend skills.js rather than hand-driving; leave every quirk you find in this file.
+6. **`mcp__minecraft__*` MCP tools are kevin-driver-only** (user law, 2026-09-01). They
+   appear available in every teammate's environment via project MCP config inheritance,
+   but using them from anywhere except kevin-driver risks spawning a rival KackboonKevin
+   connection and recreating the duplicate_login identity war that was already cured once.
+   Framework bots (anything with a runner.js HTTP port) are driven exclusively via that
+   port; Kevin (the one MCP-native bot) is driven exclusively by kevin-driver. If an MCP
+   tool shows up as available to you and you're not kevin-driver, don't call it — spotted
+   and self-policed once already by marcel-driver, credit where due.
 
 **LIGHT RULE (supersedes the y≥100 elevation rule, 2026-09-01):** y-coordinate is
 NOT a safety proxy — Marcel stood at y=109 under a solid overhang next to a 70+
