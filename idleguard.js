@@ -30,11 +30,15 @@ const interrupted = () => !g.enabled || g.lastExternal > g.workStarted;
 const say = (msg) => { const now = Date.now(); if (now - g.lastChat > 90000) { g.lastChat = now; try { bot.chat(msg); } catch (e) {} } };
 const T = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => { try { bot.pathfinder.setGoal(null); } catch (e) {} rej(new Error("timeout")); }, ms))]);
 const isIdle = () => { try { return !bot.pathfinder.goal && !bot.targetDigBlock && !(bot.pathfinder.isMoving && bot.pathfinder.isMoving()); } catch (e) { return !bot.targetDigBlock; } };
+// v4: LIGHT RULE — idle work is surface-only. skyAt fails OPEN (15) if the API is
+// missing so v4 degrades to v3 behavior rather than freezing the guard.
+const skyAt = (p) => { try { return bot.world.getSkyLight ? bot.world.getSkyLight(p) : 15; } catch (e) { return 15; } };
+const surfaceOk = (p) => skyAt(p.offset ? p.offset(0, 1, 0) : p) > 0;
 const gotoNear = (pos, r, ms) => T(bot.pathfinder.goto(new goals.GoalNear(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z), r)), ms || 12000);
 const sweepDrops = async (radius, maxN) => {
   const me = bot.entity.position;
   const items = Object.values(bot.entities)
-    .filter(e => e.name === "item" && e.position && e.position.distanceTo(me) < radius)
+    .filter(e => e.name === "item" && e.position && e.position.distanceTo(me) < radius && surfaceOk(e.position))
     .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me)).slice(0, maxN || 4);
   if (!items.length) return 0;
   say("(idle-guard) sweeping stray drops, waste not!");
@@ -54,7 +58,7 @@ const digWithTool = async (block) => {
 const mineNearest = async (names, maxDist, maxN, label) => {
   const ids = names.map(n => bot.registry.blocksByName[n] && bot.registry.blocksByName[n].id).filter(Boolean);
   if (!ids.length) return 0;
-  const found = bot.findBlocks({ matching: ids, maxDistance: maxDist, count: maxN * 3 });
+  const found = bot.findBlocks({ matching: ids, maxDistance: maxDist, count: maxN * 3 }).filter(surfaceOk);
   if (!found.length) return 0;
   say("(idle-guard) " + label);
   let n = 0;
@@ -67,6 +71,9 @@ const mineNearest = async (names, maxDist, maxN, label) => {
 };
 const work = async () => {
   g.runs++; g.workStarted = Date.now();
+  // v4 gate: never START autonomous work while standing in the dark (skyLight 0 =
+  // underground or shaded hazard pocket — the guard walked bots into caves in v3).
+  if (!surfaceOk(bot.entity.position)) { say("(idle-guard) dark spot, not wandering. Waiting for orders."); return; }
   if (await sweepDrops(24, 4)) return;
   if (interrupted()) return;
   if (g.role === "lumberjack") {
@@ -109,4 +116,4 @@ g.timer = setInterval(() => {
     try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
   })().catch(() => {});
 }, 5000);
-return { installed: true, version: 3, role: g.role };
+return { installed: true, version: 4, role: g.role };

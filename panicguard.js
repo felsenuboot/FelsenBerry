@@ -14,7 +14,7 @@ const onHealth = () => {
     if (now - g.last < 30000) return;
     g.last = now; g.fires++;
     try { bot.chat("! HP " + Math.round(bot.health) + "/20 - breaking off and retreating to base!"); } catch (e) {}
-    try { if (globalThis.__skills && globalThis.__skills.stop) globalThis.__skills.stop(bot, "panic-retreat"); } catch (e) {}
+    try { if (globalThis.__skills && globalThis.__skills.stop) globalThis.__skills.stop("panic-retreat"); } catch (e) {}
     try { if (globalThis.__idleguard && globalThis.__idleguard.pause) globalThis.__idleguard.pause(60000); } catch (e) {}
     try { bot.pathfinder.setGoal(null); } catch (e) {}
     try { bot.pathfinder.setGoal(new goals.GoalNear(HOME.x, HOME.y, HOME.z, 3)); } catch (e) {}

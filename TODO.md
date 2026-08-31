@@ -156,3 +156,40 @@ Root causes found 2026-08-31/09-01 in the field:
   dark workspaces (~7-block spacing) — not just mining. Engine idea: preflight
   check in ctx for any task leaving base radius — warn "no_torches" like v4 does
   in mineLane/safeDescend, but universally.
+
+## Research findings 2026-09-01 (4 tracks done — synthesis: research/SYNTHESIS.md)
+Reports: research/movement-engines.md, research/survival-doctrine.md,
+research/chat-protocol.md, research/build-aesthetics.md. Top actionable items, in order:
+1. **Pathfinder config fixes beat any new engine** (movement §2.3-2.4, ~0.5 day):
+   add leaf_litter/torch/wall_torch/powder_snow/etc to `movements.blocksToAvoid`
+   (verified root cause of BOTH wedges — zero-shape blocks classify as air); arrival
+   assertion in ctx.goto (empty-path noPath resolves as SUCCESS); replace all 3
+   `pathfinder.stop()` calls with `setGoal(null)` (stop-flag poisons next goto);
+   wire path_reset('stuck')/path_update telemetry + listenerCount leak check.
+2. **TODO 5 is the keystone** (movement §2.10): "Movements silently reverted" root
+   cause = reconnect re-runs createBot with stock defaults ('spawn' handler must be
+   `on`, not `once`). Safe profile + auto-inject + /state payload enumeration first;
+   survival.js and chatlisten.js both depend on it.
+3. **HAUL/WORK/CAVE Movements profiles** (movement §2.2, copy-paste ready): digCost 15
+   on hauls (dirt-scar + tunneling fix), entitiesToAvoid, searchRadius 64 base moves,
+   sprint on hauls only; exclusionAreas fed from BASE.md replaces hardcoded digguard.
+4. **Survival stack** (survival §3-6): 4Hz danger scanner over bot.entities (free
+   wallhack) + heldItem/durability/skyLight in status → survival.js panic branches
+   (creeper-override / flee-home≤40 / BREAK_LOS vs skeletons / wall-off+eat) → kit
+   preflight tiers → 4 shields (set autoEat offhand=false FIRST, patch armor-manager
+   chainmail rank). Cavity-breach entity scan = the exact Marcel-death counter.
+5. **ctx.gotoFar multi-leg waypointing** (movement §2.7): the actual long-haul fix
+   (~80-block ground-snapped legs); retires the standing /goto-60s-timeout item.
+6. **FLEET/1 chat is implementation-ready** (chat-protocol, full spec): build
+   chatlisten.js on `bot.on('message')` UUIDs ONLY (chat identity is forgeable —
+   RCON password is public); tier table; no withdraw/attack/build verbs exist;
+   namespaced chest refs (FEL:B/CAVE:A) fix the live CAVECREW chest-B collision;
+   spoof-rejection test is the gate. Implements TODO 3.
+7. **Aesthetics unblocked** (build-aesthetics): ~30-line Sponge v3→v2 NBT shim in
+   /blueprint/load (else most 2024+ .schem fail); genHouse seeded-palette generator;
+   house_1 + path_1 have complete state-safe plans, bills fit banked stock; buildPath
+   skill leg-wise LIVE generation (stale-chunk safe). Skip mineflayer-builder + WFC.
+8. **TODO 2 update — real-Baritone Java blocker is GONE** (movement §3): HeadlessMc
+   2.10.0 native binary downloads its own Java; hmc-specifics needs no fabric-api;
+   jar sha256-pinned; ~40 min smoke tests remain. ashfinder = opt-in /goto2 fallback
+   ONLY (loaded in createBot, never inject; assert arrival — it lies about success).
