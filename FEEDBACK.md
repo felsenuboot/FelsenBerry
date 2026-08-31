@@ -31,7 +31,7 @@ findings raise priority.
 
 ### 2026-09-01 bernd-driver — tool durability invisible in status
 type: feature-request
-status: open
+status: shipped(dangerscan v1) — engine-dev 2026-09-01. `__skills.status().bot.held = {name, count, dur%}` plus a one-shot `tool_low` warn log under 15%. Shipped as the dangerscan.js payload (it grafts the fields onto status), NOT yet inside skills.js — fold it in during the P0.4 native pass. Live-verified on SchisserSiegbert/3108.
 what: Both pickaxes broke silently mid-descent (twice this shift), stranding the bot at depth with zero tools; drivers can't see durability without a manual eval.
 fix: __skills.status bot block gains heldItem name + durability%; log line "tool_low" under 15%.
 triage: (2026-09-01 synthesis) ship in the SAME status change as the 4Hz danger score + skyLight flag — spec in research/survival-doctrine.md §3; plan P0.4 in research/SYNTHESIS.md.
@@ -53,6 +53,7 @@ type: safety
 status: open
 what: Torch-post pillars harvested twice; placed logs indistinguishable from trees. Interim: injected digguard protects 8 plaza columns only.
 fix: chopTrees only fells log columns with leaf canopy attached (blockAt check); optional BASE.md-registered-coords skip. See TODO item 4.
+seen-again: 2026-09-01 kevin-driver — third incident, found live during a post-restart base inspection. HALF of torch_posts_1 is gone: columns at (-3,9), (-8,9), (2,9), (2,4) are completely missing (all 4 blocks each, y=111-114 — 3x oak_log + 1 torch), floor beneath intact (cobblestone verified at -3,110,9). The other 4 columns — (-8,-1), (2,-1), (-3,-1), (-8,4) — are still intact. Cause not directly witnessed (no chopTrees/dig announcement found in the chat window covering the damage), but the pattern (whole pillars gone, nothing else touched) matches this bug exactly, not vandalism. Strong suspicion: this landed in the gap right after the 23:06:37 server restart, when framework bots lose their injected digguard until their driver process-restarts them (per team-lead's warning) — a chopTrees run in that window would have zero protection. Raises this from "seen twice" to genuinely recurring; the interim digguard mitigation is not surviving restarts reliably enough on its own. Rebuild needs 12 oak_log + 4 torch; flagging to team-lead for reassignment (peter-driver built the original).
 
 ### 2026-09-01 marcel-driver — pathfinder Movements spawn with unsafe defaults
 type: safety
@@ -183,7 +184,7 @@ triage: (2026-09-01 synthesis) tunneling half fixed by HAUL/WORK profiles (digCo
 
 ### 2026-09-01 team-lead — travel tasks need a dig-free movement profile
 type: safety
-status: picked-up(v8 partial) — engine-dev shipped HAUL/WORK/CAVE on globalThis.__movementProfiles (runner.js), reachable from skills.js by name. NOT yet wired as come/goto's actual default — they currently run on baseMovements() (safe, digCost unset=1) not HAUL. Next step: wire come/gotoFar to switch into HAUL before issuing the goal.
+status: shipped(v9) — engine-dev: `come` now calls ctx.enterHaul() (switches to HAUL — digCost 15, sprint on — for the travel, restores after) verified live: mid-travel movements read digCost:15, restored to digCost:1 after. gotoFar (P2.8, multi-leg waypointing) doesn't exist yet — wire it the same way whenever it lands. Note: HAUL's surfaceExposed/skyLight signal (the other half of friedrich-driver's tunneling report) is still P0.4's job, not this entry's.
 what: Extends friedrich-driver's come-tunneling finding: pathfinder Movements allow digging during TRAVEL, so long-distance come/goto silently tunnels through hills (bot ends up underground believing it's surface-scouting; also leaves ugly tunnels = aesthetics violation, and eats held-tool durability).
 fix: two Movements profiles in the engine — travel mode (canDig=false or dig-cost heavily penalized, surface-preferring heuristic) vs work mode (digging allowed). come/goto default to travel mode; skills that legitimately dig (mineLane/safeDescend) opt into work mode. Plus the surface-exposed signal friedrich requested (column-above scan / canSeeSky) in status.
 triage: (2026-09-01 synthesis) three copy-paste-ready profiles (HAUL digCost=15 / WORK digCost=25 searchRadius=64 / CAVE digCost=1) in research/movement-engines.md §2.2 — prefer high digCost over canDig=false (a single blocking block stays clearable). Plan P0.3; surfaceExposed flag ships with the status change (P0.4).
@@ -304,7 +305,7 @@ fix: needs an engine-side repro — likely a prismarine-recipe / minecraft-data 
 
 ### 2026-09-01 team-lead (USER-CRITICAL) — bots act beyond survival reach
 type: safety
-status: open
+status: shipped(v8, reachguard.js) — engine-dev: rejects an out-of-range dig/placeBlock/activateBlock/attack with an immediate {code:'reach_violation'} error instead of the silent hang, verified live (15m dig cleanly rejected, normal in-range work unaffected). Deliberately does NOT auto-approach (that would call pathfinder from a bare monkey-patch with no task context — risks the documented goal-stomping class). "fold into skills.js ctx primitives properly" is still open — ctx.digBlock/placeBlockAt already approach-then-act safely inside their own task, that's the natural home for it. Only live on bots that have process-restarted onto the new runner.js (see version-matrix audit, 2026-09-01) — most of the fleet still needs the rolling restart.
 what: User observation (critical): bots attempt interactions far beyond survival
 reach — "sometimes they try hitting things way too far away" — likely because
 mineflayer defaults assume creative-like range. Survival limits: ~4.5 blocks for
@@ -323,3 +324,39 @@ type: safety
 status: open
 what: Bumps team-lead's earlier "injection reports can drift from reality" entry from hypothesis to confirmed harm. My bot ran digguard v1 (8-column-only) for a whole multi-hour session while v2 (protected.json, 10 regions covering house_1/main_hall_1/farm_1/pond_1/pen_1) existed on disk and was already injected on other bots. I saw a file-change notification when v2 shipped, read the source, and judged it informational — nothing told me MY running bot hadn't picked it up, since there's no diff between "v2 exists" and "v2 is live on port 3101" visible without manually eval'ing `__digguard.version`. Consequence: chopping loops I ran inside the old blind spot caused real damage — main_hall_1 audited at 21 missing edge blocks (corner posts, walls) after the fact. Separately caught myself re-injecting idleguard.js RAW once (it's role-templated via `__ROLE__`, substituted at inject time) — no signal there either, a bot would just run with a role string that matches no branch.
 fix: (1) GET /state (or a cheap __skills.status add-on) should report every payload's actual installed version by reading each global (`__digguard.version`, `__idleguard.version`, etc.) so "did my bot get the update" is a one-line check instead of tribal knowledge; (2) a single inject-all.sh that handles templating (role substitution) for every payload and prints back the version numbers it just confirmed, replacing the current hand-rolled `jq -Rs '{code:.}' file | curl ...` per payload that both the version-drift and the raw-template mistake stem from; (3) consider: when a watched file (skills.js/digguard.js/idleguard.js/etc.) changes on disk and a driver's tool result flags it, the driver-facing convention should be "verify + re-inject now," not "read for awareness" — worth calling out explicitly in DRIVER_GUIDE.md since the current phrasing reads as informational-only.
+triage (2026-09-01, rollout-manager): partially addressed structurally by v8's auto-inject-per-spawn (the parent "injection reports can drift from reality" entry, shipped v8) — a bot on the NEW runner.js process re-reads every payload from disk on every spawn/reconnect, so drift can't persist past the next reconnect. Does NOT fix the visibility gap this entry is about (still only skills.js reports its own version in GET /state; digguard/graychat/panicguard/idleguard are booleans only) — that's still open, flagged to engine-dev-2. Live version-matrix audit (2026-09-01) confirms the concrete harm: 4 of 5 production bots were STILL on the pre-v8 runner.js process at audit time (including yours, 3101) — auto-inject doesn't help until a bot actually restarts onto it. Rolling restart in progress.
+
+### 2026-09-01 friedrich-driver — panicguard vanishes mid-session with no restart/reconnect (2nd occurrence) — ROOT CAUSE FOUND
+type: safety
+status: open
+what: Injected panicguard successfully earlier this session, confirmed `installed:true`. Many actions later, checked again during a routine payload audit — `typeof globalThis.__panicguard` came back "undefined". Re-injected. Team-lead independently flagged a prior instance too. ROOT CAUSE (confirmed, not hypothesis): a server restart happened right after (Rcon-announced, ~60s), my bot auto-reconnected (same runner.js process, control API never went down). Checked ALL payloads right after reconnect: skills v9, digguard v2, idleguard, graychat all survived intact. panicguard ALONE was gone again. So panicguard specifically does not survive a reconnect, while the others do — same failure class as the Movements-profile bug already fixed in v8 (reconnect re-runs createBot with a fresh object, and anything bound to the OLD bot/emitter instance via `.on()` listener gets orphaned). skills/digguard/idleguard/graychat apparently patch at a level (prototype/globalThis) that survives the swap; panicguard's `bot.on("health", onHealth)` listener does not.
+fix: same shape as the Movements fix — rebind panicguard's health listener on every 'spawn' event, not just at inject time. Or fold it into the native engine work already planned (see the existing "promote panicguard into engine" entry) so it's not a removable eval global at all. Until fixed: worth a driver-facing note in DRIVER_GUIDE.md — re-verify/re-inject panicguard after ANY reconnect (kick, server restart, network blip), not just after a bot process restart.
+triage (2026-09-01, rollout-manager): should be STRUCTURALLY fixed as a side effect of v8's auto-inject-per-spawn (applyPayloadStack runs on bot.on('spawn'), which fires on every reconnect, not just first connect — panicguard.js gets a fresh bot.on('health',...) bind every time). NOT yet verified live against a real reconnect on the new runner.js (your bot, 3101, was still on the old process at last audit) — worth a deliberate re-test once you restart to v9: force a reconnect (or wait for the next server blip) and confirm __panic survives without a manual re-inject. Flagging as a good verification task for whoever's testing v8/v9 live.
+
+### 2026-09-01 team-lead (from marcel-driver's idle gap) — farmCycle skill (rule-of-many)
+type: rule-of-twice
+status: open
+what: The farm's harvest→sweep→replant→bake cycle is the most-repeated hand-driven
+sequence in the fleet (dozens of cycles tonight) and stops dead whenever the
+driver ends a turn without queuing the next pass — idle-guard's generic work
+can't run it. Marcel's discipline fix (always end mid-task/queued) helps, but
+this is an engine job.
+fix: skills.js farmCycle({field, replant: true, bakeAt: N, depositTo}) — scan
+field tiles for age-7 crops, harvest + immediate collect, replant from inventory,
+optional bread-craft at a threshold + deposit; queueable + onEmpty-compatible so
+the farm literally never sleeps. Uses existing tillFarmland request as a sub-step.
+
+### 2026-09-01 team-lead (USER OBSERVATION) — task completion is invisible; idle-guard masks it
+type: bug
+status: open
+what: User observed drivers not noticing their task finished — root cause: when a
+task completes, idle-guard takes over with its own work, so the bot LOOKS busy
+(moves, chats) and drivers watching movement/logs conclude the task is still
+running and keep waiting. Fits the recurring "Still running — I'll wait" driver
+wait-loops.
+fix: make completion unmissable: (a) every __skills task completion emits a
+distinct chat line "! done: <task> <result summary>" + a "TASK_DONE <name>" log
+line Monitors can watch; (b) idle-guard's takeover announcement must state
+"previous task DONE" explicitly; (c) driver doctrine (distribute): poll
+status.task.done as the only truth — never infer task state from bot movement,
+the guard makes idle bots look busy.
