@@ -36,7 +36,8 @@ and MUST follow section 5 step by step. All chat announcements are in English.
 | path_1           | trail_stepped   | plaza edge (2,110,5) toward CAVECREW camp (11,89,55), stops at (10,92,50) — 5+ blocks short of their chest | built | shared | PflasterPeter | 2026-09-01 | (post-v9-restart re-audit found 10 explosion-damaged tiles near the plaza + mid-route; 7 repaired, 3 remain: (3,112,12) and (3,112,13) now sit directly above Karl's grown wheat at farm_1 with no solid placement reference — cosmetic 1-block step, still walkable; (9,97,42) is genuinely unreachable by pathfinder, cause unknown, low priority) |
 | pen_2            | fence_pen_7x7   | x=7..13, z=10..16, y=119 (fence), floor y=118, entrance gap (10,119,16) | built | shared        | KloputzKarl    | 2026-09-01 | (replaces retired pen_1 per team-lead directive — sunlit flat plateau ~8 blocks above/east of farm_1, full skyLight 15, spatially clear of path_1's low-elevation route toward (10,92,50). 23 oak_fence perimeter blocks (built with the new engine v8 buildWall skill — verified block-by-block, far more reliable than hand-placement), a 1-wide open entrance gap at (10,119,16) instead of a crafted gate — see FEEDBACK.md, oak_fence_gate has no working recipe via bot.craft on this server right now, so the entrance is a plain fence block you dig+replace to open/close. 6 torches on the corners/entrance posts. Coordinated site via chat with peter-driver/marcel-driver before building; no objections raised.) |
 | main_hall_1      | hall_8x5        | x=-7..0, z=-6..-2, floor+walls y110..113, roof y114, open colonnade on the south (plaza-facing) wall between corner posts (-7,-2) and (0,-2), 3 interior torches | built | shared | PflasterPeter | 2026-09-01 | (user-requested: covers the crafting-table/depot hub where the fleet congregates) |
-| perimeter_wall_1 | wall_2high_posts | envelope x=-12..15, z=-9..18 (54x27, ~158 blocks of wall line minus 2 gates), 2-high cobblestone, oak-log post every 6 blocks + torch per post, gates at south z=18 x≈5 (path_1) and north (site pending) | planned | shared | BuddelBernd (staging by KloputzKarl) | 2026-09-01 | (Bernd is the builder, mid-return from a diamond run and unreachable for the exact plan — team-lead authorized staging from the standing spec so Friedrich/Karl aren't blocked; Bernd confirms/adjusts numbers on arrival. Materials needed: ~320 cobblestone, ~81 oak_log stripped into posts (27 posts x 3), ~30 torches. STAGING CHEST at (-6,111,8) — 192 cobblestone banked so far (chest B is down to ~23, ~105+ more still needed, top up from quarry or Bernd's returning haul). Originally planned for the SE plaza corner (0,111,9) but that spot is inside the block-update-bug zone (x=0..2,z=-1..9 — see the lighting-bug FEEDBACK.md entry, now confirmed to affect PLACEMENT too, not just light: a chest placeBlock there silently failed repeatedly, worked instantly 6 blocks west) — moved the staging point off it rather than fight the bug.) |
+| farm_2           | wheat_farm_9x9  | x=-17..-9, z=0..8, y=110, single water source at (-13,110,4) | planned | shared | KloputzKarl | 2026-09-01 | (canonical vanilla 9x9-per-water-source design — 1 source block hydrates all 80 surrounding farmland tiles, the maximum footprint one water source can cover; far more water-efficient than farm_1's 2x2-pond approach. Site: flat plateau west of the plaza in the old defunct zetbot2 claim zone, clear of every registered structure. NOTE: this sits just outside perimeter_wall_1's current envelope (x=-12..15) — flagging for Bernd/team-lead in case the wall boundary should extend ~5 blocks west to include it; building a standalone fence+torch perimeter around the farm itself regardless so it isn't undefended either way.) |
+| perimeter_wall_1 | wall_2high_posts | envelope x=-12..15, z=-9..18 (54x27, ~158 blocks of wall line minus 1 gate), 2-high cobblestone, oak-log post every 6 blocks + torch per post, gate at south z=18 x≈5 (path_1) | planned | shared | BuddelBernd (staging by KloputzKarl) | 2026-09-01 | (Bernd is the builder, mid-return from a diamond run and unreachable for the exact plan — team-lead authorized staging from the standing spec so Friedrich/Karl aren't blocked; Bernd confirms/adjusts numbers on arrival. Materials needed: ~320 cobblestone, ~81 oak_log stripped into posts (27 posts x 3), ~30 torches (Friedrich running a charcoal-pipeline restock of chest B, ~11min out as of this note; Karl holds 29 as bridge stock). STAGING CHEST at (-6,111,8) — 192 cobblestone banked so far (chest B down to ~23, ~105+ more still needed — top up from quarry or Bernd's returning haul). Originally planned for the SE plaza corner (0,111,9) but that spot is inside the block-update-bug zone (x=0..2,z=-1..9 — see FEEDBACK.md, confirmed to break PLACEMENT too, not just light) — moved off it rather than fight the bug. CONSTRUCTION NOTE from PflasterPeter: the north run at z=-9 will need to step down rather than run flat — there's a real 5-block cliff drop at z=-7, just past main_hall_1's north wall (z=-6); a level wall there would end up floating. No north gate needed (Peter's earlier note was this terrain warning, not a gate request) — main_hall_1's own access is entirely via its south colonnade onto the plaza.) |
 
 Column rules:
 
@@ -299,6 +300,28 @@ You need infrastructure of type T (a crafting table, furnace, bed, chest, ...):
   pockets beyond the patrol grid's ~3-block spacing — but every waypoint
   visited is now lit, and the highest-traffic edges (adjacent to main_hall_1,
   torch_posts_1, and the demolished-bridge crossing) are clear.
+- 2026-09-01 plaza_1 dark-strip PERMANENTLY FIXED by PflasterPeter — Karl's
+  confirmed server-side lighting bug at x=0..2, z=-1..9 (block-update relight
+  fails, torches don't propagate light there no matter how many are placed)
+  neutralized by physics instead of light: laid cobblestone_slab (bottom
+  slabs) over all 30 affected floor cells (33 minus the 3 that are actually
+  torch_posts_1 columns at (2,-1)/(2,4)/(2,9), left untouched) — bottom slabs
+  block mob spawns regardless of light level, so this ends the issue
+  permanently independent of whatever the underlying lighting bug is. Crafted
+  36 cobblestone_slab from 18 cobblestone at crafting_table_1. Removed and
+  collected Karl's stopgap torches from the strip (8 recovered) since they're
+  scarce stock. Quirk hit repeatedly during placement: standing within ~0.7
+  blocks of the target cell silently no-ops bot.placeBlock (bot's own hitbox
+  overlaps the target) — fixed by forcing a step back (setControlState('back',
+  true) for ~0.5-0.8s) before each placement; logged as a FEEDBACK.md
+  candidate if not already there. AESTHETIC NOTE (verified in-game, not just
+  assumed): there IS a real 0.5-block step at the strip's west boundary
+  (x=-1/x=0 line, ~11 blocks long) — standing on the slabs reads y=111.5 vs
+  y=111.0 on the rest of the floor. Left it as a plain step rather than
+  building a transition ramp/border: it's a single low rise (not a trip
+  hazard, no jump needed) along one straight edge, reads as an intentional
+  slightly-raised dais rather than bot damage. Revisit with a border row if
+  it looks wrong in a screenshot — team-lead left this as driver's call.
 
 ## 7. Site safety notes (Kevinplatz v1)
 

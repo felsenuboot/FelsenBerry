@@ -28,3 +28,44 @@ challengers keep incumbents honest.
 | 6 | friedrich-driver | **ON NOTICE.** Real strengths (torch factory, retrieval, panicguard + canopy root-causes) but: chronic wait-loops all night, digguard-v1 drift caused repeat base damage, two pillar-chopping incidents. Recent queue-driven work is much improved — next evaluation decides. |
 
 (History of retirements: none yet.)
+
+## Live fitness display (2026-09-01)
+
+Joined CAVECREW's shared "Tribe Fitness" scoreboard sidebar (their existing display,
+internal objective id `tribes` — the human-readable "Tribe Fitness" shown by
+`scoreboard objectives list` is only a display name; RCON `get`/`set` need the real id.
+Found the real id via Carpet's scarpet `script run print(scoreboard())` when the quoted
+display-name form kept failing command parsing) rather than standing up a competing
+sidebar — posted a one-line heads-up on felsenuboot/felcrew-mcp#1. Display-only, fully
+reversible (`scoreboard players reset <name> tribes`), same no-cheat fair-play line as
+everything else.
+
+**Formula (v1, manual update per fitness eval or on a death/milestone event — a daemon
+can automate this later):**
+```
+score = (100 - 10 * rank) - 25 * deaths + 5 * shipped_findings
+```
+- `rank` = this driver's current position in the Standings table above (1-indexed).
+- `deaths` = confirmed in-game deaths this session (from driver reports / the fitness
+  notes column above).
+- `shipped_findings` = count of FEEDBACK.md entries reported by this driver (as sole or
+  joint reporter) currently marked `status: shipped(...)` — count via
+  `awk '/^### / {t=$0; getline; getline; if ($0 ~ /^status: shipped/) print t}' FEEDBACK.md`
+  and tally by reporter name.
+
+**Scores set 2026-09-01 (eval #1 standings, deaths as noted in that table, shipped
+counts as of this date):**
+
+| Bot | Driver | rank | deaths | shipped | score |
+|---|---|---|---|---|---|
+| PflasterPeter | peter-driver | 1 | 0 | 2 | 100 |
+| BuddelBernd | bernd-driver | 2 | 1 | 3 | 70 |
+| KloputzKarl | karl-driver | 3 | 0 | 0 | 70 |
+| MettMarcel | marcel-driver | 4 | 2 | 4 | 30 |
+| KackboonKevin | kevin-driver | 5 | 0 | 0 | 50 |
+| FurzFriedrich | friedrich-driver | 6 | 0 | 4 | 60 |
+
+Update via RCON at each fitness eval and on death/milestone events:
+`scoreboard players set <BotName> tribes <newScore>` — then re-append a dated row (or a
+new table) here rather than silently overwriting this record, so the score history stays
+auditable.
