@@ -493,3 +493,29 @@ status: shipped(dangerscan v2) — engine-dev 2026-09-01
 what: Reported by marcel-driver against the v10 overhang fix: standing in the middle of farm_1 at (1.5,110.9,12.5), status reported skyLight:0 / surfaceExposed:false / danger.score:0.5, but a manual column scan showed open air all the way up and no hostiles. Both the self AND y+1 samples read 0, so a neighbour-check workaround would not have caught it — the server's sky-light packets simply go stale, and v1 trusted a single read.
 fix: SHIPPED. Light is now a hint and GEOMETRY is the authority. lightInfo() samples three points (feet, head, head+1) and takes the max; only when that still claims darkness does it settle the question by scanning the column for a real solid block (24 blocks, `boundingBox === 'block'`), returning true/false/null where null means "unloaded chunk, unknown" — never a guess. The scan runs ONLY in the disputed case, so the 4Hz cost is unchanged on the surface (skyLight > 0 short-circuits). The spawnable-dark danger bonus now also requires `surfaceExposed === false`, so a stale zero can no longer inflate the score. Status gains `skyViaColumn` so a driver can see which path answered.
 REPRODUCED AND VERIFIED live at (2.7,109,11.7) beside pond_1: raw head skyLight 0, light 0, zero solid blocks in the 20 above — v1 would have said surfaceExposed:false + 0.5 danger; v2 reports surfaceExposed:true, viaColumn:true, score 0.
+
+### 2026-09-01 team-lead (from research/cavecrew-delta-2.md) — 3D-maxDistance fall-death + safeDescend zero-descent
+type: safety
+status: shipped(v14 + idleguard v6) — engine-dev-2 2026-09-01
+shipped: (1) Δy gate at all three scan sites. skills.js gains `MAX_BELOW = 5`; mineLane's scan skips targets more than 5 under the bot's CURRENT feet (re-measured each rescan, so legitimate descent still works) unless `laneY` or the new `allowDeep:true` opts out; chopTrees gets the same filter for symmetry; idleguard v6 applies it UNCONDITIONALLY to both mineNearest and the drop sweep, because idle work should never descend and a drop that fell into a ravine is not worth climbing down for. Measured live at y=111 with a 64-block radius: the 3D sphere offered 818 targets more than 5 below the bot (41% of all candidates, reaching 12 down) — every one of them now filtered. Full happy-path re-verified after: mineLane banked 5 cobblestone, 0 lost, and its maximum descent over the whole task was 3 blocks.
+(2) safeDescend net-descent assertion: feet-Y is compared against the previous step, and 3 consecutive steps with no depth gained abort with `stoppedBecause:'no_descent'` rather than looping (pathfinder's false "reached" plus digBlock returning `already` on air is exactly the 96-steps-for-1-level fiasco). NOT force-tested live — the failure needs a pathfinder false-reached to reproduce and I would not fake it; the assertion is pure arithmetic on feet-Y with a 3-strike counter, and normal descent runs were unaffected.
+what: Two bug shapes we share with CAVECREW, both of which already cost them a bot. (1) findBlocks' maxDistance is a 3D SPHERE, so an idle-fired or laneY-less scan can select ore far BELOW the bot and walk it down a ravine — their Grog went y89->y26 and lost a full kit. Our mineLane's only Y filter is the optional laneY arg, idleguard's mineNearest filters on skyLight>0 which a ravine floor passes, and chopTrees has no Y filter either. Our safe Movements (maxDropDown 3, no parkour) prevent the lethal FALL but not the "descends legitimately, then is stranded and mobbed at the bottom" death, which is exactly how theirs died with safety movements already on. (2) safeDescend counts a step as done once the walk-down goto succeeds, but pathfinder can return a false "reached" with zero position change — their staircase ran 96 steps for 1 level of descent, ate the only pickaxe and sealed the bot in a pocket. Our step body would loop the same way (digBlock returns `already` on air, no progress, no abort).
+fix: (1) default Δy gate at all three scan sites — skip targets more than ~5 below feet, overridable on mineLane via laneY/allowDeep and UNCONDITIONAL for idle work, which should never descend. (2) assert feet-Y actually decreased after each safeDescend step; N consecutive no-descent iterations abort with `no_descent`.
+
+### 2026-09-01 team-lead (USER-CRITICAL) — right tool always; acquire before acting
+type: safety
+status: open
+what: User escalation: bots MUST use the correct tool for every job — and if the
+right tool is missing, ACQUIRE it first (depot withdrawal or craft chain), never
+proceed with fist/wrong-tier/wrong-type tools. Current coverage is partial
+(equipBestTool best-effort, idleguard harvestability gate, kit-tier pick counts)
+— nothing REFUSES a dig/chop with a wrong tool, and nothing auto-acquires.
+fix: (a) TOOLGUARD at the bot.dig choke point: resolve the correct tool class +
+minimum tier for the target block; if absent from inventory → reject with
+tool_missing {need} (catchable, like reach_violation); wrong-but-workable (hand
+on log) also rejects unless force. (b) ensureTool(need) skill/primitive — the
+CAVECREW steal-list item made ours: try equip → else depot chest B withdrawal
+(DEPOT ledger line) → else craft chain via craftSafe (planks→sticks→tool at
+crafting_table_1) → else return acquisition_failed so drivers/LLM escalate.
+(c) kit preflight gains per-skill tool specs (chopTrees→axe, mineLane/safeDescend
+→pick tier, shovel for bulk dirt). (d) __skills tasks call ensureTool up front.

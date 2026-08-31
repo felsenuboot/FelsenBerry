@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 13;
+const ENGINE_VERSION = 14;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -134,6 +134,12 @@ const KIT_TIERS = {
   deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, armor: true, shield: true, water: true },
 };
 const TOOL_LOW_PCT = 20; // preflight durability gate (status warns at 15% mid-task)
+// findBlocks' maxDistance is a 3D SPHERE, so an unconstrained scan happily selects ore
+// far BELOW the bot and walks it down a ravine. That is how CAVECREW lost Grog (y89->y26,
+// full kit) WITH safe movements already applied — maxDropDown stops the lethal fall, not
+// the 'descended legitimately, then stranded and mobbed at the bottom' death.
+// (research/cavecrew-delta-2.md ss3.2)
+const MAX_BELOW = 5;   // default: never select a target more than this far under our feet
 const SAPLING = (sp) => (sp === 'mangrove' ? 'mangrove_propagule' : sp + '_sapling');
 // mcData .drops is unreliable (most leaves report []) — hard-coded drop table:
 const DROPS = {
@@ -1861,6 +1867,8 @@ S.define('chopTrees', {
         // SELECTION time. digguard would refuse the dig anyway, but only after a full
         // goto + up to 6 stall-recoveries per log, which reads as a hang from status().
         .filter((p) => !ctx.isProtected(p))
+        // trees are surface features: a "tree" well below our feet is down a ravine
+        .filter((p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW)
         .filter((p) => { const below = bot.blockAt(p.offset(0, -1, 0)); return below && !logIdSet.has(below.type); })
         .sort((a, b2) => a.distanceTo(bot.entity.position) - b2.distanceTo(bot.entity.position));
       if (!hits.length) {
@@ -1982,9 +1990,14 @@ S.define('mineLane', {
     ctx.progress(0, count, want[0] || target);
     ctx.setPhase('scanning', `Mining ${count}x ${target}. Best tool out, off I go.`);
 
+    // depth gate: laneY (an explicit lane) or allowDeep:true opt out; otherwise targets more
+    // than MAX_BELOW under the bot are skipped so a bare `mineLane iron_ore` cannot walk the
+    // bot into a ravine. Measured from CURRENT feet each scan, so legitimate descent works.
     const scan = () => bot.findBlocks({ matching: ids, maxDistance: cap, count: Math.max(count * 4, 32) })
       .filter((p) => !blacklist.has(key(p)) && !visited.has(key(p)))
-      .filter((p) => args.laneY == null || Math.abs(p.y - args.laneY) <= 2);
+      .filter((p) => args.laneY == null || Math.abs(p.y - args.laneY) <= 2)
+      .filter((p) => args.laneY != null || args.allowDeep === true
+        || p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW);
 
     let queue = scan();
     if (!queue.length) throw fatal('not_found', `no ${target} within ${cap} blocks`, 'move the bot (e.g. safeDescend for stone/ores) and restart');
@@ -2270,6 +2283,7 @@ S.define('safeDescend', {
     }
     const startY = Math.floor(bot.entity.position.y);
     let steps = 0, dug = 0, torches = 0, saidTorch = false;
+    let noDescent = 0, lastStepY = startY;   // net-descent tripwire (see the step loop)
     const torchState = {};
     let stoppedBecause = 'reached';
     let lastSaidY = startY;
@@ -2339,6 +2353,20 @@ S.define('safeDescend', {
         catch (_) { stoppedBecause = 'stuck'; break; }
       }
       steps++;
+      // net-descent assertion: pathfinder can report a false "reached" with zero position
+      // change, and digBlock returns `already` on air — so the step body can spin forever
+      // making no progress. CAVECREW's staircase ran 96 steps for ONE level of descent and
+      // ate the bot's only pickaxe. Abort after 3 consecutive steps that gain no depth.
+      const feetY = Math.floor(bot.entity.position.y);
+      if (feetY >= lastStepY) {
+        noDescent++;
+        if (noDescent >= 3) {
+          stoppedBecause = 'no_descent';
+          ctx.log(`3 steps with no net descent (still y=${feetY}) — aborting before this eats the pickaxe`);
+          break;
+        }
+      } else { noDescent = 0; }
+      lastStepY = feetY;
       ctx.progress(startY - Math.floor(bot.entity.position.y), null);
       // torch discipline (2b): shared primitive — floor first, wall fallback,
       // light-level trigger, one-time no_torches warning if the bot is out.

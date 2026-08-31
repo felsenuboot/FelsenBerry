@@ -1,11 +1,11 @@
-// Idle-guard v5 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
+// Idle-guard v6 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
 // v2 fixes the yield bug found by BuddelBernd's driver: v1 treated "no pathfinder goal"
 // as idle and hijacked the bot between driver commands. v2 wraps setGoal/goto/dig to
 // timestamp EXTERNAL activity (anything issued while the guard isn't working), engages
 // only after 60s of driver silence, and aborts its own work the moment a driver acts.
 // Idempotent: re-injection restores originals then replaces. Disable: __idleguard.stop()
 if (globalThis.__idleguard) { try { globalThis.__idleguard.stop(); } catch (e) {} }
-const g = { version: 5, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
+const g = { version: 6, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
             runs: 0, errors: 0, lastExternal: Date.now(), workStarted: 0, patched: [], pausedUntil: 0 };
 globalThis.__idleguard = g;
 // pause(ms): drivers call __idleguard.pause(120000) at the start of long monitoring
@@ -47,7 +47,8 @@ const gotoNear = (pos, r, ms) => T(bot.pathfinder.goto(new goals.GoalNear(Math.f
 const sweepDrops = async (radius, maxN) => {
   const me = bot.entity.position;
   const items = Object.values(bot.entities)
-    .filter(e => e.name === "item" && e.position && e.position.distanceTo(me) < radius && surfaceOk(e.position))
+    .filter(e => e.name === "item" && e.position && e.position.distanceTo(me) < radius
+                 && surfaceOk(e.position) && notBelow(e.position))
     .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me)).slice(0, maxN || 4);
   if (!items.length) return 0;
   say("(idle-guard) sweeping stray drops, waste not!");
@@ -64,10 +65,17 @@ const digWithTool = async (block) => {
   await T(bot.dig(block), 15000);
   if (!interrupted()) { try { await gotoNear(block.position, 1, 8000); } catch (e) {} }
 };
+// v6: findBlocks' maxDistance is a 3D SPHERE and surfaceOk (skyLight>0) PASSES a ravine
+// floor — so idle mining could select ore far below and walk the bot down into it. That is
+// exactly how CAVECREW lost Grog (y89->y26, full kit) with safe movements already applied.
+// Idle work never descends: the gate is unconditional here, unlike mineLane's opt-out.
+// (research/cavecrew-delta-2.md ss3.2)
+const MAX_BELOW = 5;
+const notBelow = (p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW;
 const mineNearest = async (names, maxDist, maxN, label) => {
   const ids = names.map(n => bot.registry.blocksByName[n] && bot.registry.blocksByName[n].id).filter(Boolean);
   if (!ids.length) return 0;
-  const found = bot.findBlocks({ matching: ids, maxDistance: maxDist, count: maxN * 3 }).filter(surfaceOk);
+  const found = bot.findBlocks({ matching: ids, maxDistance: maxDist, count: maxN * 3 }).filter(surfaceOk).filter(notBelow);
   if (!found.length) return 0;
   say("(idle-guard) " + label);
   let n = 0;
@@ -134,4 +142,4 @@ g.timer = setInterval(() => {
     try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
   })().catch(() => {});
 }, 5000);
-return { installed: true, version: 5, role: g.role };
+return { installed: true, version: 6, role: g.role };
