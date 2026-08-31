@@ -1,0 +1,10 @@
+# secrets — NEVER commit
+.rcon
+*.token
+.env*
+# runtime state
+node_modules/
+logs/
+pids/
+# editor/backup litter
+*.bak-*

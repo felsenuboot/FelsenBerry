@@ -1,0 +1,343 @@
+# Minecraft Bot Infrastructure
+
+Self-owned mineflayer bot fleet for Felix's server — no MCP dependency. Each bot is a
+standalone Node process with a local HTTP control API, so any tool that can run `curl`
+has full control. Multiple bots run side by side, one process + one control port each.
+
+- **Server:** `100.101.197.44:25565` (Tailscale, offline-mode — no Microsoft auth)
+- **Server version detected:** 1.21.11 (mineflayer auto-negotiates; pin with `--version` only if needed)
+- **Stack:** mineflayer 4.38.0, mineflayer-pathfinder 2.4.5, prismarine-viewer 1.33.0 (optional, installed)
+- **"Baritone-like" plugins** (all optional, each load guarded — a missing plugin can never
+  break startup, its endpoint just returns 501): mineflayer-collectblock 1.6.0,
+  mineflayer-tool 1.2.0, mineflayer-auto-eat 3.3.6 (pinned — 4.x/5.x are ESM-only),
+  mineflayer-armor-manager 2.0.1 (auto-equips best armor, no endpoint needed),
+  mineflayer-pvp 1.3.2
+
+Note on real Baritone: not viable here — official Baritone tops out at MC 1.21.8 (no
+1.21.11 release; only untrusted third-party forks claim it), there is no JVM on this
+box, and HeadlessMc validates accounts even for offline servers. The endpoints below
+are the mineflayer equivalent.
+
+## Naming rule (mandatory)
+
+Every bot gets an **incredibly stupid, funny, ridiculous name**. Mild swearing welcome,
+German humor a plus. Max 16 chars, only `[A-Za-z0-9_]`. Examples of the vibe:
+`KackboonKevin` (taken — the MCP bot), `DirtDieter`, `SirKacksalot`, `FurzFriedrich`.
+Invent fresh ones; never reuse a name that is already connected.
+
+## Scripts
+
+```sh
+./spawn.sh <name> <port>     # start a bot detached; logs/<name>.log, pids/<name>.pid
+./spawn.sh LauchLothar 3102  # ports 31xx by convention, one per bot
+./stop.sh <name>             # kill by pidfile
+./list.sh                    # table of bots: name, pid, port, connected + position
+```
+
+`spawn.sh` refuses if the name is already running or the port is in use. Extra args
+after the port are passed to runner.js, e.g. `./spawn.sh DoenerDetlef 3103 --version 1.21.4`
+or `--host <ip> --mcport <port>` for a different server.
+
+Manual run (foreground, for debugging):
+
+```sh
+node runner.js --name PommesGuenther --port 3105 [--host 100.101.197.44] [--mcport 25565] [--version 1.21.x]
+```
+
+## Auto-reconnect
+
+The runner never gives up: on `end`, `kicked`, or pre-login `error` it reconnects with
+exponential backoff — 1s, 2s, 4s, ... capped at 30s — and logs every attempt. The backoff
+resets to 1s after a successful spawn. The control API stays up the whole time;
+while disconnected, `GET /state` reports `"connected": false` and POST endpoints
+return 503 `{"ok":false,"error":"bot not connected"}`. An `/eval` error can never
+kill the process (errors are caught and returned as JSON; there are also
+uncaughtException/unhandledRejection guards).
+
+All chat, whispers, joins/leaves, health changes, deaths, kicks, and API calls are
+logged to `logs/<name>.log` with ISO timestamps.
+
+## Control API
+
+Binds to `127.0.0.1:<port>` **only** — never exposed on the network.
+
+### GET /state
+
+```sh
+curl -s http://127.0.0.1:3101/state
+# {"name":"FurzFriedrich","connected":true,"position":{"x":-2.5,"y":115,"z":8.7},
+#  "health":20,"food":20,"dimension":"overworld","task":null}
+# "task" is non-null while /mine, /follow, or /hunt is active, e.g.
+# {"type":"follow","detail":"KackboonKevin","startedAt":"..."}
+# (bots started before the Baritone-like upgrade don't report "task")
+```
+
+### POST /chat
+
+```sh
+curl -s -X POST http://127.0.0.1:3101/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Moin! Ich bin FurzFriedrich."}'
+# {"ok":true}
+```
+
+### POST /goto
+
+Pathfinds to within 1 block of the target (GoalNear). Responds when arrived, or with
+`{"ok":false,"error":...}` on failure / after a 60s timeout (pathing is cancelled).
+
+```sh
+curl -s -X POST http://127.0.0.1:3101/goto \
+  -H 'Content-Type: application/json' \
+  -d '{"x":-4,"y":115,"z":8}'
+# {"ok":true,"position":{"x":-2.5,"y":115.9,"z":8.7}}
+```
+
+### POST /mine — Baritone-style block collection
+
+Finds up to `count` (max 32) blocks of the given type within `maxDistance` (default 64),
+pathfinds to them, equips the best tool it has, digs, and picks up the drops
+(mineflayer-collectblock + mineflayer-tool). Responds when done or after `timeoutMs`
+(default 120s, max 300s). The bot chat-announces start/finish. Caveat: blocks that need
+a tool the bot doesn't have (e.g. stone with no pickaxe) drop nothing, so the collect
+will hang until the timeout — give the bot a pickaxe first or mine hand-friendly blocks.
+
+```sh
+curl -s -X POST http://127.0.0.1:3103/mine \
+  -H 'Content-Type: application/json' \
+  -d '{"block":"oak_log","count":2}'
+# {"ok":true,"mined":2,"block":"oak_log"}      (verified: took ~17s, logs in inventory)
+# no match nearby -> 404 {"ok":false,"error":"no diamond_ore found within 64 blocks"}
+```
+
+### POST /follow — follow a player
+
+Dynamic GoalFollow (keeps re-pathing as the target moves), default range 3 (1–10).
+Responds immediately; runs until `/stop` or a new goal replaces it. `/state` shows it
+under `"task"`.
+
+```sh
+curl -s -X POST http://127.0.0.1:3103/follow \
+  -H 'Content-Type: application/json' \
+  -d '{"player":"KackboonKevin"}'
+# {"ok":true,"following":"KackboonKevin","range":3}   (verified: closed to 4.4 blocks)
+# offline player -> 404; online but out of render distance -> 404
+```
+
+### POST /hunt — attack nearest entity
+
+Finds the nearest entity whose type (`cow`, `zombie`, ...) or username matches, then
+mineflayer-pvp chases and attacks it (pathfinder-driven, up to 128 blocks). Responds
+immediately; when the target dies or leaves tracking range the bot announces
+"Hunt finished" and clears the task.
+
+```sh
+curl -s -X POST http://127.0.0.1:3103/hunt \
+  -H 'Content-Type: application/json' \
+  -d '{"entity":"pig"}'
+# {"ok":true,"hunting":"pig","target":{"id":186,"position":{...}}}
+# nothing matching in sight -> 404 {"ok":false,"error":"no entity 'wither' in sight"}
+```
+
+### POST /stop — clear all tasks
+
+Cancels collectblock task, pvp attack, and pathfinder goal. Always safe to call.
+
+```sh
+curl -s -X POST http://127.0.0.1:3103/stop
+# {"ok":true,"stopped":["collectblock","pvp","pathfinder"]}
+```
+
+### POST /autoeat — toggle auto-eating
+
+mineflayer-auto-eat is ON by default (eats from inventory when hungry). Empty body
+toggles; `{"enabled":true|false}` sets explicitly.
+
+```sh
+curl -s -X POST http://127.0.0.1:3103/autoeat -d '{"enabled":false}' \
+  -H 'Content-Type: application/json'
+# {"ok":true,"autoeat":false}
+curl -s -X POST http://127.0.0.1:3103/autoeat    # toggle back
+# {"ok":true,"autoeat":true}
+```
+
+### POST /eval — the escape hatch
+
+Runs `code` as the body of an async function with `bot`, `mineflayer`, `pathfinder`
+(the mineflayer-pathfinder module), `goals`, and `Vec3` in scope. The result is awaited
+and returned JSON-safely (`util.inspect` fallback for circular structures). Errors come
+back as `{"ok":false,"error":...}` — they never crash the bot.
+
+```sh
+# simple: what's around?
+curl -s -X POST http://127.0.0.1:3101/eval \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"const b = bot.blockAt(bot.entity.position.offset(0,-1,0)); return {standingOn: b && b.name, version: bot.version, players: Object.keys(bot.players)};"}'
+# {"ok":true,"result":{"standingOn":"oak_leaves","version":"1.21.11","players":[...]}}
+
+# nontrivial: dig the block below (equip a tool if one is available)
+curl -s -X POST http://127.0.0.1:3101/eval \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"const target = bot.blockAt(bot.entity.position.offset(0,-1,0)); if (!target || !bot.canDigBlock(target)) return {dug:false, reason:\"cannot dig \"+(target&&target.name)}; const tool = bot.pathfinder.bestHarvestTool(target); if (tool) await bot.equip(tool, \"hand\"); await bot.dig(target); return {dug:true, block:target.name};"}'
+
+# pathfind via eval instead of /goto (full goal control)
+curl -s -X POST http://127.0.0.1:3101/eval \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"await bot.pathfinder.goto(new goals.GoalBlock(0, 115, 0)); return {...bot.entity.position};"}'
+```
+
+Anything mineflayer can do works here: `bot.inventory.items()`, `bot.craft(...)`,
+`bot.placeBlock(...)`, `bot.attack(...)`, event listeners, multi-step scripts with `await`.
+
+## Layout
+
+```
+bots/
+├── runner.js    # single-bot process: mineflayer + pathfinder + control API
+├── spawn.sh     # start detached      ├── stop.sh   # kill by pidfile
+├── list.sh      # fleet overview      ├── logs/     # <name>.log (timestamped)
+└── pids/        # <name>.pid, <name>.port
+```
+
+## Skill library (skills.js) — injectable Baritone-style task engine
+
+`skills.js` is a single self-contained `/eval` payload that installs `globalThis.__skills`
+into a RUNNING bot: a cancellable one-task-at-a-time runner plus deterministic skills, so
+driver LLMs only pick a skill + parameters and poll cheaply (~2 calls per task). Survives
+reconnects (lives on globalThis, takes the fresh `bot` from every /eval); does NOT survive
+a process restart — re-inject after `./spawn.sh`. Re-injection is idempotent: it stops any
+running task and replaces the engine (log/seq preserved — but the QUEUE is dropped, see below).
+DO NOT use runner's `POST /stop` to cancel a skill task — it clears neither the task nor the
+queue, only the pathfinder goal, and the bot picks the next queued job right back up; use
+`./task.sh <port> stop`.
+
+```sh
+./inject.sh 3104                                            # install/upgrade the engine
+./task.sh 3104 list                                         # skill registry + params
+./task.sh 3104 start chopTrees '{"types":"any","count":2}'  # returns {taskId} immediately
+./task.sh 3104 status [sinceSeq]     # ONE-call poll: bot vitals + task + queue + new log lines
+./task.sh 3104 wait                  # loops locally, prints one terminal status (token-optimal)
+./task.sh 3104 stop [reason]         # cooperative cancel (never mid-dig) + CLEARS THE QUEUE
+```
+
+### Task queue (engine v6, verified live 2026-08-31, KloputzKarl on 3106)
+
+Chained jobs with an **in-process auto-advance**: the next task starts in the same
+synchronous continuation in which the previous one reaches terminal state, so the visible
+idle gap while a driver LLM thinks is gone. Measured live: `gapMs` **0 ms** between
+consecutive queued tasks (0/0/0 over a 4-task chain, 0 across an 8-task chain), and zero
+sampled states of `running:false` while items were pending.
+
+```sh
+./task.sh 3104 queue '[{"name":"chopTrees","args":{"count":2}},{"name":"depositToChest"}]' '{"onEmpty":"collectDrops"}'
+./task.sh 3104 enqueue collectDrops '{"radius":12}'   # append one job to a live queue
+./task.sh 3104 qinfo                 # pending args, history w/ gapMs, merged collected totals
+./task.sh 3104 skip [reason]         # abort current job and ADVANCE (stop ends the batch)
+./task.sh 3104 resume                # continue after a halt or a reconnect pause
+```
+
+- **API** (additive; v3–v5 `start`/`status`/`stop` contract unchanged): `enqueue(bot, items, opts)`,
+  `resume(bot)`, `skip(reason)`, `clearQueue(reason)`, `setFallback(bot, spec|null)`,
+  `queueInfo()`, `rebind(bot)`. `status` gains a `queue` key that is **null while unused**, so a
+  plain-`start` driver's poll keeps its old size (499 B vs 515 B with a queue active).
+- **Atomic validation**: every item is `validate`d before anything is queued — a bad skill
+  name or missing arg is rejected up front with `{code, index, name, message, params}` and
+  nothing is partially enqueued.
+- **onError** `halt` (default) | `continue` | `abort`. A failure keeps the pending items,
+  chats the halt, and waits for `resume`. `low_health`, `inv_full`, `disconnected`,
+  `timeout`, `unknown_skill`, `queue_thrash` always halt — so a broken tool or a starving
+  bot can't burn the rest of the batch (the tool-maintenance rule at batch level).
+- **onEmpty fallback**: what the bot does when the queue drains instead of standing still.
+  Fires ~1 ms after the last job, repeats on `everyMs` (default 20 s, clamped 3–300 s), and
+  announces only the first run (later runs are `quiet`). `stop` drops it; `setFallback(bot,null)`
+  clears it. A bot with a fallback armed effectively never reaches idle-guard role-default
+  work — the driver, not the guard, now decides what "idle" means.
+- **Safety**: 16-item cap; a `queue_thrash` halt after 12 advances in 10 s; every queue timer
+  is epoch- and identity-guarded so a re-injected engine can never be driven by the old one's
+  timers; a disconnect pauses the queue (`state:"paused"`) and the next `status`/`enqueue`
+  carrying a live bot resumes it. Re-injection deliberately DROPS the queue and records the
+  lost items as a log line: `queue dropped by re-inject (2): collectDrops, collectDrops`.
+- **Do not add `await` to `_pump` or `_onTaskEnd`** — the zero-gap handover depends on both
+  staying strictly synchronous (banner comment in skills.js).
+
+### Skills (all verified live on the server, 2026-08-31, bot BratwurstBodo)
+
+| Skill | Args (defaults) | Verified result |
+|---|---|---|
+| `collectDrops` | `radius` 16, `timeoutMs` 30000, `only` [names] | swept area, `{picked,unreachable}` |
+| `chopTrees` | `types` `'any'`/array, `count` 1, `maxDist` 64, `replant` true | 2 birch felled, 13 logs, sapling replanted |
+| `mineLane` | `target` (ore aliases incl. deepslate), `count` 8, `maxDist` 32, `vein` true, `laneY` | 6/5 cobblestone banked, 0 drops lost |
+| `huntAnimals` | `species` `['cow']`, `count` 1, `radius` 32, `anyMob` false | cow killed + looted; players ALWAYS rejected |
+| `depositToChest` | `pos` {x,y,z} (else nearest), `keep` [], `keepTools` true, `items` whitelist | 22 cobble into depot chest B + `DEPOT +…` chat ledger |
+| `safeDescend` | `toY`, `dir`, `torchEvery` 8, `maxSteps` 128, `minY` -59 | 45° staircase y97→92, lava-scanned, drops swept, torches placed |
+| `come` | `x,y,z`, `range` 1 | walks there with stall recovery |
+| `buildWall` | `origin` {x,y,z}, `width` 5, `height` 3, `material`, `axis` 'x'/'z' | 3x2 cobblestone wall, 6/6 placed, block-verified |
+| `buildFloor` | `origin` {x,y,z}, `width` 5, `length` 5, `material` | shares `placeBlockAt` with buildWall — NOT yet individually live-verified, syntax-checked only |
+| `frameStructure` | `origin`, `width`≥3, `depth`≥3, `height` 4, `cornerMaterial` oak_log, `fillMaterial` oak_planks, `doorGap` true | perimeter shell w/ corner posts + door gap — NOT yet individually live-verified, syntax-checked only |
+| `buildStaircase` | `origin` (opt), `toY`, `dir`, `material` `*_stairs`, `rail` (opt fence), `torchEvery` 6, `maxSteps` 96 | built-structure counterpart to safeDescend, uses ctx.autoTorch — NOT yet live-verified, syntax-checked only |
+
+### Blueprint skills (engine v5, added 2026-08-31 — buildWall live-verified, the other three are code-complete + syntax-checked but NOT yet live-tested; see ENGINE_NOTES.md)
+
+All four share a new `ctx.placeBlockAt(pos, itemName)` primitive (skills.js): idempotent
+(matching block already there = no-op), clears a wrong block first (refuses to touch
+anything in a new `PROTECTED` set — chests/furnaces/crafting tables/beds/etc. — returns
+`protected_block` instead of bulldozing infrastructure), then tries all 6 neighbour faces
+(floor first) to find somewhere solid to place against. `buildStaircase` additionally
+falls back to placing one support block (cobblestone/dirt/stone, whatever's held) under a
+step if it would otherwise float over open air (e.g. building down into a quarry pit), and
+reuses `ctx.autoTorch` for lighting — it's the built-structure counterpart to `safeDescend`
+(which digs raw stone) for cases where a tidy human-made stairway is wanted instead.
+
+### Torch discipline (engine v4, verified live 2026-08-31)
+
+`mineLane` and `safeDescend` both call a shared `ctx.autoTorch(state, every)` primitive
+after every real dig/step: places a torch every ~7 units of progress (junctions and
+working faces included, since it fires on every successful dig in `mineLane`, not just
+periodically), OR immediately if the current block's light level reads below 8 — so a
+freshly-dug pitch-black tunnel gets lit liberally until the cadence catches up (verified:
+placed 4 torches in the first 11 steps of a descent into unlit rock — conservative by
+design, better over-lit than a mob spawner). Tries the floor first, then the four side
+walls, so it works in open mining chambers as well as tunnels. When the bot carries zero
+torches, it logs a one-time `no_torches` warning (`lvl:"warn"` in the status log — not
+repeated every check) instead of silently digging in the dark; drivers seeing that line
+should restock from depot chest B (64 banked) before continuing. `mineLane`'s result now
+includes a `torches` count alongside `banked`/`dug`.
+
+Known quirk: in `mineLane`'s vein-following (which can dig sideways/backwards through a
+just-lit wall), a placed torch's support block sometimes gets mined out later in the same
+task — the torch pops as a drop, gets swept up by the routine `collectDrops` calls, and
+gets placed again elsewhere. This can make the `torches` counter read higher than net
+torches consumed (verified: 9 placements from 8 crafted, 1 left over) — it's re-placement
+of the same physical torches, not a counting bug, and does not affect correctness of the
+`no_torches` signal.
+
+All tasks accept `timeoutMs` (cap 30 min) and `minHealth` (abort guard, default 6).
+
+### Status contract (what `status`/`wait` return)
+
+`{v, seq, bot:{pos,hp,food,dim}, task:{name, args, phase, progress:{done,total,unit},
+running, done, cancelled, error, result, collected, elapsedS}, log:[[seq,lvl,msg]…]}` —
+`collected` is the live inventory-gain diff (proof drops were picked up), `result` is the
+skill's own counters, `error` is `null` or `{code, message, phase, hint}` with codes like
+`busy | unknown_skill | bad_args | not_found | no_tool | path_timeout | stuck | inv_full |
+low_health | timeout | disconnected`. Transient failures are retried in-code (visible as
+`retry` log lines); only decisions worth an LLM surface as errors.
+
+### House rules enforced in the primitives (no skill can forget them)
+
+best tool equipped before every dig + `canHarvest` gate (a wrong-tool `bot.dig` would hang
+forever — every dig is also raced against a wall-clock budget); drops collected after every
+dig/kill (inventory-delta verified); one English chat per phase (throttled ≥1.3 s, deduped);
+players are never attack targets (checked at validate AND before every swing).
+
+### Field quirks baked into skills.js (don't rediscover these)
+
+- `goals.GoalBreakBlock` is broken in pathfinder 2.4.5 — use `GoalLookAtBlock(pos, bot.world)`.
+- **leaf_litter physics wedge (1.21.11)**: standing in `leaf_litter` leaves `onGround=false`
+  forever → jump never fires → pathfinder holds a "success" path while the bot stands still.
+  `ctx.goto` detects the stall (6 s no movement) and digs the nuisance block + hops.
+- `GoalNear` can loop forever recalculating partial paths near cluttered spots (the depot);
+  the skills fall back to `GoalLookAtBlock` and all gotos have wall-clock timeouts.
+- `window.deposit(type, null, count)`: count `null` means **1**, not "all" — always pass it.
+- `bot.openContainer` has no timeout (blocked chest = hang) — raced with 8 s.
+- Block↔item ids are different namespaces; `stone` drops `cobblestone` (see DROPS table).

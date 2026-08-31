@@ -1,0 +1,112 @@
+// Idle-guard v2 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
+// v2 fixes the yield bug found by BuddelBernd's driver: v1 treated "no pathfinder goal"
+// as idle and hijacked the bot between driver commands. v2 wraps setGoal/goto/dig to
+// timestamp EXTERNAL activity (anything issued while the guard isn't working), engages
+// only after 60s of driver silence, and aborts its own work the moment a driver acts.
+// Idempotent: re-injection restores originals then replaces. Disable: __idleguard.stop()
+if (globalThis.__idleguard) { try { globalThis.__idleguard.stop(); } catch (e) {} }
+const g = { role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
+            runs: 0, errors: 0, lastExternal: Date.now(), workStarted: 0, patched: [], pausedUntil: 0 };
+globalThis.__idleguard = g;
+// pause(ms): drivers call __idleguard.pause(120000) at the start of long monitoring
+// evals so the guard never mistakes an in-flight eval for silence.
+g.pause = (ms) => { g.pausedUntil = Date.now() + (ms || 60000); return g.pausedUntil; };
+const patch = (obj, key) => {
+  if (!obj || typeof obj[key] !== "function") return;
+  const orig = obj[key].bind(obj);
+  g.patched.push(() => { obj[key] = orig; });
+  obj[key] = (...args) => { if (!g.busy) g.lastExternal = Date.now(); return orig(...args); };
+};
+patch(bot.pathfinder, "setGoal");
+patch(bot.pathfinder, "goto");
+patch(bot, "dig");
+patch(bot, "equip");
+patch(bot, "craft");
+patch(bot, "openContainer");
+patch(bot, "activateBlock");
+g.stop = () => { g.enabled = false; if (g.timer) clearInterval(g.timer); g.patched.forEach(fn => { try { fn(); } catch (e) {} }); g.patched = []; };
+const externalActive = () => (Date.now() - g.lastExternal) < 25000 || Date.now() < g.pausedUntil;
+const interrupted = () => !g.enabled || g.lastExternal > g.workStarted;
+const say = (msg) => { const now = Date.now(); if (now - g.lastChat > 90000) { g.lastChat = now; try { bot.chat(msg); } catch (e) {} } };
+const T = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => { try { bot.pathfinder.setGoal(null); } catch (e) {} rej(new Error("timeout")); }, ms))]);
+const isIdle = () => { try { return !bot.pathfinder.goal && !bot.targetDigBlock && !(bot.pathfinder.isMoving && bot.pathfinder.isMoving()); } catch (e) { return !bot.targetDigBlock; } };
+const gotoNear = (pos, r, ms) => T(bot.pathfinder.goto(new goals.GoalNear(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z), r)), ms || 12000);
+const sweepDrops = async (radius, maxN) => {
+  const me = bot.entity.position;
+  const items = Object.values(bot.entities)
+    .filter(e => e.name === "item" && e.position && e.position.distanceTo(me) < radius)
+    .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me)).slice(0, maxN || 4);
+  if (!items.length) return 0;
+  say("(idle-guard) sweeping stray drops, waste not!");
+  let n = 0;
+  for (const it of items) { if (interrupted()) break; try { await gotoNear(it.position, 1, 10000); n++; } catch (e) {} }
+  return n;
+};
+const bestPick = () => bot.inventory.items().find(i => /(_pickaxe)$/.test(i.name) && !/wooden/.test(i.name)) || bot.inventory.items().find(i => /_pickaxe$/.test(i.name));
+const digWithTool = async (block) => {
+  let tool = null;
+  try { tool = bot.pathfinder.bestHarvestTool(block); if (tool) await bot.equip(tool, "hand"); } catch (e) {}
+  // harvestability gate: never waste time on blocks that drop nothing with our gear
+  try { if (block.canHarvest && !block.canHarvest(tool ? tool.type : null)) return; } catch (e) {}
+  await T(bot.dig(block), 15000);
+  if (!interrupted()) { try { await gotoNear(block.position, 1, 8000); } catch (e) {} }
+};
+const mineNearest = async (names, maxDist, maxN, label) => {
+  const ids = names.map(n => bot.registry.blocksByName[n] && bot.registry.blocksByName[n].id).filter(Boolean);
+  if (!ids.length) return 0;
+  const found = bot.findBlocks({ matching: ids, maxDistance: maxDist, count: maxN * 3 });
+  if (!found.length) return 0;
+  say("(idle-guard) " + label);
+  let n = 0;
+  for (const pos of found.slice(0, maxN)) {
+    if (interrupted()) break;
+    const b = bot.blockAt(pos); if (!b || !ids.includes(b.type)) continue;
+    try { await gotoNear(pos, 2, 12000); if (interrupted()) break; await digWithTool(b); n++; } catch (e) { g.errors++; }
+  }
+  return n;
+};
+const work = async () => {
+  g.runs++; g.workStarted = Date.now();
+  if (await sweepDrops(24, 4)) return;
+  if (interrupted()) return;
+  if (g.role === "lumberjack") {
+    await mineNearest(["oak_log", "birch_log", "spruce_log"], 32, 4, "no orders, so I chop. The wood must flow.");
+  } else if (g.role === "miner") {
+    const pick = bestPick();
+    if (pick) {
+      if (!/wooden/.test(pick.name) && await mineNearest(["iron_ore", "deepslate_iron_ore"], 24, 3, "idle hands mine iron.")) return;
+      if (interrupted()) return;
+      if (await mineNearest(["coal_ore"], 24, 4, "bored, so: free coal.")) return;
+      if (interrupted()) return;
+      await mineNearest(["stone"], 12, 6, "digging stone to pass the time. Buddel buddel.");
+    }
+  } else if (g.role === "hunter") {
+    await mineNearest(["short_grass", "tall_grass"], 16, 8, "harvesting grass for seeds while waiting.");
+  } else if (g.role === "builder") {
+    await sweepDrops(32, 6);
+  }
+};
+g.timer = setInterval(() => {
+  (async () => {
+    // orphan killer + sticky stop: if a newer guard replaced us, or we were stopped,
+    // this timer terminates itself — no zombie re-arms possible.
+    if (globalThis.__idleguard !== g || !g.enabled) { clearInterval(g.timer); return; }
+    if (g.busy) return;
+    // stall-buster: a pathfinder goal that produces no movement for ~15s is stuck —
+    // clear it so neither the driver's dead goal nor the guard's own leftovers pin the bot
+    try {
+      const p = bot.entity.position;
+      if (bot.pathfinder.goal && g.lastPos && p.distanceTo(g.lastPos) < 0.3) {
+        g.stallTicks = (g.stallTicks || 0) + 1;
+        if (g.stallTicks >= 3) { bot.pathfinder.setGoal(null); bot.clearControlStates(); g.stallTicks = 0; g.stalls = (g.stalls || 0) + 1; }
+      } else { g.stallTicks = 0; }
+      g.lastPos = p.clone ? p.clone() : p;
+    } catch (e) {}
+    if (externalActive() || !isIdle()) { g.idleTicks = 0; return; }
+    g.idleTicks++;
+    if (g.idleTicks < 2) return;
+    g.busy = true;
+    try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
+  })().catch(() => {});
+}, 5000);
+return { installed: true, version: 3, role: g.role };
