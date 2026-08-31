@@ -1,12 +1,21 @@
-// graychat payload (inject via POST /eval, idempotent): routine chat -> gray tellraw
-// with team-colored name, mimicking real chat "<[FEL] Name> text". Requires the bot
-// to be a server op (cosmetic use only - user rule: DO NOT CHEAT).
-// Passthrough (stays plain): slash commands, protocol ledger lines (DEPOT/USING/
-// FREE/LEASE-BREAK/BASE/CLAIM/MAILBOX/HELLO/ROLE/TASK/OFFER), and messages starting
-// with "!" (important announcement marker - "!" is stripped, rest sent white).
+// graychat v3 payload (inject via POST /eval, idempotent) — THE CHAT DIET.
+//
+// Minecraft chat was drowning in routine narration, so v3 sorts every bot.chat() into
+// four tiers by prefix. The default changed: an unprefixed line no longer goes to chat.
+//
+//   (no prefix)  LOG         -> NOT in game chat. Local log + the Discord activity feed.
+//   "@..."       INTERACTION -> gray bridge chat, "@" stripped. For talking TO someone.
+//   "!..."       IMPORTANT   -> plain white chat, "!" stripped. Deaths, panics, done.
+//   DEPOT/... etc PROTOCOL   -> plain white passthrough. The machine-readable ledger.
+//   "/..."       COMMAND     -> plain passthrough, untouched.
+//
+// The point of the default: skills' ctx.say and idle-guard chatter become log-tier with
+// ZERO skill changes, while anything a human or another crew needs to see is one
+// character away. If you want it in chat, say so with "@" or "!".
+//
 // Re-inject after every bot process restart (like idleguard). Remove: __graychat.restore()
 if (globalThis.__graychat && globalThis.__graychat.restore) { try { globalThis.__graychat.restore(); } catch (e) {} }
-const g = { version: 2, enabled: true, sent: 0, passthrough: 0 };
+const g = { version: 3, enabled: true, sent: 0, passthrough: 0, logged: 0, logFailed: 0 };
 globalThis.__graychat = g;
 const origChat = bot.chat.bind(bot);
 g.restore = () => { bot.chat = origChat; g.enabled = false; };
@@ -38,21 +47,39 @@ const myTeamTag = () => {
   return "[FEL] "; // fallback — matches graybridge's own default
 };
 const PROTOCOL = /^(DEPOT |USING |FREE |LEASE-BREAK |BASE |CLAIM |MAILBOX |HELLO |ROLE |TASK |OFFER |TRADE )/;
+const TIMEOUT = () => ((typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined);
+// INTERACTION tier: gray tellraw via the local graybridge (RCON — no bot op needed).
+// Falls back to plain chat if the bridge is down, so a message meant for chat is never lost.
+const toChat = (text) => {
+  const body = JSON.stringify({ name: bot.username, color: myTeamColor(), text, tag: myTeamTag() });
+  fetch("http://127.0.0.1:3199/say", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body, signal: TIMEOUT(),
+  }).then((r) => { if (!r.ok) origChat(text); }).catch(() => origChat(text));
+  g.sent++;
+};
+// LOG tier: the bot's own stdout (runner redirects it to logs/<name>.log) plus the
+// graybridge Discord sink, which batches. Deliberately NO chat fallback — a log line
+// failing to reach Discord must not leak back into the chat we just cleaned up.
+const toLog = (text) => {
+  try { console.log(`[${new Date().toISOString()}] [${bot.username}] <say> ${text}`); } catch (e) {}
+  try {
+    fetch("http://127.0.0.1:3199/log", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: bot.username, text }), signal: TIMEOUT(),
+    }).catch(() => { g.logFailed++; });
+  } catch (e) { g.logFailed++; }
+  g.logged++;
+};
 bot.chat = (msg) => {
   try {
-    if (!g.enabled || typeof msg !== "string" || msg.startsWith("/")) { g.passthrough++; return origChat(msg); }
+    if (!g.enabled || typeof msg !== "string") return origChat(msg);
+    if (msg.startsWith("/")) { g.passthrough++; return origChat(msg); }
     if (msg.startsWith("!")) { g.passthrough++; return origChat(msg.slice(1).trim()); }
     if (PROTOCOL.test(msg)) { g.passthrough++; return origChat(msg); }
-    // v3: relay via the local graybridge (RCON) — no bot op needed. Uses global
-    // fetch (require is absent in the eval sandbox). Falls back to plain chat if
-    // the bridge is down so no message is ever lost.
-    const body = JSON.stringify({ name: bot.username, color: myTeamColor(), text: msg, tag: myTeamTag() });
-    fetch("http://127.0.0.1:3199/say", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body,
-      signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined,
-    }).then((r) => { if (!r.ok) origChat(msg); }).catch(() => origChat(msg));
-    g.sent++;
+    if (msg.startsWith("@")) { toChat(msg.slice(1).trim()); return; }
+    toLog(msg);
     return;
   } catch (e) { return origChat(msg); }
 };
-return { installed: true, version: 2, teamColor: myTeamColor(), teamTag: myTeamTag() };
+return { installed: true, version: 3, teamColor: myTeamColor(), teamTag: myTeamTag(),
+         tiers: { log: "(default)", interaction: "@", important: "!", protocol: "regex", command: "/" } };

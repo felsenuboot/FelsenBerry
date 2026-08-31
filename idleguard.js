@@ -1,11 +1,11 @@
-// Idle-guard v6 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
+// Idle-guard v7 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
 // v2 fixes the yield bug found by BuddelBernd's driver: v1 treated "no pathfinder goal"
 // as idle and hijacked the bot between driver commands. v2 wraps setGoal/goto/dig to
 // timestamp EXTERNAL activity (anything issued while the guard isn't working), engages
 // only after 60s of driver silence, and aborts its own work the moment a driver acts.
 // Idempotent: re-injection restores originals then replaces. Disable: __idleguard.stop()
 if (globalThis.__idleguard) { try { globalThis.__idleguard.stop(); } catch (e) {} }
-const g = { version: 6, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
+const g = { version: 7, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
             runs: 0, errors: 0, lastExternal: Date.now(), workStarted: 0, patched: [], pausedUntil: 0 };
 globalThis.__idleguard = g;
 // pause(ms): drivers call __idleguard.pause(120000) at the start of long monitoring
@@ -51,7 +51,7 @@ const sweepDrops = async (radius, maxN) => {
                  && surfaceOk(e.position) && notBelow(e.position))
     .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me)).slice(0, maxN || 4);
   if (!items.length) return 0;
-  say("(idle-guard) sweeping stray drops, waste not!");
+  say("(idle-guard) previous task DONE — sweeping stray drops while I wait for orders.");
   let n = 0;
   for (const it of items) { if (interrupted()) break; try { await gotoNear(it.position, 1, 10000); n++; } catch (e) {} }
   return n;
@@ -142,4 +142,4 @@ g.timer = setInterval(() => {
     try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
   })().catch(() => {});
 }, 5000);
-return { installed: true, version: 6, role: g.role };
+return { installed: true, version: 7, role: g.role };

@@ -1,4 +1,4 @@
-DRIVER GUIDE — Minecraft bot skill library (__skills v12)
+DRIVER GUIDE — Minecraft bot skill library (__skills v15)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
 HARD LAW: `mcp__minecraft__*` tools are kevin-driver-ONLY, even if they show up as available
@@ -406,3 +406,157 @@ one that's stale. Alliance channel `#1` (felsenuboot/felcrew-mcp#1, the CAVECREW
 line) is READ-open to everyone but WRITE-restricted to team-lead/rollout-manager/
 kevin-driver for outbound diplomacy — no driver freelancing replies there; relay anything
 you want said to whoever currently owns that channel.
+
+## Baritone sidecar (v1, 2026-09-01)
+
+A **second movement engine that is not a mineflayer bot at all**: one headless real
+Minecraft client (`GrubenGuenther`) running the Meteor Baritone fork under HeadlessMc,
+wrapped by an HTTP adapter so it looks like every other bot port you already drive.
+
+```sh
+/home/felix/minecraft/baritone/baritone.sh start     # HTTP adapter only - NO player slot taken
+curl -s -XPOST localhost:3109/launch -d '{"join":true}'   # ~25s: boots the client AND joins
+curl -s -XPOST localhost:3109/goto   -d '{"x":80,"z":5,"wait":true}'
+curl -s -XPOST localhost:3109/stop-client                 # MANDATORY when you are done
+```
+
+`baritone.sh start` is free — the adapter is an idle daemon. **`/launch` is what costs a
+player slot and ~1.6 GB of RAM.** Nothing in the fleet depends on the sidecar; if it dies,
+the mineflayer bots are unaffected.
+
+### When to use it
+
+- **Long-haul travel** over terrain where `/goto` (pathfinder) and `/goto2` (ashfinder)
+  both stall — cliffs, ravines, deep water, big vertical climbs. Measured on this server:
+  (79,81,18) → (80,86,5) in 23 s and (109,86,46) → (80,86,5) in 31 s, both first try.
+- **Bulk mining in an approved remote zone**, when a driver would otherwise babysit
+  `collectBlock` for an hour.
+
+### When NOT to use it
+
+- Anything inside or near the base. Read the geofence section below — this is not a style
+  preference, it is the one way the sidecar can hurt us.
+- Anything needing inventory logic, crafting, chests, combat, or trading. The sidecar is
+  **text in, text out**: no programmatic world or inventory access. It cannot craft, it
+  cannot equip, and it does not know what it is carrying. A mineflayer bot does all of that.
+- Anything a mineflayer bot is already doing in the same area. **Always `/halt` the sidecar
+  and `/stop-client` before you hand an area back to a driver** — two engines walking one
+  area produce mutual grief and nobody can tell whose tunnel is whose.
+
+### Endpoints (127.0.0.1:3109, JSON in / JSON out)
+
+| Endpoint | Body | Notes |
+|---|---|---|
+| `POST /launch` | `{join:true, settings:{}}` | Boots the client and connects. ~25 s. Never auto-runs — a slot is only ever taken because you asked. |
+| `POST /stop-client` | `{reason}` | Kills the client, frees the slot. ~2 s. **Do this the moment you finish.** |
+| `POST /goto` | `{x, z, y?, break?, wait?, timeoutMs?}` | Omit `y` for an XZ goal (`#goto x z`) — that is the right default for travel; an exact-block goal often has no legal path with digging off. `wait:true` blocks until the job resolves. |
+| `POST /mine` | `{block, quota?, wait?}` | Fenced, see below. `{"block":"coal_ore","quota":32}`. |
+| `POST /halt` | `{reason}` | `#stop`. ~1 tick, verified: `ok canceled` in the same round trip. |
+| `POST /say` | `{text}` | Chat narration. Refuses text starting with `#`. |
+| `POST /cmd` | `{raw}` | Escape hatch, one raw HMC console line. Everything is logged. |
+| `POST /set` | `{key, value}` | `#set`. Refuses `allowBreak true` inside the fence. |
+| `GET /state` | `?lines=N` | running / joined / allowBreak / RSS / current job / last N output lines. |
+| `GET /pos` | | Live position + which fence anchor is nearest. |
+| `GET /proc` | | Raw `#proc` — is a Baritone process in control right now. |
+| `GET /health` | | Cheap liveness. |
+
+Rate limited (writes ~30/min, reads ~120/min → HTTP 429). One job at a time: a second
+`/goto` or `/mine` gets **409** unless you pass `{"force":true}`, which halts the first.
+Everything lands in `/home/felix/minecraft/baritone/logs/adapter.log`.
+
+### Fleet law for the sidecar
+
+**Baritone has no geofence and cannot be given one.** ~300 settings, not one
+exclusion-area concept; `minYLevelWhileMining` does not hold it either (observed: floor set
+to 150, targets mined at y 86–94). `#mine coal_ore` walks to the nearest ore *it has ever
+cached*, including chunks it merely passed through on the way out from base — and it will
+tunnel straight there through anything. So the fence lives in the adapter:
+
+- **`allowBreak` is false by default**, re-asserted on every join and forced back to false
+  the instant any job ends, is cancelled, or times out. If the reset cannot be confirmed the
+  adapter **stops the client** rather than leave digging enabled.
+- **`/mine` refuses** unless the bot's live position is ≥150 blocks from the *edge* of every
+  anchor: the plaza, the trading post, and every region in `bots/protected.json` (so a new
+  registered structure widens the fence with no code change). Travel out with `/goto` first.
+- **`/goto {break:true}` refuses** inside 60 blocks of those same edges. Travel gets the
+  smaller number because a `#goto` digs to one fixed destination and stops, while `#mine`
+  roams. Both are env-overridable (`BT_MINE_MIN_DIST`, `BT_GOTO_BREAK_MIN_DIST`) — don't,
+  without a reason you would defend out loud.
+- Note the consequence: **the FEL-BT-1 smoke zone (80,~164,5) is only 83 blocks out and does
+  NOT clear the mining fence.** A production mining zone has to be further from base.
+- `allowPlace false`, `chatControl false`, `allowOnlyExposedOres true` and `backfill true`
+  are pre-seeded in `game/baritone/settings.txt` and re-applied after every join. The last
+  two are the anti-rat-hole settings: mine only ore with an exposed face, and refill the
+  tunnel behind you.
+- It narrates every phase in chat like everybody else. `chatControl` stays **false** so the
+  fleet's constant narration can never be parsed as commands.
+- Idle watchdog: with no job and no command for 15 min the client stops itself. Belt and
+  braces on the player slot, not a substitute for `/stop-client`.
+
+### Gotchas you would otherwise rediscover the hard way
+
+1. **"Job done" ≠ "arrived".** Baritone prints *nothing* on arrival, and releases the goal
+   silently when it gives up. The only completion edge is polling `#proc` for
+   `No process in control`, and that fires for both outcomes. The adapter therefore grades
+   every `/goto` against the actual position afterwards and reports `state:"failed"` with
+   `arrived:false` when it stopped short. Measured: a goto reported "done" in 15 s without
+   the body moving one block. **Trust `arrived`, not `state:"done"` alone.**
+2. **The client's stdin has two readers.** The launcher and in-game command contexts both
+   consume it, so commands get answered with `Couldn't find command for '[...]'`. SMOKE.md
+   modelled this as strict alternation; it is not — the launcher swallowed **six consecutive
+   lines** here. The adapter resends with backoff up to 14 times, and `#set` is verified
+   against Baritone's own `Successfully set ...` reply rather than assumed. If you drive the
+   client by hand, use `POST /cmd` (or, on the standalone `start-sidecar.sh` FIFO path
+   only, `bcmd.sh`) — never a bare `echo` into the pipe. The adapter owns stdin directly
+   and creates no FIFO, so `bcmd.sh` does not apply while the adapter is driving.
+3. **Never `.#command`.** `msg` runs on the MC main thread, `.` does not, and `#mine` dies
+   there with `BlockStateInterface must be constructed on the main thread`. The adapter only
+   ever emits `msg #...` and rejects a raw `.#` line.
+4. **The bot has no tools and cannot get any.** `#mine <ore>` bare-handed breaks the ore,
+   gets no drop, and re-targets forever until the job times out. A mineflayer bot has to
+   hand it a pickaxe first.
+5. **It logs back in where it logged out**, often underground in its own tunnel. From there
+   a pure-travel `/goto` legitimately fails — there is no legal path without digging. Check
+   `GET /pos` before concluding the engine is broken.
+6. `connect 100.101.197.44 25565` works fine (that old "HMC hates dotted IPs" theory was the
+   stdin bug in disguise); `loopback-proxy.js` is not needed and can go.
+
+
+## THE CHAT DIET (graychat v3) — routine narration left Minecraft chat
+
+Chat was drowning in bot narration, so every `bot.chat()` is now sorted into a tier **by
+prefix**, and the default changed: **an unprefixed line no longer appears in game chat.**
+
+| Write | Tier | Where it goes |
+|---|---|---|
+| `bot.chat("swept the area")` | LOG (default) | the bot's local log + the Discord activity feed. NOT in chat. |
+| `bot.chat("@where are you?")` | INTERACTION | gray chat via the bridge, `@` stripped. For talking TO someone. |
+| `bot.chat("!HP 4/20, retreating")` | IMPORTANT | plain white chat, `!` stripped. Deaths, panics, completions. |
+| `bot.chat("DEPOT -8 bread")` | PROTOCOL | plain white passthrough — the machine-readable ledger, unchanged. |
+| `bot.chat("/seed")` | COMMAND | passthrough, untouched. |
+
+The design point: skills' `ctx.say` and idle-guard chatter became log-tier with **zero skill
+changes**, while anything a human or another crew needs is one character away. **If you want
+a human to see it, prefix `@` (conversational) or `!` (important).** Everything is still
+recorded — nothing is lost, it just stopped shouting.
+
+The Discord sink lives in graybridge: `POST /log {name,text}` buffers and flushes **one
+combined message per 5s** (webhook rate limits are ~30/min, so never one post per line).
+The URL goes in `bots/.discord` (gitignored, like `.rcon`) and is picked up within ~5s with
+no restart. Until it exists the bridge runs in **mock mode** and logs the exact payload it
+would have posted — check `logs/graybridge.log` for `discord[mock] would post N line(s)`.
+`GET http://127.0.0.1:3199/health` reports `discord: {configured, pending, queued, posted,
+mocked, dropped, failed}`.
+
+## Task completion is now unmissable (v15)
+
+You should never again wait on a task that already finished. On completion the engine emits:
+
+- a **white in-game chat line** (`!`-tier) — `Task X complete` / the skill's own done message;
+- a **`TASK_DONE <name> <result>`** log line in `status.log`, machine-greppable;
+- and idle-guard's takeover line now opens with **"previous task DONE"**, so the bot moving
+  around after a task is no longer mistakable for the task still running.
+
+Failures are important-tier too (`!failed: <task> — <reason>`). The doctrine half still
+stands and matters more than ever: **poll `status.task.done` / `status.task.running`. Never
+infer completion from whether the bot is moving** — idle-guard makes a finished bot look busy.

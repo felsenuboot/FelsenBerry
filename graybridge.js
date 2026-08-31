@@ -67,7 +67,87 @@ function drain() {
   step();
 }
 
+// ---------- Discord sink (the LOG tier's destination) ----------
+// graychat v3 routes routine narration OUT of Minecraft chat; it lands in each bot's local
+// log and here, so Felix gets one activity feed. Discord webhooks rate-limit around 30
+// requests/minute, so we NEVER post per line: buffer everything and flush at most one
+// combined message every FLUSH_MS (12/min worst case). The webhook URL lives in bots/.discord
+// (gitignored, same handling as .rcon); until that file exists this is a no-op that still
+// answers 200, so bots never fall back to spamming chat.
+const DISCORD_FILE = path.join(__dirname, '.discord');
+const FLUSH_MS = 5000;
+const QUEUE_CAP = 200;        // drop-oldest beyond this; a backlog is never worth memory
+const DISCORD_MAX = 1900;     // Discord's limit is 2000; leave room for the join separators
+let logQueue = [];
+let hookUrl = null, hookMtime = 0, hookChecked = 0;
+let backoffUntil = 0;
+const stats = { queued: 0, posted: 0, mocked: 0, dropped: 0, failed: 0, flushes: 0 };
+
+function webhook() {
+  // re-read on mtime change so the URL can be dropped in without restarting the bridge
+  const now = Date.now();
+  if (now - hookChecked < 5000) return hookUrl;
+  hookChecked = now;
+  try {
+    const st = fs.statSync(DISCORD_FILE);
+    if (st.mtimeMs !== hookMtime) {
+      const raw = fs.readFileSync(DISCORD_FILE, 'utf8').trim();
+      hookMtime = st.mtimeMs;
+      hookUrl = /^https:\/\/discord(app)?\.com\/api\/webhooks\//.test(raw) ? raw : null;
+      log(hookUrl ? 'discord webhook loaded' : 'discord file present but not a webhook URL — ignoring');
+    }
+  } catch (e) { hookUrl = null; }
+  return hookUrl;
+}
+
+async function flushLogs() {
+  stats.flushes++;
+  if (!logQueue.length || Date.now() < backoffUntil) return;
+  const url = webhook();
+  const batch = logQueue;
+  logQueue = [];
+  let content = batch.map((e) => `**${e.name}** ${e.text}`).join('  —  ');
+  if (content.length > DISCORD_MAX) content = content.slice(0, DISCORD_MAX - 3) + '...';
+  if (!url) {
+    // MOCK MODE — no webhook configured yet. Log the exact payload that WOULD have been
+    // posted so the batching can be verified before Felix drops the real URL in .discord.
+    stats.mocked += batch.length;
+    log(`discord[mock] would post ${batch.length} line(s): ${content.slice(0, 300)}`);
+    return;
+  }
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+    });
+    if (r.status === 429) {
+      const retry = Number(r.headers.get('retry-after') || 5);
+      backoffUntil = Date.now() + Math.min(60000, retry * 1000);
+      stats.failed++;
+      log(`discord 429 — backing off ${retry}s`);
+    } else if (!r.ok) { stats.failed++; log('discord post failed: ' + r.status); }
+    else stats.posted += batch.length;
+  } catch (e) { stats.failed++; log('discord post error: ' + e.message); }
+}
+setInterval(() => { flushLogs().catch(() => {}); }, FLUSH_MS);
+
 http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/log') {
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const { name, text } = JSON.parse(body);
+        if (typeof name !== 'string' || typeof text !== 'string' || !text.trim()) throw new Error('bad input');
+        logQueue.push({ name: name.slice(0, 24), text: text.slice(0, 200) });
+        stats.queued++;
+        if (logQueue.length > QUEUE_CAP) { logQueue.splice(0, logQueue.length - QUEUE_CAP); stats.dropped++; }
+        res.writeHead(200); res.end('ok');
+      } catch (e) { res.writeHead(400); res.end('bad'); }
+    });
+    return;
+  }
   if (req.method === 'POST' && req.url === '/say') {
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
@@ -93,7 +173,7 @@ http.createServer((req, res) => {
       } catch (e) { res.writeHead(400); res.end('bad'); }
     });
   } else if (req.url === '/health') {
-    res.writeHead(200); res.end(JSON.stringify({ authed, queued: cmdQueue.length }));
+    res.writeHead(200); res.end(JSON.stringify({ authed, queued: cmdQueue.length, discord: { configured: Boolean(webhook()), pending: logQueue.length, ...stats } }));
   } else { res.writeHead(404); res.end(); }
 }).listen(HTTP_PORT, '127.0.0.1', () => log('graybridge http on 127.0.0.1:' + HTTP_PORT));
 

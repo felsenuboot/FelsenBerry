@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 14;
+const ENGINE_VERSION = 15;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1038,7 +1038,13 @@ S.start = function (bot, name, args = {}, _q = null) {
       task.result = (r && typeof r === 'object') ? r : null;
       task.phase = 'done';
       task.collected = invGains(task._invBefore, invSnapshot(bot));
-      say(bot, String(skill.doneMsg ? skill.doneMsg(task) : `Task ${name} complete.`));
+      // Completion must be UNMISSABLE. Two reasons it wasn't: idle-guard takes over the
+      // moment a task ends, so the bot still looks busy and drivers keep waiting; and as of
+      // graychat v3 an unprefixed line is log-tier, so a plain done message would not reach
+      // chat at all. The "!" prefix puts it in the IMPORTANT tier (white, in-game), and the
+      // TASK_DONE log line gives Monitors something machine-greppable.
+      say(bot, '!' + String(skill.doneMsg ? skill.doneMsg(task) : `done: ${name}`));
+      pushLog('done', `TASK_DONE ${name} ${JSON.stringify(task.result || {}).slice(0, 140)}`);
     } catch (e) {
       task.collected = invGains(task._invBefore, invSnapshot(bot));
       if (e instanceof Cancelled) {
@@ -1055,7 +1061,7 @@ S.start = function (bot, name, args = {}, _q = null) {
       } else {
         task.error = { code: e.code || 'error', message: e.message, phase: task.phase, hint: e.hint || null };
         task.phase = 'error';
-        say(bot, `Task ${name} hit a wall: ${e.message}`);
+        say(bot, `!failed: ${name} — ${e.message}`);   // failures are important-tier too
       }
       pushLog(task.error ? 'error' : 'task', task.error ? `${task.error.code}: ${task.error.message}` : 'stopped by request');
     } finally {

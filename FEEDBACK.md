@@ -519,3 +519,86 @@ CAVECREW steal-list item made ours: try equip → else depot chest B withdrawal
 crafting_table_1) → else return acquisition_failed so drivers/LLM escalate.
 (c) kit preflight gains per-skill tool specs (chopTrees→axe, mineLane/safeDescend
 →pick tier, shovel for bulk dirt). (d) __skills tasks call ensureTool up front.
+
+### 2026-09-01 team-lead-workflow — Baritone has NO geofence; adapter is the only fence
+type: safety
+status: open
+what: Dumped all ~300 Baritone settings: no exclusion-area/protected-region
+  concept exists. minYLevelWhileMining=150 was IGNORED live (#mine selected
+  targets at y86-94). #mine walks to the nearest CACHED ore — if that were under
+  the plaza, it would dig there. Only adapter.mjs (127.0.0.1:3109) enforces the
+  150-block mine fence / 60-block break-goto fence / allowBreak-false default.
+fix: Never drive the sidecar raw for break-enabled jobs; keep all driving through
+  the adapter. Long-term: consider a server-side region plugin or adapter-side
+  position watchdog that #stops on fence breach mid-job.
+
+### 2026-09-01 team-lead-workflow — ashfinder ashDig bypasses digguard.js
+type: safety
+status: open
+what: digguard wraps bot.dig (digguard.js:96) but ashfinder's executor calls
+  bot.ashDig with raw block_dig packets — with breakBlocks on it can chew
+  through BASE.md structures with no guard firing. goto2.patch.js closes it
+  locally (corridor pre-check + ashDig wrapper) but that only protects /goto2.
+fix: Move the ashDig wrapper into digguard.js permanently so ANY future
+  ashfinder use is covered, before wider adoption.
+
+### 2026-09-01 team-lead-workflow — "No process in control" fires on give-up same as arrival
+type: quirk
+status: open
+what: Baritone prints NOTHING on arrival; polling #proc is the only completion
+  edge, but it reads identically when Baritone GIVES UP (observed: state "done"
+  in 15s, bot never moved one block — underground, allowBreak=false, no legal
+  path). Adapter now grades every /goto against real position (arrived:false,
+  distanceToGoal). Anyone else polling #proc raw has this bug.
+fix: Always verify position after any Baritone job; trust adapter `arrived`,
+  never `state:"done"`.
+
+### 2026-09-01 team-lead-workflow — HMC stdin turn-stealing worse than parity; bcmd.sh 6 tries not enough
+type: bug
+status: open
+what: SMOKE.md's strict-parity model is wrong: the launcher context swallowed
+  SIX consecutive lines of `msg #set allowBreak true`. bcmd.sh TRIES=6 can lose
+  a command completely — including a safety-critical #set, silently leaving
+  digging enabled. Adapter fixed (14 tries escalating + #set confirmed against
+  "Successfully set", throws otherwise).
+fix: Port the adapter's retry+confirm logic into bcmd.sh.
+
+### 2026-09-01 team-lead-workflow — never drive Baritone with `.#`, only `msg #`
+type: quirk
+status: open
+what: `.` (DotMessageCommand) runs on the HeadlessMc-CommandLine thread; #mine
+  dies there with "IllegalStateException: BlockStateInterface must be
+  constructed on the main thread". `msg` is a ScheduledCommand on the MC main
+  thread and is safe. `.#goto` only survives by accident.
+fix: Documented in BARITONE.md/DRIVER_GUIDE.md; adapter uses msg exclusively.
+
+### 2026-09-01 team-lead-workflow — movement-engines.md documents fictional ashfinder API
+type: bug
+status: open
+what: §1.3 repeats README events (goal-reach, goal-reach-partial,
+  waypoint-reached) that DO NOT EXIST in installed 4.6.2 — only `stopped` and
+  `pathStarted` are emitted. Also §3.6's "no programmatic inventory access" for
+  the sidecar is partially wrong: `gui` works under -lwjgl (slot-by-slot dump).
+fix: Correct both sections so future engineers don't build on fake events.
+
+### 2026-09-01 team-lead-workflow — Baritone waypoint position reads return stale coords
+type: quirk
+status: open
+what: home.mp4 accumulates records across sessions, unordered; a per-run tag
+  counter collides with earlier runs — one read came back 50 blocks wrong.
+  Adapter fixed (per-process tag prefix, newest-wins, reject records older than
+  request). Anyone else parsing waypoint files inherits this.
+fix: Reuse the adapter's parsing; never trust name-only waypoint lookups.
+
+### 2026-09-01 team-lead (user feature) — THE CHAT DIET + Discord sink
+type: feature-request
+status: shipped(graychat v3 + graybridge Discord sink) — engine-dev-2 2026-09-01
+what: User request — routine log narration should leave Minecraft chat entirely, and the LOG tier should feed a Discord activity feed rather than vanishing into files.
+fix: SHIPPED. graychat v3 sorts every bot.chat() by prefix: unprefixed = LOG (local log + Discord, NOT chat), "@" = INTERACTION (gray bridge chat, @ stripped), "!" = IMPORTANT (white chat, ! stripped), PROTOCOL regex and "/" unchanged. skills' ctx.say and idle-guard chatter became log-tier with zero skill changes, exactly as the design intended. graybridge gains POST /log {name,text}: buffers and flushes ONE combined markdown message per 5s (webhooks rate-limit ~30/min, so never one post per line), drop-oldest past 200 queued, 429 backoff, and the webhook URL read from bots/.discord (gitignored) with a ~5s mtime re-read so it can be dropped in without a restart. Until that file exists it runs in MOCK mode and logs the exact payload it would have posted.
+verified live: 4 separate POSTs flushed as a single batched message; on the test bot, 2 unprefixed lines went to the local log + bridge and NOT to chat, "@" reached gray chat, "!" reached white chat, counters matched exactly (sent 1 / logged 2 / passthrough 1).
+
+### 2026-09-01 team-lead (user observation) — task completion is invisible; idle-guard masks it
+type: bug
+status: shipped(v15 + idleguard v7) — engine-dev-2 2026-09-01
+what: Drivers kept waiting on tasks that had already ended, because idle-guard takes over the moment a task completes and the bot still LOOKS busy. The chat diet made this urgent rather than optional: an unprefixed completion message would now be log-tier and never reach chat at all.
+fix: SHIPPED. Completion emits a white in-game chat line via the "!" IMPORTANT tier plus a machine-greppable `TASK_DONE <name> <result>` log line; failures use the same tier (`!failed: <task> — <reason>`); idle-guard v7's takeover line opens with "previous task DONE" so movement after a task can't be mistaken for the task still running. Verified live: a collectDrops run produced importantTier +1 (white chat), logTier +1 (quiet narration), and the log line `TASK_DONE collectDrops {"picked":0,"unreachable":0}`.
