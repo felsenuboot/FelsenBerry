@@ -181,8 +181,12 @@ async function applyPayloadStack(bot) {
   } catch (err) {
     report.armor = `failed: ${err.message}`;
   }
-  // 3. the skill engine + guard payloads — all idempotent, none bot-specific
-  for (const f of ['skills.js', 'digguard.js', 'graychat.js', 'panicguard.js', 'reachguard.js']) {
+  // 3. the skill engine + guard payloads — all idempotent, none bot-specific.
+  // ORDER MATTERS: dangerscan grafts its fields onto __skills.status, and survival
+  // subscribes to __danger's state changes — so skills -> dangerscan -> survival.
+  // survival.js REPLACES panicguard.js (context-aware branches vs flee-home-only);
+  // panicguard is no longer injected.
+  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'graychat.js', 'reachguard.js']) {
     const r = await injectPayload(bot, f);
     report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
   }
@@ -442,14 +446,29 @@ const server = http.createServer(async (req, res) => {
       // FEEDBACK.md: "injection reports can drift from reality" (a report can say
       // installed:true while a later relog silently discarded it). __skills also reports
       // its own engine version so a driver can spot a stale re-injection at a glance.
+      // Report the VERSION each global actually carries, not just presence — a driver
+      // asking "did my bot get digguard v2" should not have to /eval for it
+      // (FEEDBACK: "digguard version drift caused real confirmed damage").
+      const ver = (g) => (typeof g !== 'undefined' && g ? (g.version || true) : false);
       const payloads = {
-        skills: typeof globalThis.__skills !== 'undefined' ? (globalThis.__skills.version || true) : false,
-        digguard: typeof globalThis.__digguard !== 'undefined',
-        graychat: typeof globalThis.__graychat !== 'undefined',
-        panicguard: typeof globalThis.__panic !== 'undefined',
-        idleguard: typeof globalThis.__idleguard !== 'undefined',
-        reachguard: typeof globalThis.__reachguard !== 'undefined',
+        skills: ver(globalThis.__skills),
+        dangerscan: ver(globalThis.__danger),
+        survival: ver(globalThis.__survival),
+        digguard: ver(globalThis.__digguard),
+        graychat: ver(globalThis.__graychat),
+        idleguard: ver(globalThis.__idleguard),
+        reachguard: ver(globalThis.__reachguard),
+        panicguard: typeof globalThis.__panic !== 'undefined', // legacy, superseded by survival
       };
+      // A reconnect builds a FRESH bot object while globalThis survives, so a payload can
+      // be present-but-dead: its bot.dig/bot.chat patches and listeners are bound to the
+      // discarded bot. Payloads that register in __payloads mark themselves stale on
+      // their own bot's 'end'. Non-empty here = re-inject those (or restart the process).
+      let stalePayloads = [];
+      try {
+        stalePayloads = Object.entries(globalThis.__payloads || {})
+          .filter(([, v]) => v && v.stale).map(([k]) => k);
+      } catch (_) {}
       let movements = null;
       try {
         const m = connected && bot && bot.pathfinder && bot.pathfinder.movements;
@@ -475,6 +494,7 @@ const server = http.createServer(async (req, res) => {
         dimension: connected && bot ? bot.game.dimension : null,
         task: currentTask,
         payloads,
+        stalePayloads,
         movements,
         orphanedGoto,
         pathStuckRecent,

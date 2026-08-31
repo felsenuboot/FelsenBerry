@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 9;
+const ENGINE_VERSION = 10;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -493,6 +493,21 @@ function makeCtx(bot, task) {
     // THE dig primitive. bot.dig() can hang forever on a dig the server rejects
     // (wrong tool / protected / out of reach), so: harvest gate + wall-clock race.
     // Returns {ok:true[,already]} or {ok:false, reason} — throws only fatal inv_full.
+    // Is this block registered as protected base infrastructure (protected.json, via the
+    // digguard payload)? Target SELECTION must consult this, not just bot.dig: digguard
+    // rejects the dig cheaply, but a skill that keeps picking a protected block still
+    // burns a full goto + stall-recovery ladder per attempt (the chopTrees-vs-torch_posts
+    // grind — posts are logs on cobblestone, i.e. valid trunk bases). Fails OPEN (false)
+    // when digguard is not installed, so behavior is unchanged without it.
+    isProtected(pos, blockName) {
+      try {
+        const dg = globalThis.__digguard;
+        if (!dg || typeof dg.hit !== 'function') return false;
+        const name = blockName || (bot.blockAt(pos) || {}).name;
+        return Boolean(dg.hit(pos, name));
+      } catch (_) { return false; }
+    },
+
     async digBlock(pos, digTimeoutMs = 60000) {
       ctx.step();
       let b = bot.blockAt(pos);
@@ -1662,7 +1677,7 @@ S.define('chopTrees', {
     const logIds = blockIds(bot, logNames);
     const logIdSet = new Set(logIds);
     const blacklist = new Set();
-    let felled = 0, logsDug = 0, stranded = 0, replanted = 0;
+    let felled = 0, logsDug = 0, stranded = 0, replanted = 0, protectedSkipped = 0;
     ctx.progress(0, count, 'trees');
     ctx.setPhase('searching', `Off to chop ${count} tree${count > 1 ? 's' : ''} (${types.join('/')}). Timber incoming.`);
 
@@ -1671,6 +1686,10 @@ S.define('chopTrees', {
       // find trunk bases: a log whose block below is NOT a log (ground contact)
       const hits = bot.findBlocks({ matching: logIds, maxDistance: maxDist, count: 64 })
         .filter((p) => !blacklist.has(key(p)))
+        // registered structure (torch posts, house frames) is not a tree — skip it at
+        // SELECTION time. digguard would refuse the dig anyway, but only after a full
+        // goto + up to 6 stall-recoveries per log, which reads as a hang from status().
+        .filter((p) => !ctx.isProtected(p))
         .filter((p) => { const below = bot.blockAt(p.offset(0, -1, 0)); return below && !logIdSet.has(below.type); })
         .sort((a, b2) => a.distanceTo(bot.entity.position) - b2.distanceTo(bot.entity.position));
       if (!hits.length) {
@@ -1707,6 +1726,8 @@ S.define('chopTrees', {
       let dugThisTree = 0;
       for (const p of tree) {
         ctx.step();
+        // a real tree growing against registered structure: fell the tree, leave the build
+        if (ctx.isProtected(p)) { protectedSkipped++; continue; }
         const r = await ctx.digBlock(p);
         if (r.ok && !r.already) { dugThisTree++; logsDug++; }
         else if (!r.ok) {
@@ -1752,7 +1773,7 @@ S.define('chopTrees', {
     }
     ctx.setPhase('finishing');
     await ctx.collectDrops(10, 10000);
-    return { treesFelled: felled, logsDug, stranded, replanted };
+    return { treesFelled: felled, logsDug, stranded, replanted, ...(protectedSkipped ? { protectedSkipped } : {}) };
   },
   doneMsg: (t) => {
     const haul = Object.entries(t.collected).map(([k, v]) => `${v} ${k}`).join(', ');

@@ -139,17 +139,23 @@ const eatUp = async () => {
 
 // ---- placement (verify-on-timeout: a blockUpdate timeout usually means it DID place) ----
 const FACES = [[0, -1, 0], [0, 1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]];
+// SOLID, not "not air". leaf_litter/short_grass/torch/snow all have an EMPTY bounding box:
+// they stop neither arrows nor mobs. Treating them as occupied (v1 did) left holes in the
+// coffin AND reported it sealed — same zero-shape-block trap as the pathfinder wedges.
+const isSolid = (b) => Boolean(b && b.boundingBox === 'block');
 const placeAt = async (pos) => {
   try {
     const at = bot.blockAt(pos);
     if (!at) return 'unloaded';
-    if (!AIR.has(at.name)) return 'occupied';
+    if (isSolid(at)) return 'occupied';
     const item = fillerItem();
     if (!item) return 'no_filler';
+    // clear a passable non-air block first (leaf_litter, grass); not all are replaceable
+    if (!AIR.has(at.name)) { try { await bot.dig(at); } catch (e) {} }
     if (!bot.heldItem || bot.heldItem.name !== item.name) await bot.equip(item, 'hand');
     for (const f of FACES) {
       const ref = bot.blockAt(pos.offset(f[0], f[1], f[2]));
-      if (!ref || AIR.has(ref.name) || ref.boundingBox !== 'block') continue;
+      if (!isSolid(ref)) continue;
       try {
         await bot.placeBlock(ref, new Vec3(-f[0], -f[1], -f[2]));
         return 'placed';
@@ -266,7 +272,7 @@ const branchBreakLOS = async (t) => {
       const cell = feet.offset(o[0], 0, o[1]);
       const at = bot.blockAt(cell), above = bot.blockAt(cell.offset(0, 1, 0)), below = bot.blockAt(cell.offset(0, -1, 0));
       if (!at || !above || !below) continue;
-      if (!AIR.has(at.name) || !AIR.has(above.name) || below.boundingBox !== 'block') continue;
+      if (isSolid(at) || isSolid(above) || !isSolid(below)) continue;  // leaf_litter is walkable
       if (!losBlocked(tEye, cell.offset(0.5, 1.6, 0.5))) continue;
       const r = await ownedGoto(new goals.GoalBlock(cell.x, cell.y, cell.z), 4000);
       if (r === 'arrived') {
@@ -350,16 +356,32 @@ const branchWallOff = async (t) => {
   const p = bot.entity.position;
   const feet = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
   const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  let placed = 0, open = 0;
-  for (const dy of [0, 1]) {
-    for (const s of sides) {
-      const r = await placeAt(feet.offset(s[0], dy, s[1]));
-      if (r === 'placed') placed++;
-      else if (r !== 'occupied') open++;
-    }
+  const cells = [];
+  for (const dy of [0, 1]) for (const s of sides) cells.push(feet.offset(s[0], dy, s[1]));
+  // The roof cell (feet+2) has NO orthogonal reference on open ground: below it is the
+  // bot's own head space. Its side neighbours at the same y do have one (the head ring
+  // directly beneath them), so lay those first and the cap becomes placeable. Underground
+  // — the branch's real use case — these are already stone and cost nothing.
+  for (const s of sides) cells.push(feet.offset(s[0], 2, s[1]));
+  cells.push(feet.offset(0, 2, 0));                            // cap: skeletons shoot down shafts
+
+  // Two passes: a cell with no solid neighbour to place against ('no_reference') often
+  // gains one once its neighbours are up — pass 2 catches those. Bottom-up order matters,
+  // so cells stays feet-ring -> head-ring -> roof.
+  let placed = 0;
+  const fails = [];
+  for (const c of cells) {
+    const r = await placeAt(c);
+    if (r === 'placed') placed++;
+    else if (r !== 'occupied') fails.push(c);
   }
-  const roof = await placeAt(feet.offset(0, 2, 0));            // skeletons shoot down shafts
-  if (roof === 'placed') placed++; else if (roof !== 'occupied') open++;
+  for (const c of fails.slice()) {
+    const r = await placeAt(c);
+    if (r === 'placed') { placed++; fails.splice(fails.indexOf(c), 1); }
+  }
+  // seal = re-read the world, not a running tally. Never report sealed on faith.
+  const open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;
+  if (open) pushLog('warn', `wall_off: ${open} face(s) still open — coffin is not arrow-tight`);
 
   const t0 = Date.now();
   await eatUp();
@@ -378,7 +400,7 @@ const branchWallOff = async (t) => {
       : [1, 0];
     const away = Math.abs(bearing[0]) >= Math.abs(bearing[1]) ? [bearing[0], 0] : [0, bearing[1]];
     const exit = bot.blockAt(feet.offset(away[0], 0, away[1]));
-    if (exit && !AIR.has(exit.name)) { await bot.dig(exit); dug = [exit.position.x, exit.position.y, exit.position.z]; }
+    if (isSolid(exit)) { await bot.dig(exit); dug = [exit.position.x, exit.position.y, exit.position.z]; }
   } catch (e) {}
   return { branch: 'WALL_OFF', sealed: open === 0, placed, openFaces: open, hp: bot.health, food: bot.food, exit: dug };
 };
@@ -496,6 +518,22 @@ g.restore = () => {
   try { if (globalThis.__danger && globalThis.__danger.off) globalThis.__danger.off(onDanger); } catch (e) {}
   resumeGuard();
 };
+
+// ---- staleness registry (see FEEDBACK "injection reports can drift from reality") ----
+// A reconnect makes runner.js build a FRESH bot object (runner.js:319) while globalThis
+// survives. This module would then hold a health listener on a DEAD bot: the reflex is
+// gone, but every presence check still says it is installed — the exact failure that let
+// three bots die inside driver polling gaps. Go stale loudly instead.
+const REG = (globalThis.__payloads = globalThis.__payloads || {});
+REG.survival = { version: 1, boundAt: Date.now(), stale: false };
+bot.once('end', () => {
+  try {
+    REG.survival.stale = true;
+    g.enabled = false;
+    if (g.subTimer) clearInterval(g.subTimer);
+    resumeGuard();
+  } catch (e) {}
+});
 
 return {
   installed: true, version: 1, home: g.home,

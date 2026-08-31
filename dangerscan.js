@@ -235,6 +235,13 @@ if (S && typeof S.status === 'function' && !S.status.__dangerWrapped) {
       st.danger = { score: g.score, state: g.state, threats: g.threats.slice(0, 3) };
       // survival.js does not wrap status itself (one wrapper, no ordering hazard)
       if (globalThis.__survival && globalThis.__survival.brief) st.survival = globalThis.__survival.brief();
+      // honest payload roster: name -> 'v1' or 'v1 STALE' (STALE = bound to a dead bot
+      // after a reconnect, re-inject it). Drivers get this in their normal status poll.
+      const reg = globalThis.__payloads;
+      if (reg) {
+        st.payloads = {};
+        for (const [k, v] of Object.entries(reg)) st.payloads[k] = 'v' + v.version + (v.stale ? ' STALE' : '');
+      }
     } catch (e) {}
     return st;
   };
@@ -255,6 +262,21 @@ g.restore = () => {
     if (SS && SS.status && SS.status.__dangerWrapped) SS.status = SS.status.__orig;
   } catch (e) {}
 };
+
+// ---- staleness registry (see FEEDBACK "injection reports can drift from reality") ----
+// A reconnect makes runner.js build a FRESH bot object (runner.js:319) while globalThis
+// survives. Left alone this timer keeps scanning the DEAD bot's stale world at 4Hz and
+// reports a comfortable "calm" forever — worse than not running. Stop on our bot's 'end'
+// and say so; re-injection (or P0.2 auto-inject-on-spawn) rebinds to the live bot.
+const REG = (globalThis.__payloads = globalThis.__payloads || {});
+REG.dangerscan = { version: 1, boundAt: Date.now(), stale: false };
+bot.once('end', () => {
+  try {
+    REG.dangerscan.stale = true;
+    g.enabled = false; g.state = 'stale';
+    if (g.timer) clearInterval(g.timer);
+  } catch (e) {}
+});
 
 g.timer = setInterval(tick, g.intervalMs);
 tick();

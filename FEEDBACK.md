@@ -367,3 +367,33 @@ type: bug
 status: open
 what: Confirmed during the fleet v9/v10 rolling restart (2026-09-01): idleguard.js is the one payload in the auto-inject stack that reliably comes up `false` (see the earlier "auto-inject payload stack" entry, shipped v8 — this was already known as a design gap, `--role` is opt-in and nothing passes it yet, but this entry captures the concrete operational cost now that a real rollout happened). Every one of the 5 restarted bots needed a manual driver step: read the role, `sed 's/__ROLE__/<role>/g' idleguard.js`, inject. Two of five drivers independently discovered the sed-substitution workaround themselves rather than being told — works, but it's tribal knowledge being reinvented per-driver instead of automated once.
 fix: runner.js should own a small `roles.json` (or inline map) of `{portOrName: role}`, read at startup (or accept `--role` as spawn.sh already threads through) — applyPayloadStack's idleguard step already has the template-substitution code (it just needs a role value that isn't always null). Concretely: spawn.sh already CAN pass `--role`, the gap is that nobody's calling it with one yet — either update spawn.sh's own usage docs to make `--role` mandatory-by-convention for production bots, or have runner.js fall back to a lookup keyed by --name when --role is omitted, so a driver never has to hand-roll the sed substitution again.
+
+### 2026-09-01 team-lead — reconnect backoff is flat 2s (thrash amplifier)
+type: bug
+status: open
+what: During the server-restart storm every bot got into a duplicate_login kick
+war with its own ghost session — flat 2s reconnect meant 150-330 connection
+events per bot in 3 minutes, self-perpetuating until a full process stop + 35s
+cooldown + sequential respawn cleared it.
+fix: runner.js reconnect uses exponential backoff (2s→4s→8s→…max 60s, reset on
+stable connection >2min); on duplicate_login specifically, wait ≥20s before the
+next attempt (the ghost needs time to die). Optional: sequential jitter so the
+whole fleet doesn't reconnect in the same second after a server restart.
+
+### 2026-09-01 engine-dev — CORRECTION: payloads do NOT survive a reconnect; they only look like they do
+type: bug
+status: shipped(v10) — `__payloads` staleness registry + GET /state.stalePayloads
+what: Measured directly on a test bot across a real server-restart reconnect, because friedrich-driver's panicguard entry concluded "skills/digguard/idleguard/graychat all survived intact, panicguard alone was gone". Both halves of that are wrong, and the true picture is worse. (1) `typeof globalThis.__panicguard` was always "undefined" — panicguard.js sets `globalThis.__panic`. That check could never have passed, reconnect or not. (2) The other payloads did NOT survive. Their globals did, because globalThis lives in the runner PROCESS, but a reconnect makes createBot build a FRESH bot object (runner.js:319), so everything bound to the old one is orphaned: measured after reconnect, `bot.dig` no longer had digguard's wrapper, `bot.chat` no longer had graychat's, `bot.pathfinder.setGoal` no longer had idleguard's, movements were back to stock (parkour on, maxDropDown 4, scaffolding restored, exclusionAreasBreak emptied). Every presence check still returned true. So "installed:true" has been reporting phantoms this whole time — this is the mechanism behind the entire "injection reports drift" class, and it is silent by construction. Worst case observed in principle: dangerscan's 4Hz loop keeps scanning the DEAD bot's stale world and reports a comfortable "calm" forever.
+fix: SHIPPED. (a) Payloads register in `globalThis.__payloads[name] = {version, boundAt, stale}` and subscribe to their OWN bot's 'end' event, setting stale:true and stopping their timers — a payload now tells you it is dead instead of pretending. dangerscan/survival/digguard do this; graychat/idleguard/reachguard/panicguard still need the same 6 lines. (b) GET /state gains `stalePayloads: [...]`, and status().payloads (via dangerscan's status graft) shows "v2 STALE". (c) The structural fix is already in place from v8 — auto-inject on every spawn — so staleness should now be a transient that heals itself within one spawn event; the registry exists to catch the case where it does not.
+
+### 2026-09-01 engine-dev — placement helpers must test boundingBox, not "is it air"
+type: quirk
+status: shipped(survival.js v1) — fixed in survival.js's placeAt; flagged because it is a whole CLASS
+what: Found by live-testing survival.js's wall-off branch: the coffin sealed only 2 of 9 faces and still reported sealed. Cause: the placement helper skipped any cell whose block was not air, so a cell containing `leaf_litter` counted as "already occupied" — but leaf_litter, short_grass, torch, snow and friends all have an EMPTY bounding box and stop neither arrows nor mobs. The bot walled itself into a coffin with holes in it and believed it was safe. This is the same zero-shape-block trap as the documented leaf_litter/torch pathfinder wedges (blocks that are visually present but geometrically absent), just in the placement path instead of the movement path.
+fix: the test is `block.boundingBox === 'block'`, never `!AIR.has(block.name)`. Non-air non-solid blocks must be DUG first, then placed into. Applied in survival.js (placeAt, the corner-step walkability check, and the exit-dig check) and the seal is now verified by re-reading the world rather than trusting a running tally. skills.js's ctx.placeBlockAt already handles this correctly via its NUISANCE set — but any NEW hand-rolled placement loop is going to hit this, so it is worth knowing before writing one.
+
+### 2026-09-01 engine-dev — a coffin's roof cell has no reference block to place against
+type: quirk
+status: shipped(survival.js v1)
+what: Second defect from the same live wall-off test. Sealing a 1x2 standing space needs a cap at feet+2, but on open ground that cell's only orthogonal neighbour below is the bot's own head space (air), so there is nothing to place against and the cap silently fails every time — the coffin stays open to the sky, which is precisely where skeletons shoot from.
+fix: lay the four SIDE cells at feet+2 first (each has the head-ring block directly beneath it as a reference), which then gives the cap four solid neighbours. Costs 4 extra blocks on open ground and nothing underground, where those cells are already stone. Verified: 13/13 faces solid, sealed:true. Generally — any "place a block above my head in open air" needs a lateral reference laid first.

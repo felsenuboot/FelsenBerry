@@ -89,7 +89,7 @@ whatever `--role` the process was started with (`null` if none — see below).
 
 ### Payload stack (engine v8+, auto-injected on every spawn)
 
-Every bot install six *payloads* — the skill engine plus five small guard scripts —
+Every bot installs seven *payloads* — the skill engine plus six small guard scripts —
 installed via the same `/eval` AsyncFunction mechanism, each idempotent (safe to
 re-inject; re-installing replaces the old instance cleanly) and each surviving a
 Minecraft *reconnect* by re-running its setup (`bot.on('spawn', ...)`, not `once`).
@@ -103,9 +103,19 @@ one-step full upgrade instead of "restart, then remember 5 separate manual injec
 | `skills.js` | the task engine (see below) | always |
 | `digguard.js` | makes registered base infrastructure undiggable (bot.dig level + pathfinder planner level); reads `protected.json`, hot-reloads it | always |
 | `graychat.js` | routine chat routed through gray tellraw via the local RCON relay (`graybridge.js`), protocol/ledger lines and `!important` lines pass through plain | always |
-| `panicguard.js` | HP<8 abort-and-flee-home reflex, runs at game tick speed inside the ~50s driver polling gap | always |
+| `dangerscan.js` | 4Hz weighted hostile scan over `bot.entities` (sees through walls — the server streams entities regardless of line of sight) + held-item durability + light/skyLight; grafts all of it onto `__skills.status()` | always |
+| `survival.js` | context-aware panic reflex at game tick speed — ENV / CREEPER / BREAK_LOS / FLEE_HOME / WALL_OFF. **Replaces `panicguard.js`**, which was flee-home-only and got a bot killed fleeing a skeleton in the open | always |
 | `reachguard.js` | rejects out-of-range dig/place/activate/attack with an immediate `reach_violation` error instead of a silent hang (survival reach is ~4.5 blocks for blocks, ~3.0 for entities) | always |
 | `idleguard.js` | role-templated (`__ROLE__` substituted at inject time) idle-time work | **only if `runner.js` was started with `--role <role>`** — otherwise inject manually, see DRIVER_GUIDE.md |
+
+**Presence is not liveness.** A reconnect makes `createBot` build a *fresh* bot object while
+`globalThis` survives the swap, so a payload's global can still be there while its `bot.dig` /
+`bot.chat` patches and event listeners point at the discarded bot — installed, reporting
+`true`, and doing nothing. Payloads therefore register in `globalThis.__payloads` and mark
+themselves `stale` on their own bot's `end` event; `GET /state` surfaces that as
+`stalePayloads: [...]`. Anything listed there needs a re-inject (or a process restart, which
+rebinds the whole stack). This is the mechanism behind the long-running "injection reports
+drift from reality" bug.
 
 Manual re-inject (any payload, any time — idempotent):
 ```sh

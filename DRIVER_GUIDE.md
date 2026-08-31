@@ -1,9 +1,9 @@
-DRIVER GUIDE — Minecraft bot skill library (__skills v9)
+DRIVER GUIDE — Minecraft bot skill library (__skills v10)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
 INJECT — engine v8+ CHANGED THIS: check GET /state's `payloads` field first. If it's
-present, your bot is on the NEW runner.js process and skills/digguard/graychat/
-panicguard/reachguard already auto-reinstall on every spawn/reconnect — you do NOT need
+present, your bot is on the NEW runner.js process and skills/dangerscan/survival/
+digguard/graychat/reachguard already auto-reinstall on every spawn/reconnect — you do NOT need
 to manually re-inject them after a ./stop.sh+./spawn.sh restart. idleguard is the ONE
 exception: it only auto-installs if the process was started with `--role <role>`; if
 `payloads.idleguard` is false after a restart, inject it yourself (role-templated, see
@@ -228,3 +228,71 @@ is big and the base is finite.
   watching the bot move or chat: idle-guard picks up finished bots and makes them
   look busy, which has fooled multiple drivers into waiting on already-finished
   tasks.
+
+## Survival stack (v10, 2026-09-01) — what your status poll now tells you
+
+`__skills.status()` gained three blocks, filled in by the `dangerscan` payload. You do not
+have to ask for them and they cost you nothing extra:
+
+```
+bot:  { ..., held: {name, count, dur}, light, skyLight, surfaceExposed }
+danger:   { score, state: 'calm'|'alert'|'panic', threats: [{name,d,s,los,ranged,pos}] }
+survival: { state: 'ready'|'panic:<BRANCH>', branch, fires, recovered, failures }
+payloads: { skills: 'v10', digguard: 'v2', survival: 'v1 STALE', ... }
+```
+
+- **`held.dur`** is the held item's remaining durability in percent. Under 15% a one-shot
+  `tool_low` warning lands in `status.log`. Fleet law says replacing a breaking tool
+  outranks the job — this is how you see it coming instead of getting stranded at depth.
+- **`surfaceExposed` / `skyLight`** answer the question `light` alone never could:
+  dark because it is night or shade, or dark because the bot has tunnelled into a hillside.
+  `surfaceExposed:false` at a "safe" y-level means an overhang or a roof — treat it as
+  underground regardless of the y-coordinate.
+- **`danger.score`** is a weighted 4Hz scan of every hostile within 24 blocks, through
+  walls (the server streams entities regardless of line of sight, so this sees the zombie
+  in the sealed cavity before you dig into it). `>= 2.5` is ALERT, `>= 5` is PANIC.
+  Threat entries carry `los` — a skeleton with `los:true` is actively shooting.
+- **`payloads`** reports real versions now. A `STALE` suffix means that payload is bound to
+  a bot object that has been replaced by a reconnect: present but dead. Re-inject it, or
+  restart the process so auto-inject rebinds everything.
+
+### survival.js — the panic reflex (replaces panicguard.js)
+
+It fires on its own at game speed, inside the gap where your polling loop cannot help.
+Entry is HP < 8, danger score >= 5, or any creeper within 8 blocks; re-entry lockout is 10s.
+It stops your task first (`__skills.stop('panic')`), so **a task that ends while
+`survival.fires` went up did not fail — it was pre-empted.** Check `survival.branch`:
+
+| Branch | When | What it does |
+|---|---|---|
+| `ENV` | lava / fire / drowning | water bucket or move clear, before anything else |
+| `CREEPER` | creeper within 8 | opens to 10+ blocks; never swings; shield if cornered |
+| `BREAK_LOS` | skeleton/stray/witch with line of sight | corner-step, else a 2-block cobble "arrow shadow"; counter-attacks only at HP >= 12 with a sword |
+| `FLEE_HOME` | home <= 40 away AND melee-only threat | sprints home, turns and holds with shield |
+| `WALL_OFF` | far from home, low HP, or mixed threats | seals a 13-face coffin, eats to food 18, waits for HP 16, digs out away from the threat |
+
+After recovery it logs `panic_recovered branch=... hp=...` and hands the decision back to
+you: **the engine guarantees "alive and stable", not "job finished"** — you decide resume
+vs abort. Needs >= 6 filler blocks (cobble/dirt) for WALL_OFF; without them it logs
+`kit_violation` and can only run. Carry 16+ cobble underground.
+
+Manual controls: `__survival.trigger('why')` forces a panic run, `__survival.runBranch('WALL_OFF')`
+exercises one branch for testing, `__survival.snapshot()` dumps config + last event.
+
+### protected.json — the no-dig registry
+
+`digguard v2` reads `protected.json` (same directory) and **hot-reloads it within ~10s**, so
+adding a region reaches every running bot without re-injection. It blocks protected blocks
+at two levels: `bot.dig` rejects with `protected_structure:<id>`, and the pathfinder planner
+treats them as unbreakable so it never routes a path *through* your floor.
+
+When you build something worth keeping, add it to `protected.json` AND `BASE.md`. Regions are
+`box` (min/max inclusive), `columns` (xz pairs + y range) or `sphere` (center + radius), with
+an optional `match` regex on the block name so a farm can protect its farmland while leaving
+the wheat harvestable. `neverProtect` lists names that are always diggable.
+
+**Skills must consult `ctx.isProtected(pos)` when SELECTING a target**, not rely on the dig
+rejection: digguard refuses cheaply, but a skill that keeps choosing a protected block still
+burns a full goto + stall-recovery ladder per attempt. That is what made chopTrees look
+wedged for minutes near the plaza — every log within 24 blocks of base is a torch post or a
+hall corner, not a tree.

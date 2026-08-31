@@ -155,6 +155,17 @@ g.restore = () => {
   } catch (e) {}
 };
 
+// ---- staleness registry (see FEEDBACK "injection reports can drift from reality") ----
+// A reconnect makes runner.js build a FRESH bot object (runner.js:319). globalThis
+// survives, so `!!globalThis.__digguard` still reads true — but bot.dig here is patched on
+// the DEAD bot and protects nothing. Bind to our own bot's 'end' and mark ourselves stale
+// so drivers and GET /state see the truth instead of a phantom install.
+const REG = (globalThis.__payloads = globalThis.__payloads || {});
+REG.digguard = { version: 2, boundAt: Date.now(), stale: false };
+bot.once('end', () => {
+  try { REG.digguard.stale = true; g.enabled = false; if (g.timer) clearInterval(g.timer); } catch (e) {}
+});
+
 return {
   installed: true, version: 2, file: FILE, regions: g.regions.length,
   ids: g.regions.map((r) => r.id), plannerWired: g.wired,
