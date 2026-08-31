@@ -1,4 +1,4 @@
-// dangerscan v1 payload (inject via POST /eval, idempotent).
+// dangerscan v2 payload (inject via POST /eval, idempotent).
 //
 // The 4Hz "wallhack" hostile scan from research/survival-doctrine.md section 3, plus the
 // status fields three FEEDBACK entries asked for. Pure read — it never moves the bot,
@@ -24,7 +24,7 @@
 if (globalThis.__danger && globalThis.__danger.restore) { try { globalThis.__danger.restore(); } catch (e) {} }
 
 const g = {
-  enabled: true, version: 1,
+  enabled: true, version: 2,
   score: 0, state: 'calm', threats: [], nearest: null,
   scans: 0, errors: 0, lastScan: 0, lastStateChange: 0,
   light: null, skyLight: null, surfaceExposed: null,
@@ -90,16 +90,42 @@ const heldInfo = () => {
 };
 
 // ---- light / sky exposure (the "am I actually underground" signal) ----
+// v2 (marcel-driver, issue #18): a single light sample is NOT trustworthy. Standing in the
+// middle of farm_1 with open air all the way up, skyLight read 0 at BOTH feet and head, so
+// a neighbour-check workaround would not have caught it either — the server's light packets
+// simply go stale. Light is now a hint, and GEOMETRY is the authority: sample three points
+// and take the max, then, only when that still claims darkness, settle it by scanning the
+// column for a real solid block. The scan runs only in the disputed case, so the 4Hz cost
+// is unchanged on the surface (skyLight > 0 short-circuits) and bounded underground.
+const COLUMN_SCAN = 24;
+const columnOpen = (feet) => {
+  for (let dy = 2; dy <= COLUMN_SCAN; dy++) {
+    const b = bot.blockAt(feet.offset(0, dy, 0));
+    if (!b) return null;                       // unloaded chunk: unknown, never guess
+    if (b.boundingBox === 'block') return false;
+  }
+  return true;                                 // nothing solid overhead within the window
+};
 const lightInfo = () => {
   try {
     const p = bot.entity.position;
-    const b = bot.blockAt(p.offset(0, 1, 0)) || bot.blockAt(p);
-    const sky = bot.world.getSkyLight ? bot.world.getSkyLight(p.offset(0, 1, 0)) : (b ? b.skyLight : null);
-    return {
-      light: b && typeof b.light === 'number' ? b.light : null,
-      skyLight: typeof sky === 'number' ? sky : (b ? b.skyLight : null),
-    };
-  } catch (e) { return { light: null, skyLight: null }; }
+    const feet = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
+    let light = null, sky = null;
+    for (const s of [feet, feet.offset(0, 1, 0), feet.offset(0, 2, 0)]) {
+      const b = bot.blockAt(s);
+      if (!b) continue;
+      if (typeof b.light === 'number') light = Math.max(light == null ? 0 : light, b.light);
+      let sv = null;
+      try { sv = bot.world.getSkyLight ? bot.world.getSkyLight(s) : null; } catch (e) {}
+      if (typeof sv !== 'number' && typeof b.skyLight === 'number') sv = b.skyLight;
+      if (typeof sv === 'number') sky = Math.max(sky == null ? 0 : sky, sv);
+    }
+    // exposed: true / false / null (unknown — unloaded chunk, never a guess)
+    let exposed = sky != null && sky > 0 ? true : null;
+    let viaColumn = false;
+    if (exposed === null) { exposed = columnOpen(feet); viaColumn = true; }
+    return { light, skyLight: sky, surfaceExposed: exposed, skyViaColumn: viaColumn };
+  } catch (e) { return { light: null, skyLight: null, surfaceExposed: null, skyViaColumn: false }; }
 };
 
 const scan = () => {
@@ -142,11 +168,14 @@ const scan = () => {
   if (bot.food < 6) out.score *= 1.25;
   if (me.y < 0) out.score *= 1.25;
   const li = lightInfo();
-  if (li.light === 0 && li.skyLight === 0) out.score += 0.5; // standing in spawnable dark
+  // spawnable-dark bonus: only when the COLUMN agrees we are enclosed. A stale skyLight 0
+  // on an open farm tile used to inflate danger by 0.5 for no reason (issue #18).
+  if (li.light === 0 && li.skyLight === 0 && li.surfaceExposed === false) out.score += 0.5;
 
   out.score = Math.round(out.score * 100) / 100;
   out.threats.sort((a, b) => b.s - a.s);
   out.light = li.light; out.skyLight = li.skyLight;
+  out.surfaceExposed = li.surfaceExposed; out.skyViaColumn = li.skyViaColumn;
   return out;
 };
 
@@ -181,7 +210,8 @@ const tick = () => {
     g.score = r.score; g.threats = r.threats.slice(0, 6);
     g.nearest = r.threats.length ? r.threats[0] : null;
     g.light = r.light; g.skyLight = r.skyLight;
-    g.surfaceExposed = typeof r.skyLight === 'number' ? r.skyLight > 0 : null;
+    g.surfaceExposed = r.surfaceExposed;   // geometry-backed, not a bare light read
+    g.skyViaColumn = Boolean(r.skyViaColumn);
     g.held = heldInfo();
     g.scans++; g.lastScan = Date.now();
 
@@ -269,7 +299,7 @@ g.restore = () => {
 // reports a comfortable "calm" forever — worse than not running. Stop on our bot's 'end'
 // and say so; re-injection (or P0.2 auto-inject-on-spawn) rebinds to the live bot.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.dangerscan = { version: 1, boundAt: Date.now(), stale: false };
+REG.dangerscan = { version: 2, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.dangerscan.stale = true;
@@ -282,7 +312,7 @@ g.timer = setInterval(tick, g.intervalMs);
 tick();
 
 return {
-  installed: true, version: 1, intervalMs: g.intervalMs,
+  installed: true, version: 2, intervalMs: g.intervalMs,
   statusWrapped: g.statusWrapped, skillsPresent: Boolean(S),
   weightsKnown: Object.keys(g.weights).length,
   first: g.snapshot(),
