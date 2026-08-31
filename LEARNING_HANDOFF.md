@@ -260,7 +260,19 @@ insight applied to our stack, and it's what keeps token costs near zero at scale
   `bot.activateItem()` (no block argument, just uses the current look direction)
   filled the bucket immediately, and the same pattern also correctly emptied a
   `water_bucket` back into a dug-out basin. Use `activateItem()` for bucket
-  fill/place, not `activateBlock()`, on this mineflayer version.
+  fill/place specifically — this does NOT generalize to every right-click-on-block
+  interaction (see the hoe-tilling entry immediately below, which needs the OPPOSITE
+  call); treat activateItem-for-liquids as its own special case, not a blanket rule.
+- **Correction to the entry above (2026-09-01, karl-driver, farm_1 build)**: hoe
+  tilling does NOT follow the bucket pattern. `bot.lookAt(block, true)` + plain
+  `bot.activateItem()` never converted grass_block/dirt to farmland (0/13 attempts).
+  What worked 100% of the time: equip the hoe, `bot.lookAt(pos.offset(0.5,1,0.5), true)`
+  (the block's TOP FACE, not its center), then `bot.activateBlock(block, new
+  Vec3(0,1,0))` WITH an explicit up-face vector — a bare `activateBlock(block)` also
+  failed once in a spot-check. So: buckets use `activateItem()`, tilling (and
+  presumably other right-click-on-block interactions — bonemeal, doors, non-water
+  bucket-place) use `activateBlock(block, faceVector)` with the face vector pointed
+  at the actual face you're targeting. Don't assume one call generalizes to the other.
 - **`bot.blockAt()` on chunks the bot isn't physically near can return stale/wrong
   data (found live 2026-08-31, MettMarcel's terrain-scar hunt)**: a remote heightmap
   scan run while the bot stood elsewhere reported 30+ "floating dirt" blocks
