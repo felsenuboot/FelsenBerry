@@ -7,6 +7,18 @@ spawning a rival KackboonKevin connection (duplicate_login identity war, already
 Framework bots (a runner.js HTTP port) go through that port; Kevin goes through kevin-driver
 only. See LEARNING_HANDOFF.md's Hard conventions #6 for the full note.
 
+USER-CRITICAL LAW: RIGHT TOOL, ALWAYS (2026-09-01). Before any dig/chop/harvest/build action,
+verify the correct tool CLASS and the best TIER you actually own is equipped — never proceed
+with a bare fist or the wrong tier "to save time." If the right tool is missing: ACQUIRE IT
+FIRST — withdraw from depot chest B (announce the ledger line) or craft it via `ctx.craftSafe`
+at a table — then do the job. This is a behavioral bridge law; engine enforcement (toolguard +
+ensureTool, an auto-equip-and-block-if-missing check baked into the skill primitives) is
+engine-dev-2's current top item and will retire this once it ships — until then it's on you to
+check by hand. Exception that stays even after the engine lands: the cheap-tool-for-travel
+doctrine (deliberately holding a cheap/stone tool while walking long distances, since
+pathfinder digs traversal blocks with whatever's held and a good tool's durability is worth
+protecting — see LEARNING_HANDOFF's tool-durability-on-travel entry).
+
 INJECT — engine v8+ CHANGED THIS: check GET /state's `payloads` field first. If it's
 present, your bot is on the NEW runner.js process and skills/dangerscan/survival/
 digguard/graychat/reachguard already auto-reinstall on every spawn/reconnect — you do NOT need
@@ -216,14 +228,25 @@ workarounds are fine while waiting, but must be logged the moment they're used.
 (The endgame is runner.js auto-inject-on-spawn (SYNTHESIS P0.2) making rollouts
 automatic; until that lands, this manual protocol is law.)
 
-## Resource-harvest distance law (user, 2026-09-01, after repeat base damage)
-Resource gathering (chopTrees, mining sweeps, grass beyond the farm) happens
->=50 blocks from the plaza center (-3,111,4). Near-base is for BUILDING, FARMING,
-DEPOT work and transit only. Designated harvest zones: NW forest (~-60..-30, z<0),
-SE scrub (x>25, z>40 — clear of CAVECREW), N slopes past z<-20. Rationale: every
-"nearest log" search near base eventually eats a structure (house frames and
-fences are NOT tree-distinguishable to the skills yet). Venture OUT — the world
-is big and the base is finite.
+## Resource-harvest distance law (user, 2026-09-01, AMENDED 2026-09-01)
+Original law: resource gathering (chopTrees, mining sweeps, grass beyond the farm)
+>=50 blocks from the plaza center (-3,111,4), because chopTrees couldn't tell a
+structure's logs from a tree's (house frames and fences got eaten near base).
+
+**Amendment: the law relaxes to >=25 blocks from the plaza for any bot on engine
+v10+.** Rationale: v10's `ctx.isProtected()` target filter fixed the root cause
+structurally (chopTrees now consults digguard's protected.json at target
+selection, not just at the dig-reject level) — engine enforcement superseded
+this behavioral rule, exactly as designed. The residual 25-block buffer is now
+purely aesthetic (keep the base's immediate treescape intact, don't crater the
+view up close), not a safety backstop. Check `payloads.digguard` reports v2 (or
+just trust GET /state's `payloads` field being present at all, since v10+
+always ships with it) before relying on the relaxed distance — a bot still on a
+pre-v10 process should keep the old >=50 rule until it restarts.
+Designated harvest zones unchanged: NW forest (~-60..-30, z<0), SE scrub (x>25,
+z>40 — clear of CAVECREW), N slopes past z<-20 — those remain fine choices, the
+amendment just means you don't have to walk that far if there's a legitimate
+non-structure tree closer in.
 
 ## Server-drop doctrine + completion truth (user, 2026-09-01)
 - If the SERVER drops or crashes: everyone REJOINS, always. Runner processes
