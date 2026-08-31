@@ -9,3 +9,6 @@ logs/
 pids/
 # editor/backup litter
 *.bak-*
+# downloaded blueprints: creators' copyright — build freely on our server, NEVER publish
+blueprints/*.schem
+!blueprints/hut5.schem
