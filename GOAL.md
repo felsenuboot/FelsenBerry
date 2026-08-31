@@ -1,4 +1,11 @@
-# North Star (set by Felix, 2026-09-01)
+# North Star (set by Felix, 2026-09-01; refined same day)
+
+**Refinement (Felix, via /goal):** the bot should BEHAVE LIKE A GOOD HUMAN
+PLAYER — tidy builds, honest chat manners, fair play, no scars, respected
+claims — and cooperate with others both ALONE and in BIG COORDINATED EFFORTS
+(multi-bot joint projects like the perimeter wall; cross-crew projects with
+allied fleets). Coordination at scale is a first-class capability, not a
+side effect.
 
 **A fully autonomous Minecraft bot that can socially interact and cooperate —
 with other bots from the same framework, with bots from other frameworks, and
@@ -10,7 +17,7 @@ The bot fleet on Felix's server is the continuous field test; the ENGINE is the
 product. Every feature below should work autonomously — LLM drivers set goals
 and handle surprises, deterministic engine code does everything routine.
 
-## Pillars → current status (2026-09-01)
+## Pillars → current status (2026-09-01, engine v14)
 
 | Pillar | Status | Carried by |
 |---|---|---|
@@ -20,12 +27,32 @@ and handle surprises, deterministic engine code does everything routine.
 | Base building | WORKING (plaza, hall, house, torch posts, path — v7/v8 blueprint skills) | skills.js buildWall/buildSchematic etc. |
 | Trading stations | WORKING (joint CAVECREW trading post, TRADE ledger, first stock placed) | TRADE spec in cavecrew-stack-analysis.md |
 | Farming / food production | WORKING, surplus (26-tile wheat farm, bread pipeline, pond) | farm skills; tillFarmland pending |
-| Claims / non-destruction | PARTIAL (digguard v2 registry protection + hands-off law) — needs formal CLAIM protocol interop | protected.json; FLEET/1 CLAIM lines |
+| Claims / non-destruction | PARTIAL (digguard v2 guards protected.json at BOTH bot.dig and the pathfinder planner, hot-reloading within ~10s; every Movements profile inherits it from birth; ctx.isProtected keeps skills from even targeting structure) — needs formal CLAIM protocol interop | protected.json; FLEET/1 CLAIM lines |
 | Mining / shafts | WORKING (safeDescend staircases, mineLane, torch discipline, 8/8 diamond run) — Baritone sidecar in progress | skills.js; baritone/ workflow |
 | Hunting | WORKING where fauna exists (region depleted; pen_2 ready for husbandry) | huntAnimals; animal acquisition role |
-| Survival / self-preservation | PARTIAL (panic guard, light rule, deep-work kit doctrine) — survival.js + danger scanner queued | research/survival-doctrine.md (P1) |
-| Autonomy floor (no idle, no babysitting) | WORKING (task queue, idle-guard v4, usefulness gating, engine v8: auto-inject on every spawn — skills/digguard/graychat/panicguard/reachguard install with zero manual step, verified live) | SYNTHESIS P0.2 shipped |
+| Survival / self-preservation | WORKING, two branches unproven (survival.js v1 replaces panicguard with 5 context-aware branches; dangerscan v2 = 4Hz through-walls threat scan + durability + geometry-backed sky exposure; kit preflight gates departure on torches/picks/filler/armor). CREEPER + BREAK_LOS have not met a live mob — QA staged with engine-dev | survival.js, dangerscan.js, skills.js kitCheck (P1 shipped) |
+| Autonomy floor (no idle, no babysitting) | WORKING (task queue, idle-guard v6, usefulness gating, auto-inject of the whole stack on every spawn AND reconnect with zero manual step; /state reports real per-payload versions plus stalePayloads, so "is my bot current" is one poll) | SYNTHESIS P0.2 shipped |
 
 Roadmap authority: research/SYNTHESIS.md (P0–P4) + FEEDBACK.md (field findings).
 Everything ships engine-first: behavior rules are stopgaps, engine enforcement is
 the standard.
+
+## Engine status detail (kept current by engine-dev-2)
+
+Live versions: `skills.js` **v14** · `dangerscan.js` v2 · `survival.js` v1 · `digguard.js` v2
+· `idleguard.js` v6 · `graychat.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
+(superseded by survival.js; removed from auto-inject). `GET /state.payloads` reports these
+numbers live, and `stalePayloads[]` names any payload bound to a bot object a reconnect
+replaced — presence has never implied liveness.
+
+Known honest gaps, so nothing here reads as more finished than it is:
+- survival.js CREEPER and BREAK_LOS branches have never faced a real mob. Stage 1 synthetic
+  QA passed (engine-dev's bat-as-real-entity technique exercised the real raycast and
+  pathing); the retreat-pathing and arrow-shadow-wall paths remain unexercised.
+- safeDescend's `no_descent` tripwire is arithmetic-verified but not force-tested — the
+  failure needs a genuine pathfinder false-reached.
+- Shield doctrine: both engine prerequisites are shipped (auto-eat no longer claims the
+  off-hand; armor-manager no longer ranks chainmail above iron), but no bot carries a
+  shield yet — that needs iron and a craft.
+- FLEET/1 chat protocol (P3) is unstarted, and it now carries the "human players" and
+  formal CLAIM pillars, so it outranks P4 aesthetics.
