@@ -296,3 +296,24 @@ rejection: digguard refuses cheaply, but a skill that keeps choosing a protected
 burns a full goto + stall-recovery ladder per attempt. That is what made chopTrees look
 wedged for minutes near the plaza — every log within 24 blocks of base is a torch post or a
 hall corner, not a tree.
+
+ENGINEER TEST BOTS wear an `[ENG] ` gray-chat tag (dark_aqua), not `[FEL] `, so anyone
+reading chat can tell a throwaway test bot from a real fleet member at a glance. Setup for
+any NEW engineer test bot (do this once, right after `./spawn.sh`):
+```sh
+# via graybridge's RCON connection pattern (see graybridge.js), or ask the rollout manager:
+/team add ENG_<shortname>
+/team modify ENG_<shortname> color dark_aqua
+/team modify ENG_<shortname> prefix {"text":"[ENG] ","color":"dark_aqua"}
+/team join ENG_<shortname> <BotName>
+```
+graychat.js (v2+) reads the tag live from the bot's actual Minecraft team (`bot.teams`,
+`prefix.text` or a plain string, falling back to `[FEL] ` if the bot has no team) and sends
+it to graybridge's `POST /say` as an optional `tag` field — no code change needed per bot,
+just the one-time `/team` setup above. The bot's own stupid-name rule still applies to the
+name itself; only the chat TAG differs for engineer bots. Verify with one gray chat line
+and check the RAW text via `bot.on('message', ...)` (NOT the parsed `chat` event — mineflayer
+strips the `[TAG] ` prefix when it extracts a bare username for the `chat` event, so
+runner.js's own `<chat> <username>` log lines will never show the tag even when it's
+correctly present in the real broadcast; that took real debugging to figure out, save
+yourself the trouble).

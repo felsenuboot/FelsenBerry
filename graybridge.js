@@ -73,12 +73,17 @@ http.createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
       try {
-        const { name, color, text } = JSON.parse(body);
+        const { name, color, text, tag } = JSON.parse(body);
         if (typeof name !== 'string' || typeof text !== 'string' || name.length > 24 || !/^[A-Za-z_]{3,16}$/.test(color || 'gray')) throw new Error('bad input');
         const t = text.length > 220 ? text.slice(0, 217) + '...' : text;
+        // Per-crew tag (default "[FEL] " for backward compat / bots not yet sending one).
+        // Bracket-and-letters-and-spaces only, short cap — this lands inside a JSON text
+        // component (JSON.stringify below escapes it properly either way, this is just
+        // sane-formatting hygiene, not an injection concern).
+        const safeTag = (typeof tag === 'string' && tag.length > 0 && tag.length <= 12 && /^[[\]A-Za-z0-9 ]+$/.test(tag)) ? tag : '[FEL] ';
         const json = JSON.stringify([
           { text: '<', color: 'gray' },
-          { text: '[FEL] ' + name, color: color || 'white' },
+          { text: safeTag + name, color: color || 'white' },
           { text: '> ', color: 'gray' },
           { text: t, color: 'gray' },
         ]);
