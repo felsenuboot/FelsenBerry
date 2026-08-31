@@ -1,4 +1,4 @@
-DRIVER GUIDE — Minecraft bot skill library (__skills v11)
+DRIVER GUIDE — Minecraft bot skill library (__skills v12)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
 HARD LAW: `mcp__minecraft__*` tools are kevin-driver-ONLY, even if they show up as available
@@ -360,3 +360,26 @@ genuinely short trip, not to get past a restock.
 
 Depot for restocking: chest B `(-5,111,3)` has cobblestone and coal, chest C `(-3,111,1)`
 has bread. Announce transfers in chat as `DEPOT -32 cobblestone` per DEPOT.md.
+
+## Crafting (v12) — always use craftSafe, never bot.craft in a loop
+
+```sh
+./task.sh <port> eval "return __skills.craftSafe(bot, 'torch', 3)"
+# -> {ok:true, made:12, calls:3, table:[x,y,z]}
+```
+
+Two separate bugs make raw `bot.craft` loops unsafe, and the second one means a settle delay
+alone is not enough:
+
+1. Crafting back-to-back without a settle desyncs the window and **voids items** — a driver
+   lost 15 batches of planks that way, and `collectDrops` found nothing to recover.
+2. **`bot.craft(recipe, N)` does not reliably produce N batches.** Measured live: `N=2` on a
+   torch recipe whose `result.count` is 4 produced 4 torches, not 8. The requested count is
+   not a promise.
+
+`craftSafe` therefore crafts exactly one batch per call, waits 800ms, re-counts the
+inventory after every single craft, and stops the moment a craft yields nothing or an
+ingredient drops by more than the recipe asked for. `made` is what actually arrived — trust
+that, not your arithmetic. It finds a crafting table within 4 blocks on its own (pass
+`{table:{x,y,z}}` to pin one); 2x2 recipes work without one, and a 3x3 recipe with no table
+in reach comes back with that stated in `reason`.

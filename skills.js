@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 11;
+const ENGINE_VERSION = 12;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -525,6 +525,15 @@ function makeCtx(bot, task) {
       } catch (_) { return false; }
     },
 
+    // one batch per call, settle + count-verify between each — see S.craftSafe
+    async craftSafe(itemName, times = 1, opts = {}) {
+      ctx.step();
+      const r = await S.craftSafe(bot, itemName, times, opts);
+      if (r.made) ctx.log(`crafted ${r.made} ${itemName} in ${r.calls} batch${r.calls === 1 ? '' : 'es'}`);
+      if (!r.ok || r.reason) ctx.log(`craftSafe ${itemName}: ${r.reason || 'ok'}`);
+      return r;
+    },
+
     async digBlock(pos, digTimeoutMs = 60000) {
       ctx.step();
       let b = bot.blockAt(pos);
@@ -844,6 +853,73 @@ function makeCtx(bot, task) {
 // ---------- task runner ----------
 // _q is ENGINE-INTERNAL ({qid,runId} for a queued item, {fallback,quiet} for an
 // onEmpty sweep). Drivers, task.sh and DRIVER_GUIDE never pass it.
+// craftSafe(bot, itemName, times, opts) -> {ok, made, calls, reason, table}
+// THE crafting primitive. Never call bot.craft in a loop directly:
+//   - bot.craft(recipe, N) does NOT reliably produce N batches. Measured live: a call with
+//     N=2 on a torch recipe (result.count 4) produced 4 torches, not 8. The requested
+//     count is not a promise, so this crafts ONE batch per call and counts what arrived.
+//   - crafting back-to-back without a settle desyncs the window and VOIDS items — a driver
+//     lost 15 batches of planks that way and collectDrops found nothing to recover.
+// So: one batch per call, 800ms settle, inventory re-count after every single craft, and
+// abort the moment a craft produces nothing or an ingredient loss doesn't add up.
+// opts: {table: Vec3|null (default: search 4 blocks), settleMs (default 800)}
+S.craftSafe = async function (bot, itemName, times = 1, opts = {}) {
+  const settleMs = opts.settleMs || 800;
+  const want = Math.max(1, Math.min(64, times || 1));
+  const def = bot.registry.itemsByName[itemName];
+  if (!def) return { ok: false, made: 0, calls: 0, reason: `unknown item '${itemName}'` };
+  const countOf = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+
+  let table = null;
+  if (opts.table) table = bot.blockAt(new Vec3(opts.table.x, opts.table.y, opts.table.z));
+  else {
+    const t = bot.registry.blocksByName.crafting_table;
+    if (t) { const p = bot.findBlock({ matching: t.id, maxDistance: 4 }); if (p) table = p; }
+  }
+
+  let made = 0, calls = 0;
+  for (let n = 0; n < want; n++) {
+    // re-resolve every iteration: affordability changes as ingredients are consumed
+    const recipe = bot.recipesFor(def.id, null, 1, table)[0];
+    if (!recipe) {
+      return { ok: made > 0, made, calls,
+        reason: calls === 0
+          ? `no usable recipe for ${itemName}${table ? '' : ' (no crafting table within 4 blocks — 3x3 recipes need one)'}`
+          : 'ran out of ingredients',
+        table: table ? [table.position.x, table.position.y, table.position.z] : null };
+    }
+    const before = countOf(itemName);
+    const ingBefore = new Map();
+    for (const d of (recipe.delta || [])) {
+      const it = bot.registry.items[d.id];
+      if (it) ingBefore.set(it.name, countOf(it.name));
+    }
+    try { await bot.craft(recipe, 1, table); }
+    catch (e) { return { ok: made > 0, made, calls, reason: `craft threw: ${e.message}` }; }
+    calls++;
+    await new Promise((r) => setTimeout(r, settleMs));
+
+    const gained = countOf(itemName) - before;
+    if (gained <= 0) {
+      pushLog('warn', `craftSafe: ${itemName} produced nothing on call ${calls} — stopping before it voids more`);
+      return { ok: made > 0, made, calls, reason: 'no_output' };
+    }
+    made += gained;
+    // the void bug shows up as an INGREDIENT dropping by more than the recipe asked for
+    for (const [name, was] of ingBefore) {
+      if (name === itemName) continue;
+      const spent = was - countOf(name);
+      const d = (recipe.delta || []).find((x) => (bot.registry.items[x.id] || {}).name === name);
+      const expect = d ? Math.abs(d.count) : 0;
+      if (spent > expect) {
+        pushLog('warn', `craftSafe: ${name} lost ${spent}, recipe only wanted ${expect} — inventory desync, stopping`);
+        return { ok: true, made, calls, reason: 'ingredient_desync', lost: { item: name, spent, expect } };
+      }
+    }
+  }
+  return { ok: true, made, calls, table: table ? [table.position.x, table.position.y, table.position.z] : null };
+};
+
 // kitCheck(bot, tier) -> {ok, tier, missing:[...], warnings:[...]}
 // Pure inspection, no side effects — drivers can call it directly to see what to restock
 // before starting anything: __skills.kitCheck(bot, 'deep')
