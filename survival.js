@@ -495,6 +495,22 @@ g.trigger = (why) => enter(why || 'manual');
 // Field-test entry point: run ONE branch directly, bypassing pick(). Manual /eval only —
 // nothing calls this automatically. Use it to verify a branch without waiting for the
 // matching mob to show up (e.g. __survival.runBranch('WALL_OFF')).
+//
+// STANDARD QA PATTERN (verified live 2026-09-01, engine-dev + engine-dev-2): pass `threat`
+// with a REAL entity id from something harmless (an ambient mob like a bat is ideal — no
+// aggro, no retaliation, no rule risk) instead of `id: null`. entOf(t) does a raw
+// bot.entities[id] lookup with zero type/hostility filtering, so the branch reacts to the
+// bat's REAL, MOVING position — genuine LOS raycasts, genuine pathfinding, genuine distance
+// tracking — while `name`/`d`/`ranged`/`los` stay whatever you fabricate to pick the branch
+// you want to test. This is strictly better than `id:null` (which only exercises the outer
+// shell + cleanup, since entOf returns null and every position-dependent code path gets
+// skipped) and categorically safer than a real hostile or ANY player entity (NEVER use a
+// player id here — if a branch's rush/attack logic ever fired on it, that violates the
+// hard never-attack-players rule). For CREEPER's retreat pathing specifically, the "threat"
+// needs to be genuinely CLOSE (inside creeperClear, ~10 blocks) to exercise GoalInvert/
+// GoalFollow for real — walk the bot to within a few blocks of a bat first (perfectly safe,
+// unlike ever doing this to a real creeper), then call runBranch. Verified: gained 10.9
+// distance from a 3.7m start, real terrain, no oscillation.
 g.runBranch = async (name, threat) => {
   const t = threat || threatsNow()[0] || null;
   const guarded = suspendGuard();
