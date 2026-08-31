@@ -1,4 +1,4 @@
-// Idle-guard v2 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
+// Idle-guard v5 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
 // v2 fixes the yield bug found by BuddelBernd's driver: v1 treated "no pathfinder goal"
 // as idle and hijacked the bot between driver commands. v2 wraps setGoal/goto/dig to
 // timestamp EXTERNAL activity (anything issued while the guard isn't working), engages
@@ -25,7 +25,16 @@ patch(bot, "craft");
 patch(bot, "openContainer");
 patch(bot, "activateBlock");
 g.stop = () => { g.enabled = false; if (g.timer) clearInterval(g.timer); g.patched.forEach(fn => { try { fn(); } catch (e) {} }); g.patched = []; };
-const externalActive = () => (Date.now() - g.lastExternal) < 25000 || Date.now() < g.pausedUntil;
+// v5: a RUNNING __skills task is external activity by definition. The guard used to only
+// count its own patched methods, so a long phase that didn't call setGoal/dig for 25s
+// looked like driver silence and the guard hijacked the bot mid-task (FEEDBACK:
+// "idle-guard stomps driver pathfinder goals").
+const taskRunning = () => {
+  try { const S = globalThis.__skills; return Boolean(S && S.currentTask && S.currentTask.running); }
+  catch (e) { return false; }
+};
+const paused = () => Date.now() < g.pausedUntil;
+const externalActive = () => (Date.now() - g.lastExternal) < 25000 || paused() || taskRunning();
 const interrupted = () => !g.enabled || g.lastExternal > g.workStarted;
 const say = (msg) => { const now = Date.now(); if (now - g.lastChat > 90000) { g.lastChat = now; try { bot.chat(msg); } catch (e) {} } };
 const T = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => { try { bot.pathfinder.setGoal(null); } catch (e) {} rej(new Error("timeout")); }, ms))]);
@@ -100,10 +109,19 @@ g.timer = setInterval(() => {
     if (globalThis.__idleguard !== g || !g.enabled) { clearInterval(g.timer); return; }
     if (g.busy) return;
     // stall-buster: a pathfinder goal that produces no movement for ~15s is stuck —
-    // clear it so neither the driver's dead goal nor the guard's own leftovers pin the bot
+    // clear it so neither the driver's dead goal nor the guard's own leftovers pin the bot.
+    // v5: it now respects pause() and yields to a running __skills task. It used to run
+    // BEFORE both checks, so it yanked goals out from under paused drivers and mid-task
+    // skills alike (FEEDBACK: "__idleguard.pause() doesn't cover the stall-buster" —
+    // reproduced repeatedly, a 240s pause still lost goals to "The goal was changed").
+    // ctx.goto has its own bounded unstick ladder; two stall-busters fighting is worse
+    // than one, so while a task runs the engine's own recovery owns the goal.
     try {
       const p = bot.entity.position;
-      if (bot.pathfinder.goal && g.lastPos && p.distanceTo(g.lastPos) < 0.3) {
+      if (paused() || taskRunning()) {
+        g.stallTicks = 0;
+        g.lastPos = p.clone ? p.clone() : p;
+      } else if (bot.pathfinder.goal && g.lastPos && p.distanceTo(g.lastPos) < 0.3) {
         g.stallTicks = (g.stallTicks || 0) + 1;
         if (g.stallTicks >= 3) { bot.pathfinder.setGoal(null); bot.clearControlStates(); g.stallTicks = 0; g.stalls = (g.stalls || 0) + 1; }
       } else { g.stallTicks = 0; }
@@ -116,4 +134,4 @@ g.timer = setInterval(() => {
     try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
   })().catch(() => {});
 }, 5000);
-return { installed: true, version: 4, role: g.role };
+return { installed: true, version: 5, role: g.role };
