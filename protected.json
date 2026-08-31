@@ -76,7 +76,15 @@
       "min": [-32, 133, 134],
       "max": [-26, 141, 140],
       "match": "(_fence$|_fence_gate$)",
-      "reason": "pen_1 livestock fence"
+      "reason": "pen_1 livestock fence (RETIRED — row kept protected in case the 7 survivors are ever salvaged)"
+    },
+    {
+      "id": "pen_2",
+      "kind": "box",
+      "min": [7, 118, 10],
+      "max": [13, 119, 16],
+      "match": "(_fence$|_fence_gate$)",
+      "reason": "pen_2 livestock fence (replaces pen_1) — entrance gap at (10,119,16) intentionally left unfenced, not a protected cell"
     },
     {
       "id": "base_containers",

@@ -37,7 +37,7 @@ const myTeamTag = () => {
   } catch (e) {}
   return "[FEL] "; // fallback — matches graybridge's own default
 };
-const PROTOCOL = /^(DEPOT |USING |FREE |LEASE-BREAK |BASE |CLAIM |MAILBOX|HELLO |ROLE |TASK |OFFER )/;
+const PROTOCOL = /^(DEPOT |USING |FREE |LEASE-BREAK |BASE |CLAIM |MAILBOX |HELLO |ROLE |TASK |OFFER |TRADE )/;
 bot.chat = (msg) => {
   try {
     if (!g.enabled || typeof msg !== "string" || msg.startsWith("/")) { g.passthrough++; return origChat(msg); }

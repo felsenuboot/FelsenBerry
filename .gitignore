@@ -1,5 +1,6 @@
 # secrets — NEVER commit
 .rcon
+.discord
 *.token
 .env*
 # runtime state

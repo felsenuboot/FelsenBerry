@@ -26,16 +26,17 @@ and MUST follow section 5 step by step. All chat announcements are in English.
 | plaza_1          | plaza_11x11     | x=-8..2, z=-1..9, floor 110 | built   | shared          | PflasterPeter  | 2026-08-31 |
 | quarry_ladder_1  | ladder_shaft    | (-4, 108..110, 4)           | planned | shared          | PflasterPeter  | 2026-08-31 |
 | quarry_lane_1    | cobble_lane_3w  | x=-5..2, y=110, z=5..7      | built   | shared          | PflasterPeter  | 2026-08-31 |
-| torch_posts_1    | light_posts_x8  | (-8,-1) (-8,9) (2,-1) (2,9) (-3,-1) (-3,9) (-8,4) (2,4), y=111..113 log+torch y114 | built | shared | PflasterPeter | 2026-09-01 |
+| torch_posts_1    | light_posts_x8  | (-8,-1) (-8,9) (2,-1) (2,9) (-3,-1) (-3,9) (-8,4) (2,4), y=111..113 STRIPPED oak_log + torch y114 | built | shared | PflasterPeter | 2026-09-01 |
 | bed_1            | bed             | (0, 111, 1)-(0, 111, 2)     | planned | exclusive-lease | PflasterPeter  | 2026-08-31 | (dropped — daylight cycle frozen, beds useless) |
 | bed_2            | bed             | (1, 111, 1)-(1, 111, 2)     | planned | exclusive-lease | (unassigned)   | 2026-08-31 | (dropped — daylight cycle frozen, beds useless) |
 | pen_1            | fence_pen_7x7   | x=-32..-26, z=134..140, y134-140, gate (-29,140) | destroyed | shared        | MettMarcel     | 2026-09-01 | (RETIRED by team-lead directive 2026-09-01: only 7/~23 fence blocks survived HAZARD ZONE #1 creeper damage, see section 6 changelog; too close to a permanent 70+ mob cluster to be worth rebuilding — id retired, do not reuse. The 7 surviving fence/gate blocks + 4 torched points may be salvaged, but ONLY with backup + full kit, never solo. Superseded by pen_2 near base.) |
 | pond_1           | pond_2x2        | x=1..2, y=110, z=10..11     | built   | shared          | MettMarcel     | 2026-09-01 |
 | house_1          | house_6x6       | x=-8..-3, z=10..15, floor+walls y110..113, roof y114, door (-6,111-112,10), windows (-8,112,12)+(-3,112,13) | built | shared | PflasterPeter | 2026-09-01 |
 | farm_1           | wheat_plot      | x=-2..3, z=10..14, y=110 (26 farmland tiles around pond_1, pond at x=1..2,z=10..11) | built | shared        | MettMarcel (expanded by KloputzKarl) | 2026-09-01 | (relocated from y=111,z=12-14 — that site was 1 block above pond_1's water level and un-hydratable, farmland kept drying back to dirt; moved to y=110 directly beside the pond, moisture confirmed 7/7. First tile planted with the bootstrap wheat_seeds from chest C. EXPANDED 2026-09-01 by KloputzKarl from 3 tiles to a full 6x5 field (26 farmland, minus the 4 pond cells), all moisture 7/7; fenced on 3 sides (oak_fence, north side left open onto plaza_1 as the entrance) at x=4 (east), z=15 (south), and a short (3,9) stub — west side is already closed by house_1's wall; 6 torches for perimeter lighting, 2 required clearing a small natural overhang that was reading skyLight 0 at x=4. See BASE.md section 6 changelog for the tiling/fencing quirks found.) |
-| path_1           | trail_stepped   | plaza edge (2,110,5) toward CAVECREW camp (11,89,55), stops at (10,92,50) — 5+ blocks short of their chest | built | shared | PflasterPeter | 2026-09-01 | (1 tile at (8,100,39) unreachable, see changelog) |
+| path_1           | trail_stepped   | plaza edge (2,110,5) toward CAVECREW camp (11,89,55), stops at (10,92,50) — 5+ blocks short of their chest | built | shared | PflasterPeter | 2026-09-01 | (post-v9-restart re-audit found 10 explosion-damaged tiles near the plaza + mid-route; 7 repaired, 3 remain: (3,112,12) and (3,112,13) now sit directly above Karl's grown wheat at farm_1 with no solid placement reference — cosmetic 1-block step, still walkable; (9,97,42) is genuinely unreachable by pathfinder, cause unknown, low priority) |
 | pen_2            | fence_pen_7x7   | x=7..13, z=10..16, y=119 (fence), floor y=118, entrance gap (10,119,16) | built | shared        | KloputzKarl    | 2026-09-01 | (replaces retired pen_1 per team-lead directive — sunlit flat plateau ~8 blocks above/east of farm_1, full skyLight 15, spatially clear of path_1's low-elevation route toward (10,92,50). 23 oak_fence perimeter blocks (built with the new engine v8 buildWall skill — verified block-by-block, far more reliable than hand-placement), a 1-wide open entrance gap at (10,119,16) instead of a crafted gate — see FEEDBACK.md, oak_fence_gate has no working recipe via bot.craft on this server right now, so the entrance is a plain fence block you dig+replace to open/close. 6 torches on the corners/entrance posts. Coordinated site via chat with peter-driver/marcel-driver before building; no objections raised.) |
 | main_hall_1      | hall_8x5        | x=-7..0, z=-6..-2, floor+walls y110..113, roof y114, open colonnade on the south (plaza-facing) wall between corner posts (-7,-2) and (0,-2), 3 interior torches | built | shared | PflasterPeter | 2026-09-01 | (user-requested: covers the crafting-table/depot hub where the fleet congregates) |
+| perimeter_wall_1 | wall_2high_posts | envelope x=-12..15, z=-9..18 (54x27, ~158 blocks of wall line minus 2 gates), 2-high cobblestone, oak-log post every 6 blocks + torch per post, gates at south z=18 x≈5 (path_1) and north (site pending) | planned | shared | BuddelBernd (staging by KloputzKarl) | 2026-09-01 | (Bernd is the builder, mid-return from a diamond run and unreachable for the exact plan — team-lead authorized staging from the standing spec so Friedrich/Karl aren't blocked; Bernd confirms/adjusts numbers on arrival. Materials needed: ~320 cobblestone, ~81 oak_log stripped into posts (27 posts x 3), ~30 torches. STAGING CHEST at (-6,111,8) — 192 cobblestone banked so far (chest B is down to ~23, ~105+ more still needed, top up from quarry or Bernd's returning haul). Originally planned for the SE plaza corner (0,111,9) but that spot is inside the block-update-bug zone (x=0..2,z=-1..9 — see the lighting-bug FEEDBACK.md entry, now confirmed to affect PLACEMENT too, not just light: a chest placeBlock there silently failed repeatedly, worked instantly 6 blocks west) — moved the staging point off it rather than fight the bug.) |
 
 Column rules:
 
@@ -189,12 +190,14 @@ You need infrastructure of type T (a crafting table, furnace, bed, chest, ...):
   Seeds: 1 wheat_seeds pending from Bernd's restitution chests at (-27,94,1),
   currently being retrieved by FurzFriedrich — grabbing from depot when it lands;
   also relying on ongoing grass-harvest RNG for more.
+- 2026-09-01 main_hall_1 REPAIRED by PflasterPeter after friedrich-driver's audit found 21 missing edge blocks (NW/NE corners, west/east wall gaps, roof gaps) — likely leftover damage from either my own canDig incident (before the fix landed) or a second explosion, same as the plaza/torch_posts_1 hits. Also cleared ~55 blocks of leftover overhang debris (raised grass_block + leaf_litter) sitting one level above the paved plaza floor across its east side — leftover from the original pre-registry leveling pass never having cleared the full overhang, only the floor tile itself. Found and removed a live TNT block at (-6,111,4) in the process (mined safely, no explosion, banked to chest B, DEPOT +1 tnt — never to be used without Felix's explicit approval). Full re-verification: plaza floor, all 8 torch posts, and main_hall_1's floor/walls/roof/colonnade all clean, 0 gaps.
 - 2026-09-01 main_hall_1 BUILT by PflasterPeter — 8x5 hall enclosing the crafting-table/chest/furnace hub, cobblestone floor+roof, oak-log-cornered plank walls solid on 3 sides, wide open colonnade on the south (plaza-facing) side flanked by the existing torch_posts_1 pillars at (-8,-1)/(2,-1). Rocky build: repeated hand-patch loops (~115 GoalNear calls) triggered pathfinder digging THROUGH the floor and wall out from under the bot as a pathing shortcut, twice, costing real fall damage (HP 20->9) and several rebuild passes — root-caused and fixed mid-build by setting `bot.pathfinder.movements.canDig = false` before any further close-range placement work; logged in FEEDBACK.md, and digguard.js v2 (shipped same shift) now also blocks this at the planner level for any BASE.md-registered structure. Structure fully re-verified clean (floor/walls/roof, 0 gaps) before this row flipped to built.
 - 2026-09-01 main_hall_1 PLANNED by PflasterPeter — user-requested main hall covering the crafting-table/chest/furnace hub where the fleet has been congregating (Friedrich, Kevin, Bernd, Ook all clustered there). 8x6 footprint x=-7..0, z=-7..-2, immediately north of and flush with the plaza's z=-1 edge — grass there cleared as part of the build. Solid walls on 3 sides, open colonnade on the south (plaza-facing) side using the existing torch_posts_1 pillars at (-8,-1) and (2,-1) as informal gateposts just outside the opening.
 - 2026-09-01 path_1 BUILT by PflasterPeter — 46-tile stepped cobblestone trail from the plaza edge (2,110,5) down to (10,92,50), following the natural hillside grade (no cliffs), headroom cleared, torch every 7 steps. One tile at (8,100,39) stayed unreachable after 3 attempts (pathfinder wouldn't route there even though neighbors look solid) — small 1-block gap, not blocking; flagging for a follow-up pass, not worth further time against the user's pace directive.
 - 2026-09-01 house_1 BUILT by PflasterPeter — cobblestone floor (36) + framed shell (4 oak_log corners, oak_planks infill, height 4) + cobblestone roof (36), door centered on the north wall (facing the plaza) at (-6,111-112,10), one window cut in each side wall, 2 interior torches. Note: frameStructure's origin.y is the WALL BOTTOM, not "one above the floor" as first assumed — its perimeter ring at y=110 is log/plank (doubling as both wall base and floor edge) with cobblestone only in the interior floor; noted for future callers of this skill. One frame block needed a manual patch (no_reference at (-4,111,10)); 4 roof tiles needed a manual patch (unreachable along the x=-8 edge). No drops lost.
 - 2026-09-01 bridge demolition by PflasterPeter — cleared 14 blocks of stray elevated dirt/grass_block (pathfinder-scaffolded, floating over the ravine at z=-4/y=117 just north of the plaza, plus a second fragment near x=9-11,z=-6..-10) per user request; no drops left behind.
 - 2026-09-01 house_1 PLANNED by PflasterPeter — 6x6 footprint at x=-8..-3, z=10..15, floor y110 (matches plaza level), walls y111..114, sited at the plaza's SW corner (adjacent, outside plaza bounds). Shifted 1 block west from the original x=-7..-2 plan once Marcel's farm_1 (x=-2..2, z=12..14) landed — now clear of it and of pond_1 (x=1..2). Framed shell: oak_log corner posts + oak_planks infill, cobblestone floor + roof, centered door gap on the z=10 (north/plaza-facing) wall, torch-lit interior.
+- 2026-09-01 torch_posts_1 REBUILT (3rd time) by PflasterPeter, all 8 columns now STRIPPED oak_log — kevin-driver found 4 columns fully gone ((-3,9),(-8,9),(2,9),(2,4)) during a digguard-gap window after a fleet-wide restart; rebuilt those with stripped logs per team-lead's directive (chopTrees doesn't match stripped_oak_log). Then found 3 MORE columns hit ((-8,-1),(-8,4),(-3,-1) partial) that were still plain oak_log — confirms the theory: only the unstripped ones keep getting chopped. Converted the remaining 2 plain-log columns too ((2,-1) full, (-3,-1) partial) so all 8 are now uniformly stripped oak — used __digguard.restore() to make the legitimate edit, re-injected digguard.js immediately after to restore protection. Crafted a stone_axe on the spot (no iron_axe available) for the stripping. All 8 columns re-verified clean.
 - 2026-09-01 torch_posts_1 BUILT by PflasterPeter — 8 oak-log pillars (y111-113) with a torch on top (y114) at the 4 plaza corners + 4 edge midpoints, listed coords in the row above. Survived two accidental demolitions by FurzFriedrich's chopTrees (structure logs read as trees, drops recovered, rebuilt both times) before the fleet's dig-guard went live to protect them; verified all 8 columns clean on 2026-09-01. plaza_1's floor re-verified 119/120 cobblestone (only exception: (-5,110,1), intentionally left dirt — it sits under depot_chest_a, invisible, not worth disturbing the chest). Next: bridge demolition (stray elevated dirt bridge NW of plaza), then house_1.
 - 2026-08-31 (resumed shift) plaza_1 pavement COMPLETE by PflasterPeter — all 120 floor cells (minus the intentional open shaft column at (-4,4)) are now cobblestone, sourced via mineLane (42 cobble from a stone pocket near the reserved quarry_ladder_1 column) plus depot chest B withdrawals (DEPOT -35, -8). One tile at (-5,110,1) intentionally left as dirt — it sits directly under depot_chest_a and is not visible/walkable, not worth the risk of disturbing the chest. Also found and fixed a bot-trapping incident: pathfinder opened a floor hole at (2,110,4) while routing home, self-rescued and repatched. Next: torch_posts_1, then house_1 and path_1 per new user orders (see TODO/team-lead).
 - 2026-09-01 farm_1 EXPANDED by KloputzKarl — grew the plot from 3 farmland tiles to
@@ -234,6 +237,68 @@ You need infrastructure of type T (a crafting table, furnace, bed, chest, ...):
   fence blocks survived). Decision: do not rebuild at this site, a pen 25 blocks
   from a permanent 70+ mob cluster loses to entropy forever. id retired for good;
   superseded by pen_2 (see below) sited adjacent to base/farm_1 instead.
+
+- 2026-09-01 torch_posts_1 DAMAGE FOUND by KackboonKevin (kevin-driver) — a
+  post-restart base inspection found HALF the structure gone: columns at
+  (-3,9), (-8,9), (2,9), (2,4) are completely missing (all 4 blocks each,
+  y=111..114 — 3x oak_log + 1 torch), floor beneath intact (cobblestone
+  verified at -3,110,9). The other 4 columns — (-8,-1), (2,-1), (-3,-1),
+  (-8,4) — verified still intact. CORRECTION after cross-checking FEEDBACK.md:
+  this is NOT fresh chopTrees damage — peter-driver already logged the same
+  underlying incident ("6 of 8 torch posts partially or fully destroyed",
+  diagnosed as creeper explosion, digguard doesn't stop explosions). This
+  snapshot (4 fully gone/4 intact) is consistent with his, likely mid-repair.
+  Rebuild still needs 12 oak_log + 4 torch; see FEEDBACK.md peter-driver's
+  entry for the real fix (spawnProof sweep). Row left `built`.
+- 2026-09-01 spawn_proofing sweep by KloputzKarl (team-lead priority, after
+  Peter found creeper-blast damage on the plaza) — found and worked on TWO
+  separate hazards:
+  (1) THE SUB-PLAZA CAVE (section 7) is much bigger than documented: a
+  connected void spanning roughly x=-9..0, z=-2..9, y=105..109, not just
+  "west-centre." Entered from OUTSIDE the plaza at (-9,108-109,1) (2-block
+  dig, no plaza floor touched) rather than the nominal quarry_ladder_1 column
+  at (-4,4) — that column is actually solid/filled, not open as the registry
+  implies. Placed ~20 torches across the main chambers; a full 35-cell
+  residual dark-pocket survey still came back after that (this cave is large
+  and 3D — full coverage would need a proper mining/exploration pass, not a
+  safety sweep). HIGHEST-VALUE fix: found and SEALED a 5-block-deep open
+  shaft running from y105 straight up to y109 directly UNDER
+  crafting_table_1 (x=-3,z=4) — only the 1-block-thick plaza floor stood
+  between that void and the base's most-trafficked spot. Filled solid with
+  cobblestone y105-109, floor untouched. Treat the rest of this cave as
+  ongoing/unfinished — the chokepoint under the table was the priority and
+  is done, the interior is partially lit but not fully mapped or sealed.
+  (2) A SEPARATE, more surprising find: a ~3x11 strip of the plaza's OWN
+  floor at x=0..2, z=-1..9 (open sky, no roof, right in the core) reads
+  skyLight 0 / light 0 / surfaceExposed:false when the bot stands there —
+  confirmed live, not a stale remote read. Placed 11 torches across the
+  strip as a direct fix, but a follow-up scan showed most neighboring cells
+  STILL reading effective light 0 even adjacent to a freshly-placed torch,
+  which shouldn't happen if light is propagating normally. Logged as a
+  probable engine/world lighting bug in FEEDBACK.md rather than something
+  fixable by throwing more torches at it — worth an engine-side look. No
+  hostiles were present during the whole sweep (checked repeatedly, always
+  0 in tracking range), so treat this as invisible-risk hardening, not an
+  active-incident response.
+  A fleet-wide bot restart happened mid-sweep (external, not caused by this
+  work) — engine landed a big upgrade during it: skills v10, plus new
+  dangerscan/survival/reachguard payload modules and tool-durability-in-status,
+  auto-injected on spawn. Re-verified/re-applied the full payload stack +
+  safe Movements profile per the hard-reconnect rule before continuing.
+- 2026-09-01 spawn_proofing sweep by PflasterPeter (Karl's counterpart, split by
+  team-lead) — covered the NW ravine (x=-12..6, z=-12..2, y~102-111, the area
+  around the demolished dirt bridge) plus general perimeter light-gap checks
+  within ~30 blocks of the plaza. Live-verified light at every waypoint (not
+  remote blockAt — that reads mostly stale/zero for unvisited chunks and would
+  have produced ~350 false positives; walked the ground instead). Found and
+  torched 26 genuine dark spots (block light 0-6 with the bot physically
+  standing there), concentrated in the ravine's lower reaches (y102-109) and a
+  handful of overhang pockets along the plaza's north/west edges. No hostiles
+  encountered during the sweep. 30+ torches used from chest B stock; ~11 spare
+  torches remain in kit. Not exhaustive — a ravine this size likely still has
+  pockets beyond the patrol grid's ~3-block spacing — but every waypoint
+  visited is now lit, and the highest-traffic edges (adjacent to main_hall_1,
+  torch_posts_1, and the demolished-bridge crossing) are clear.
 
 ## 7. Site safety notes (Kevinplatz v1)
 

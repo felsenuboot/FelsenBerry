@@ -12,6 +12,12 @@ places them.
 | B | Minerals: cobblestone, ores, ingots, coal | (-5, 111, 3) |
 | C | Food & misc: meat, wool, eggs, seeds, leather | (-3, 111, 1) |
 
+**Chest B special item**: 1 TNT — recovered plaza evidence (2026-09-01), banked on
+team-lead's order after Peter recovered it from the creeper-explosion investigation.
+DO NOT USE or move without team-lead + Felix's explicit approval. (Independently
+flagged by three different bots before this note existed — please read this before
+re-flagging it a fourth time.)
+
 ## Rules (all driver agents follow these)
 
 1. **Deposit excess**: keep your working set (tools + ~1 stack of what you actively use);
