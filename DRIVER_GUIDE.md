@@ -210,6 +210,13 @@ bot re-suffers. Workarounds additionally go to LEARNING_HANDOFF.md (driver-facin
 big roadmap items get triaged into TODO.md by the lead. Log first, work around
 second.
 
+**When you find yourself doing the same manual check twice, the FEEDBACK entry you
+file should propose the ENGINE GATE, not a driver rule.** A behavioral rule costs
+tokens on every single action, forever, in every driver's habit loop; an engine
+gate costs once. If your fix suggestion is "drivers should remember to check X
+before Y," rewrite it as "the engine should refuse Y until X is satisfied" — see
+Behavioral Law Lifecycle below for what happens once that gate actually ships.
+
 ## Update rollout protocol (user law, 2026-09-01)
 
 **Engineer updates benefit EVERYONE.** When an engineer live-verifies an engine/
@@ -227,6 +234,33 @@ workarounds are fine while waiting, but must be logged the moment they're used.
 
 (The endgame is runner.js auto-inject-on-spawn (SYNTHESIS P0.2) making rollouts
 automatic; until that lands, this manual protocol is law.)
+
+## Behavioral law lifecycle (user doctrine, 2026-09-01)
+
+Every behavioral driver law below is a TIME-BOXED STOPGAP, not a permanent rule.
+The rollout manager (curator) owns retiring them: when the corresponding engine
+gate ships AND is live-verified, the law gets marked **RETIRED — enforced by
+<gate> since v<N>** in place (never deleted — the history of why a rule existed
+stays, so nobody re-derives it from scratch later). A retired law needs no more
+manual checking; the engine refuses the unsafe action outright. Rationale: a
+per-action manual check costs tokens forever, in every driver's habit loop, on
+every single action; an engine gate costs once, at build time, and then it's
+free forever after. Check this section before assuming an "interim"/"until X
+ships" law is still active — it may already be retired.
+
+**RETIRED — reach-discipline interim rule** (was: "before any manual/eval dig,
+place, activate, or attack, move within ~3 blocks of the target first — never
+trust a distant target is reachable"). Enforced by `reachguard.js` since engine
+v10 (rejects an out-of-range attempt with an immediate `reach_violation` error
+instead of a silent hang) — live on every bot that's process-restarted onto
+v10+. No more manual reach-checking needed; the engine won't let a bad call
+through.
+
+**STILL ACTIVE — right-tool-always** (added ~2026-09-01, see the HARD LAW
+above). Retires once engine-dev-2's toolguard/ensureTool gate ships and
+verifies (their current top item) — a full laws→gates conversion table is
+coming from them after that lands; apply it here when it arrives. Until then,
+keep checking tool class + tier by hand before every dig/chop/harvest/build.
 
 ## Resource-harvest distance law (user, 2026-09-01, AMENDED 2026-09-01)
 Original law: resource gathering (chopTrees, mining sweeps, grass beyond the farm)
