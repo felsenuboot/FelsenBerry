@@ -94,6 +94,7 @@ triage: (2026-09-01 synthesis) better fix found at the PLANNER level: torch/leaf
 type: quirk
 status: open
 what: bot.openContainer throws "containerToOpen is neither a block nor an entity" on furnaces (chest-family whitelist); both drivers hit it independently.
+github: felsenuboot/felcrew-mcp#10
 fix: depositToChest/engine container helpers route furnace blocks to bot.openFurnace automatically.
 
 ### 2026-09-01 marcel-driver — stale chunk data poisons remote blockAt surveys
@@ -193,6 +194,7 @@ triage: (2026-09-01 synthesis) three copy-paste-ready profiles (HAUL digCost=15 
 type: bug
 status: open
 what: idle-guard's drop-sweep fires its own goto mid-driver-task, repeatedly clearing/overriding the driver's pathfinder goal — presents as "stuck: no movement"/path_GoalChanged at the same spot and even survives a full relog (false lead). Diagnosed by bernd-driver post-respawn; workaround is __idleguard.stop() during extended manual travel, re-inject after.
+github: felsenuboot/felcrew-mcp#11 (friedrich-driver independently confirmed __idleguard.stop() isn't 100% reliable at clearing it — see their message, folded into the issue)
 fix: idle-guard must treat ANY active __skills task or driver-issued goal as external activity (currently only patched methods count) — e.g. also check __skills.status.running and bot.pathfinder.goal provenance before engaging; never issue gotos while a driver goal is active. Interim: drivers __idleguard.stop() around long manual travel.
 
 ### 2026-09-01 friedrich-driver — two independently-driven bots can't rendezvous by chat alone (escort mission, process learning)
@@ -241,6 +243,7 @@ ROOT CAUSE CONFIRMED (same shift, follow-up): it's not floor-specific — damage
 type: safety
 status: open
 what: After idleguard v4 fixed the dark-wandering bug, I still hit a real near-miss from a DIFFERENT code path: I called the injected `__skills` `collectDrops` (radius:32) near the farm, and it chased a distant item drop far enough to leave the bot at skyLight 0 with hostiles within 47-62 blocks — no light check anywhere in the chase. This is the same class of bug as the idleguard finding (now shipped v4), just in skills.js's actual collectDrops skill instead of idleguard's sweepDrops. My workaround this shift: keep collectDrops radii tight (≤12) near known-safe zones and never call it with a large radius unless I'm prepared to end up anywhere within that radius.
+github: felsenuboot/felcrew-mcp#12
 fix: skills.js's collectDrops (and any other skill that does open-ended goto-to-entity-position chasing — huntAnimals's chase phase too, probably) should apply the same `surfaceOk`-style skyLight filter idleguard v4 now uses before adding a drop/target to its chase list, or at minimum should verify the destination is skyLight>0 before committing to a real goto and bail with a logged reason if not.
 
 ### 2026-09-01 marcel-driver — placeBlock(floorBlock, (0,1,0)) can place at the bot's own feet, not atop the reference
@@ -253,6 +256,7 @@ fix: any auto-torch/light-a-spot primitive should reference an ADJACENT (not dir
 type: quirk
 status: open
 what: Multiple farmland tiles at y=110 next to pond_1 (confirmed moisture 7/7 right after tilling) reverted to plain dirt or grass_block later in the same shift with no action from me on those specific tiles — once mid-crop (a live wheat plant vanished along with the farmland conversion), once just the empty farmland. Farm_1 is now a shared build (me + karl-driver both working it), so my best guess is trampling: any entity jumping/landing on farmland has a chance to convert it back to dirt in vanilla, and a second bot's pathfinder routing across the field (rather than around it) would do this repeatedly without either driver noticing until a harvest comes up empty.
+github: felsenuboot/felcrew-mcp#13 (combined with karl-driver's tillFarmland + farmland-reverting entry below)
 fix: worth a `protectFarmland`-style Movements exclusion (treat farmland the way scaffoldingBlocks/blocksCantBreak already protects player structures) so pathfinder routes around tilled tiles instead of across them — increasingly relevant as multi-bot shared farms become a fleet pattern.
 
 ### 2026-09-01 karl-driver — hoe tilling needs activateBlock, not activateItem
@@ -278,12 +282,14 @@ type: rule-of-twice
 status: open
 what: Hand-drove hoe-tilling via raw /eval well past twice this session (32 cells: 23 new + 6 re-tills + 4 seed-plants at farm_1) — same goto+equip+lookAt+activateBlock pattern every time.
 fix: skills.js `tillFarmland(cells|rect, {plant:seedName})`: for each target cell, clear a solid block one above if present (never dig a `wheat`/crop block — treat any mature crop as protected, matching the chopTrees natural-tree lesson), fill an air floor with dirt if needed, hoe-till via `activateBlock(block, [0,1,0])` (see the activateItem/activateBlock entry above), optionally plant a seed item the same way. Gate like huntAnimals/harvestGrass; house-rule drop collection applies.
+github: felsenuboot/felcrew-mcp#13 (combined with marcel-driver's farmland-reverting entry above)
 
 ### 2026-09-01 bernd-driver — autoTorch light-trigger burns supply far faster than the 7-step interval implies
 type: bug
 status: open
 what: Carried 73 torches into a redescend of the diamond staircase (well above the new 40+ doctrine floor) and hit `no_torches` again after only ~95 combined safeDescend steps with torchEvery:7 — interval alone predicts ~14 placements, not 73+. The shaft runs through genuinely pitch-black natural cave pockets, and ctx.autoTorch's "place immediately if local light < 8" branch appears to fire on nearly every step in those stretches, not just the interval one, so total placements scale with darkness exposure, not step count.
 fix: either (a) cap total torches-per-task or add a cooldown between light-triggered placements distinct from the interval counter, or (b) surface actual consumption rate to the driver (e.g. include `torchesPlacedThisTask` + a running "torches/step" ratio in status) so a driver can size the up-front carry correctly instead of guessing from step count alone. Doctrine kit sizing (40 torches) assumed interval-only consumption and was wrong for this route.
+github: felsenuboot/felcrew-mcp#14
 
 ### 2026-09-01 friedrich-driver — chopTrees permanently wedges near digguard v2 protected regions (hypothesis)
 type: bug
@@ -419,15 +425,18 @@ type: quirk
 status: open
 what: Multiple times this shift I've found chest A/B/C stuffed with maxed-out stacks of dirt and leaf_litter (peaked at 270+ dirt, 143 leaf_litter in chest B alone) — these are zero-value items every bot's collectDrops sweeps pick up indiscriminately and then deposit alongside real loot. I manually withdrew-and-tossed them twice, but tossing near the depot just gets them re-picked-up by the next collectDrops pass through the same spot, so it's a losing battle by hand. Given every bot does this, it's clearly systemic, not a me-specific habit.
 fix: either (a) collectDrops gets an optional/default ignore-list (dirt, leaf_litter, and other zero-value blocks) so sweeps don't hoover them in the first place, or (b) depositToChest silently discards known-junk items instead of banking them (with a `discarded` field in its result so it's not silent to the driver), or (c) both — the depot has finite chest slots and junk crowding out real materials is a real cost, not just aesthetics.
+github: felsenuboot/felcrew-mcp#15
 
 ### 2026-09-01 karl-driver — plaza floor has a dark patch under open sky, light not propagating from new torches
 type: bug
 status: open
 what: During the spawn-proofing sweep, found a ~3x11 strip of plaza_1's own floor (x=0..2, z=-1..9 — no roof registered anywhere over it) reading skyLight 0 / light 0 / surfaceExposed:false with the bot physically standing there (ruled out the known stale-remote-chunk-read quirk — this was a live, in-person read). Placed 11 torches spread across the strip as a direct fix; a follow-up scan showed most CELLS ADJACENT to a freshly-placed torch still read effective light 0, which shouldn't happen — torch block light should propagate outward regardless of skyLight. No hostiles were ever observed there (checked repeatedly), so this reads as a lighting-calculation bug rather than confirmed active danger, but it means "place a torch" isn't a reliable fix verification method right now — the status/light readback can't be trusted to confirm a torch actually resolved a dark spot.
 fix: needs an engine or server-side look — possibly this world's frozen-daylight hack broke normal skylight/blocklight recalculation ticks for parts of the map, or there's a mineflayer lighting-cache staleness issue distinct from the already-known stale-remote-chunk quirk (this was NOT remote, bot was standing in the cell). Worth a repro: place a torch on ground in full daylight, immediately vs. after a delay, and check whether `blockAt(...).light` on the adjacent cell ever updates. If confirmed a world/server bug, drivers need a different way to verify "is this actually spawn-safe now" than reading `.light`/`.skyLight` (e.g., spawn a hostile mob to test, or just trust visual/structural torch placement over the light readback).
+github: felsenuboot/felcrew-mcp#17
 
 ### 2026-09-01 karl-driver — sub-plaza cave is much larger than documented, no dedicated cave-mapping/sealing skill
 type: rule-of-twice
 status: open
 what: BASE.md section 7 describes the cave under the plaza as a small "west-centre" pocket; it's actually a connected void spanning roughly x=-9..0, z=-2..9, y=105..109 (measured live). Also: quarry_ladder_1's registered column (-4,4) is actually solid/filled, not the open shaft the registry implies — had to dig a fresh 2-block entry from OUTSIDE the plaza at (-9,108-109,1) instead. Hand-placed ~20 torches across it via raw /eval loops (goto + multi-face placeBlock fallback) since there's no cave-lighting/mapping skill; also manually sealed a 5-block vertical shaft directly under crafting_table_1 with cobblestone the same way.
 fix: (1) correct/expand the section 7 description of the cave extent and the quarry_ladder_1 status once someone maps it properly. (2) a `lightSweep`/`sealVoid` skill (mentioned as planned in an earlier engine triage note) would have made this whole job far more reliable than my hand-rolled multi-face placeBlock loop — this is exactly the kind of repetitive, error-prone-by-hand task the skill library is for.
+github: felsenuboot/felcrew-mcp#16
