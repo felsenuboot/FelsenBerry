@@ -65,6 +65,17 @@ tryLoadPlugin('collectblock', () => require('mineflayer-collectblock').plugin);
 tryLoadPlugin('autoeat', () => require('mineflayer-auto-eat').plugin);
 tryLoadPlugin('armorManager', () => {
   const m = require('mineflayer-armor-manager');
+  // Upstream ranks armor materials worst->best as [...golden, iron, chainmail...], but
+  // chainmail is WEAKER than iron everywhere it matters (chestplate 5 vs 6, leggings
+  // 4 vs 5) — so an iron-clad bot that walks over a chainmail drop auto-equips it and
+  // DOWNGRADES itself. Reorder the shared array in place at load time; patching
+  // node_modules directly would not survive the next npm install.
+  try {
+    const mats = require('mineflayer-armor-manager/dist/data/armor.js').materials;
+    const i = mats.indexOf('iron');
+    const c = mats.indexOf('chainmail');
+    if (i > -1 && c > -1 && c > i) { mats[i] = 'chainmail'; mats[c] = 'iron'; }
+  } catch (_) { /* upstream layout changed — leave the default ranking alone */ }
   return m.default || m;
 });
 tryLoadPlugin('pvp', () => require('mineflayer-pvp').plugin);
@@ -107,6 +118,22 @@ function baseMovements(bot) {
   }
   m.entityCost = 2;
   m.liquidCost = 8;
+  // Registered base infrastructure is unbreakable at the PLANNER level, not just at
+  // bot.dig — otherwise pathfinder happily digs a shortcut through the plaza floor
+  // (FEEDBACK: "repeated GoalNear calls can dig the floor out from under the bot").
+  // digguard owns the registry (protected.json); this is a LATE-BINDING lookup so it
+  // works whatever order the payload stack is injected in, and so that every profile
+  // switch (HAUL/WORK/CAVE build fresh Movements objects) inherits protection from
+  // birth rather than waiting up to 10s for digguard's re-wire timer to notice.
+  const protectedCost = (block) => {
+    try {
+      const dg = globalThis.__digguard;
+      return dg && typeof dg.exclusionBreak === 'function' ? dg.exclusionBreak(block) : 0;
+    } catch (_) { return 0; }
+  };
+  protectedCost.__digguardBound = true; // digguard checks this marker to avoid double-wiring
+  m.exclusionAreasBreak.push(protectedCost);
+  m.exclusionAreasPlace.push(protectedCost);
   return m;
 }
 const MOVEMENT_PROFILES = {
@@ -180,6 +207,17 @@ async function applyPayloadStack(bot) {
     }
   } catch (err) {
     report.armor = `failed: ${err.message}`;
+  }
+  // 2b. auto-eat must not claim the off-hand: 3.3.6 defaults offhand:true and would
+  // fight the shield over slot 45, and a shield blocks 100% of creeper blast damage.
+  // Food is eaten from the main hand instead (equipOldItem restores what was held).
+  try {
+    if (bot.autoEat && bot.autoEat.options) {
+      bot.autoEat.options.offhand = false;
+      report.autoEat = 'offhand=false';
+    }
+  } catch (err) {
+    report.autoEat = `failed: ${err.message}`;
   }
   // 3. the skill engine + guard payloads — all idempotent, none bot-specific.
   // ORDER MATTERS: dangerscan grafts its fields onto __skills.status, and survival

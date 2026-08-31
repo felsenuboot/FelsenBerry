@@ -119,14 +119,19 @@ g.exclusionBreak = (block) => {
   } catch (e) {}
   return 0;
 };
+// runner.js's baseMovements() already installs a late-binding hook (tagged
+// __digguardBound) that calls straight into us, so every profile it builds is covered
+// from birth. Only wire ourselves in when that hook is absent — an older runner.js
+// process, or a Movements object built by something else.
+const alreadyBound = (arr) => Array.isArray(arr) && arr.some((f) => f && (f.__digguardBound || f === g.exclusionBreak));
 const wireMovements = () => {
   try {
     const mv = bot.pathfinder && bot.pathfinder.movements;
     if (!mv) return false;
     if (!Array.isArray(mv.exclusionAreasBreak)) mv.exclusionAreasBreak = [];
-    if (!mv.exclusionAreasBreak.includes(g.exclusionBreak)) mv.exclusionAreasBreak.push(g.exclusionBreak);
+    if (!alreadyBound(mv.exclusionAreasBreak)) mv.exclusionAreasBreak.push(g.exclusionBreak);
     if (!Array.isArray(mv.exclusionAreasPlace)) mv.exclusionAreasPlace = [];
-    if (!mv.exclusionAreasPlace.includes(g.exclusionBreak)) mv.exclusionAreasPlace.push(g.exclusionBreak);
+    if (!alreadyBound(mv.exclusionAreasPlace)) mv.exclusionAreasPlace.push(g.exclusionBreak);
     mv.scafoldingBlocks = [];
     return true;
   } catch (e) { return false; }
