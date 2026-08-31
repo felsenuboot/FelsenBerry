@@ -5,7 +5,7 @@
 // only after 60s of driver silence, and aborts its own work the moment a driver acts.
 // Idempotent: re-injection restores originals then replaces. Disable: __idleguard.stop()
 if (globalThis.__idleguard) { try { globalThis.__idleguard.stop(); } catch (e) {} }
-const g = { role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
+const g = { version: 5, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
             runs: 0, errors: 0, lastExternal: Date.now(), workStarted: 0, patched: [], pausedUntil: 0 };
 globalThis.__idleguard = g;
 // pause(ms): drivers call __idleguard.pause(120000) at the start of long monitoring

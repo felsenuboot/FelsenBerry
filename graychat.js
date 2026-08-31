@@ -6,7 +6,7 @@
 // with "!" (important announcement marker - "!" is stripped, rest sent white).
 // Re-inject after every bot process restart (like idleguard). Remove: __graychat.restore()
 if (globalThis.__graychat && globalThis.__graychat.restore) { try { globalThis.__graychat.restore(); } catch (e) {} }
-const g = { enabled: true, sent: 0, passthrough: 0 };
+const g = { version: 2, enabled: true, sent: 0, passthrough: 0 };
 globalThis.__graychat = g;
 const origChat = bot.chat.bind(bot);
 g.restore = () => { bot.chat = origChat; g.enabled = false; };
