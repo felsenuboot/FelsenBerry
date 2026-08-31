@@ -191,6 +191,38 @@ insight applied to our stack, and it's what keeps token costs near zero at scale
   desired "replacing a broken tool outranks the job" escalation, and the reason `no_tool`
   is left haltable rather than skippable. Idle-guard coexistence verified: guard `runs`
   stayed 0 through a 75s queue+fallback window and it was only paused, never disabled.
+- **Blueprint building (engine v7, verified live 2026-09-01, HuettenHorst test bot on 3107)**:
+  `prismarine-schematic` 1.3.0 ADOPTED and works on 1.21.11 (round-tripped a generated
+  5x4x5 sponge `.schem`, `Schematic.read(buf, '1.21.11')` + `forEach` gave the exact
+  bill 16 oak_log / 46 oak_planks). Parsing lives in runner.js (`POST /blueprint/load`)
+  because skills.js can never `require()`; it stashes the placement list on
+  `globalThis.__blueprints`, which /eval code sees because both run in the same process.
+  Results: frameStructure 46/46 placed + 46/46 verified; buildSchematic 62/62 placed +
+  62/62 verified with 1 chest restock; inline placements (incl. placing a chest) 2/2.
+  Quirks found/confirmed while building it:
+  (1) `bot.placeBlock` FAILS with "Event blockUpdate:(x,y,z) did not fire within timeout
+  of 5000ms" on some placements even when the spot is legal, and can also resolve without
+  the block appearing — same class as the bot.dig-never-resolves quirk. Every raw /eval
+  placement must be raced AND re-checked with `bot.blockAt`; a first failure is often
+  transient (a retry at the same spot succeeded).
+  (2) `mineflayer-pathfinder` Movements has `exclusionAreasBreak` (2.4.5): a function
+  returning >=100 makes a block un-breakable to the planner (`safeToBreak` checks
+  `exclusionBreak(block) < 100`). This is a MUCH better build guard than `canDig=false`
+  (which also breaks short hops inside a half-built footprint) — the builder keeps normal
+  pathing but cannot chew its own structure. `scafoldingBlocks = []` (note pathfinder's
+  misspelling) stops it spending build materials as scaffolding; by default it will happily
+  place your dirt and cobblestone.
+  (3) `mineflayer-schem` 1.5.2 TRIALED AND REJECTED for 1.21.11: its `Build` class wants a
+  legacy mcedit schematic (`.width/.height/.length`) and carries a hard-coded pre-flattening
+  numeric BLOCK_ID_MAP (0=air, 1=stone, 4=cobblestone…). It cannot consume a sponge
+  `.schem` or 1.13+ state IDs. Installed with `--no-save`, inspected, removed. Don't retry.
+  (4) A terrain "flat site" scan that starts its downward search at a fixed ceiling silently
+  reports the CEILING as the surface for every column above it — a 33x33 scan produced 134
+  fake "flat 5x5 plateaus at y=127" and the first build attempt walked into solid stone.
+  Always search down from well above the bot AND assert the block above the hit is air.
+  (5) Building on natural terrain is the real bottleneck, not the builder: across ~2000
+  scanned columns of this world there was often NO uniform-height clear 5x5. Expect to level
+  a site (buildFloor) or accept `clearSite:true` digging into a slope.
 - **Driver anti-wedge rules**: never repeat an identical polling eval more than 3
   times (a wedged driver polling a stuck goal froze a bot for minutes); wrap every
   goto in a ~20s Promise.race timeout; batch 20-40 blocks per eval.

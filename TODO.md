@@ -61,6 +61,27 @@ Structures and mining sites should look like a tidy human built them, not bot da
   buildFloor, staircaseDown with rails/torches, frameStructure) that take dimensions
   + material and place blocks in structured order; drivers stop free-handing.
 
+**BUILDING HALF: DONE (engine v7, verified live 2026-09-01, HuettenHorst on 3107).**
+`prismarine-schematic` 1.3.0 adopted as the file layer: `POST /blueprint/load` (runner.js)
+parses a `.schem` into an ordered placement list on `globalThis.__blueprints`, and
+`buildSchematic` builds it — with restocking from a `chest:{x,y,z}` arg, `clearSite`,
+deferred retries for cells with no reference face, and a block-by-block `verified` pass.
+buildWall/buildFloor/frameStructure were rewritten onto the same builder core (args and
+result keys stay backward compatible) and now also generate their placement lists through
+pure `__skills.blueprints.{wall,floor,frame}` generators, so they still work with no
+schematic library present. frameStructure delivers the TODO-1 aesthetic directly: log
+corner posts + plank infill + a real 1x2 doorway on any named side, optional flat roof and
+interior floor. Live results: frameStructure 46/46 verified, buildSchematic (5x4x5 hut)
+62/62 verified with 1 restock trip, buildWall 12/12 from an empty inventory via one restock.
+`mineflayer-schem` 1.5.2 trialed and rejected (legacy mcedit/pre-flattening only — see
+LEARNING_HANDOFF.md). Docs: README.md "Blueprint building", DRIVER_GUIDE.md "BLUEPRINT
+BUILDING". STILL OPEN in this item: (a) the MINING half (no naked 1x1 holes, backfill,
+shaft markers, ramp access for quarries); (b) `buildStaircase` is the one build skill never
+live-run; (c) schematic block STATES are ignored — stairs/doors/torches in a third-party
+`.schem` get default facing and show up as `verified.mismatched` (v7.1 work); (d) a
+`levelSite`/terrain-flattening helper, because finding a naturally flat 5x5 in this world
+is harder than building on it.
+
 ## 2. Baritone pathfinding + mining functions
 Two tracks (research already done, see AUTONOMY_PLAN.md):
 - **ashfinder now**: add `@miner-org/mineflayer-baritone` 4.6.2 as an OPT-IN second

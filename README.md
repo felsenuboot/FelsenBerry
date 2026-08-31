@@ -271,22 +271,58 @@ sampled states of `running:false` while items were pending.
 | `depositToChest` | `pos` {x,y,z} (else nearest), `keep` [], `keepTools` true, `items` whitelist | 22 cobble into depot chest B + `DEPOT +…` chat ledger |
 | `safeDescend` | `toY`, `dir`, `torchEvery` 8, `maxSteps` 128, `minY` -59 | 45° staircase y97→92, lava-scanned, drops swept, torches placed |
 | `come` | `x,y,z`, `range` 1 | walks there with stall recovery |
-| `buildWall` | `origin` {x,y,z}, `width` 5, `height` 3, `material`, `axis` 'x'/'z' | 3x2 cobblestone wall, 6/6 placed, block-verified |
-| `buildFloor` | `origin` {x,y,z}, `width` 5, `length` 5, `material` | shares `placeBlockAt` with buildWall — NOT yet individually live-verified, syntax-checked only |
-| `frameStructure` | `origin`, `width`≥3, `depth`≥3, `height` 4, `cornerMaterial` oak_log, `fillMaterial` oak_planks, `doorGap` true | perimeter shell w/ corner posts + door gap — NOT yet individually live-verified, syntax-checked only |
-| `buildStaircase` | `origin` (opt), `toY`, `dir`, `material` `*_stairs`, `rail` (opt fence), `torchEvery` 6, `maxSteps` 96 | built-structure counterpart to safeDescend, uses ctx.autoTorch — NOT yet live-verified, syntax-checked only |
+| `buildSchematic` | `blueprint` name **or** inline `placements` [{name,pos:[x,y,z]}], `chest` {x,y,z}, `maxRestocks` 3, `clearSite` false, `skipMissing` false | 5x4x5 .schem hut: 62/62 placed, 62/62 verified, 1 restock trip (HuettenHorst) |
+| `buildWall` | `origin` {x,y,z} (or `from`/`to`), `width` 5, `height` 3, `material`, `axis` 'x'/'z', `chest`, `clearSite` true | 4x3 oak_log wall built from an EMPTY inventory via one chest restock, 12/12 verified |
+| `buildFloor` | `origin` {x,y,z} (or `from`/`to`+`y`), `width` 5, `length` 5, `material`, `chest`, `clearSite` true | same generator + builder core as buildWall (which is verified); not separately live-run |
+| `frameStructure` | `origin`, `width`≥3, `depth`≥3, `height` 4, `cornerMaterial` oak_log, `fillMaterial` oak_planks, `doorway` 'north'/'south'/'east'/'west'/null, `roof`, `floor`, `chest`, `clearSite` true | 5x5x3 log-corner + cobble-infill shell: 46/46 placed, 46/46 verified, doorway gap correct |
+| `buildStaircase` | `origin` (opt), `toY`, `dir`, `material` `*_stairs`, `rail` (opt fence), `torchEvery` 6, `maxSteps` 96 | built-structure counterpart to safeDescend, uses ctx.autoTorch — still NOT live-verified |
 
-### Blueprint skills (engine v5, added 2026-08-31 — buildWall live-verified, the other three are code-complete + syntax-checked but NOT yet live-tested; see ENGINE_NOTES.md)
+### Blueprint building (engine v7, verified live 2026-09-01, HuettenHorst on 3107)
 
-All four share a new `ctx.placeBlockAt(pos, itemName)` primitive (skills.js): idempotent
-(matching block already there = no-op), clears a wrong block first (refuses to touch
-anything in a new `PROTECTED` set — chests/furnaces/crafting tables/beds/etc. — returns
-`protected_block` instead of bulldozing infrastructure), then tries all 6 neighbour faces
-(floor first) to find somewhere solid to place against. `buildStaircase` additionally
-falls back to placing one support block (cobblestone/dirt/stone, whatever's held) under a
-step if it would otherwise float over open air (e.g. building down into a quarry pit), and
-reuses `ctx.autoTorch` for lighting — it's the built-structure counterpart to `safeDescend`
-(which digs raw stone) for cases where a tidy human-made stairway is wanted instead.
+Two front ends, **one builder**. The file layer lives in `runner.js` (skills.js can never
+`require()`): `POST /blueprint/load` parses a `.schem` with **prismarine-schematic 1.3.0**
+into an ordered, world-anchored placement list on `globalThis.__blueprints[name]`, which
+`buildSchematic` reads directly out of the same process — no serialization, no /eval size
+limit. The parametric generators (`__skills.blueprints.{wall,floor,frame}`) produce the same
+`[{name, pos:[x,y,z]}]` shape in pure code, so the build skills work with no schematic
+library installed at all.
+
+```sh
+curl -s -X POST http://127.0.0.1:3107/blueprint/load -H 'Content-Type: application/json' \
+  -d '{"name":"hut5","path":"/home/felix/minecraft/bots/blueprints/hut5.schem","at":{"x":2,"y":104,"z":32}}'
+# {"ok":true,"blocks":62,"bill":{"oak_log":16,"oak_planks":46},"size":{"x":5,"y":4,"z":5},"warnings":[]}
+curl -s http://127.0.0.1:3107/blueprint/list          # registry (also GET-able while disconnected)
+curl -s -X POST http://127.0.0.1:3107/blueprint/drop -d '{"name":"hut5"}'
+./task.sh 3107 start buildSchematic '{"blueprint":"hut5","chest":{"x":-2,"y":103,"z":34}}'
+```
+`at` is the world MIN corner; `path` must resolve under the bots dir (or pass `base64`);
+cap 4096 non-air blocks; the registry survives reconnects but **NOT a process restart** —
+re-POST after every `./spawn.sh`, same as `./inject.sh`. A missing prismarine-schematic
+degrades to `501` on `/blueprint/load` and the runner still starts clean (verified).
+
+What the shared builder (`buildCore`) does, in order — `planning` (bill of materials, count
+what's already correct, warn on gravity blocks) → `travelling` (loads the site chunks) →
+`building` (bottom-up, row-major) → `restocking` (only when a material runs out and a `chest`
+was given; withdraws exactly what the REST of the build needs, then returns) → `deferred`
+(2 extra rounds over cells that had no reference face or were blocked by the bot's own
+hitbox — neighbours placed later give them something to attach to) → `finishing` (drop sweep,
+then a block-by-block `verified:{ok,mismatched,examples}` re-read of the whole site).
+
+`ctx.placeBlockAt(pos, blockName, {clearMismatch, ...})` is the primitive underneath (the
+v5/v6 `{ok, already, reason}` contract is unchanged). Quirk defenses baked in: unloaded
+chunk → travel then retry; plant clutter in the cell is always dug (leaf_litter); the bot's
+own hitbox → step aside and retry; out of reach → `gotoNear`→`gotoSee` ladder; an
+*interactive* reference block (chest/table/door/…) → sneak-place so the right-click doesn't
+open its UI; and every `bot.placeBlock` is raced against 5 s **and post-verified with
+blockAt**, because it can both hang on a server rejection and resolve without the block
+appearing. `PROTECTED` blocks are never dug to clear a cell.
+
+Pathfinder is the other hazard: it digs traversal blocks with the held tool and spends
+inventory blocks as scaffolding. During a build the engine installs Movements with
+`scafoldingBlocks = []`, `allow1by1towers = false` and an `exclusionAreasBreak` guard
+returning 100 for the build's own cells (pathfinder's `safeToBreak` treats ≥100 as
+unbreakable), then restores the previous movements in the task's `finally` — verified live,
+including after a mid-task `stop`.
 
 ### Torch discipline (engine v4, verified live 2026-08-31)
 

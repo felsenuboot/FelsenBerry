@@ -1,4 +1,4 @@
-DRIVER GUIDE — Minecraft bot skill library (__skills v6)
+DRIVER GUIDE — Minecraft bot skill library (__skills v7)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
 INJECT (idempotent; MUST re-run after every ./spawn.sh — engine survives reconnects, NOT process restarts)
@@ -8,9 +8,11 @@ INJECT (idempotent; MUST re-run after every ./spawn.sh — engine survives recon
 
 DISCOVER
   ./task.sh <port> list   # come, collectDrops, chopTrees, mineLane, huntAnimals, depositToChest,
-                          # safeDescend, buildWall, buildFloor, frameStructure, buildStaircase
-                          # (v5: the four build* skills are code-complete; only buildWall is
-                          # live-verified so far — see ENGINE_NOTES.md before relying on the rest)
+                          # safeDescend, buildSchematic, buildWall, buildFloor, frameStructure,
+                          # buildStaircase
+                          # (v7: buildSchematic/buildWall/frameStructure are live-verified;
+                          #  buildFloor shares the same engine; buildStaircase is still the one
+                          #  build skill never live-run — see ENGINE_NOTES.md before trusting it)
 
 START (fire-and-forget; returns {taskId} instantly)
   ./task.sh <port> start mineLane '{"target":"stone","count":5}'
@@ -99,6 +101,51 @@ ERRORS AND ESCALATION
     - a RUNNING task shows no progress delta (same phase/counters) across 2-3 polls past its budget.
   To escalate: ./task.sh <port> stop first, then inspect via /eval (position, blocks, inventory), then act.
 
+BLUEPRINT BUILDING (v7 — TODO 1 "human-looking builds"; all four skills share ONE engine)
+  Check BASE.md BEFORE you build anything another bot could use, and never site a build on top
+  of a registered row. All build skills are IDEMPOTENT (a block that is already correct is
+  skipped), so "fix the cause and restart with the same args" is always safe.
+
+  Parametric (no schematic file needed):
+    ./task.sh <port> start frameStructure '{"origin":{"x":-3,"y":104,"z":28},"width":5,"depth":5,
+      "height":4,"cornerMaterial":"oak_log","fillMaterial":"oak_planks","doorway":"south"}'
+    ./task.sh <port> start buildWall  '{"origin":{"x":2,"y":104,"z":31},"width":4,"height":3,
+      "axis":"x","material":"oak_planks"}'          # or {"from":{x,y,z},"to":{x,z}} instead
+    ./task.sh <port> start buildFloor '{"origin":{"x":2,"y":103,"z":31},"width":5,"length":5,
+      "material":"oak_planks"}'                      # or {"from":{x,z},"to":{x,z},"y":103}
+  frameStructure is the aesthetics primitive: log corner posts + plank infill + a real 1-wide
+  2-tall doorway gap ('north'(=z origin, the v5/v6 default) |'south'|'east'|'west'|null), plus
+  optional `roof` (true = fillMaterial, or a block name) and `floor` (block name, fills the
+  INTERIOR one block below the walls). Put a door item in the gap yourself if you want one.
+
+  From a .schem file (prismarine-schematic 1.3.0, parsed runner-side):
+    curl -s -X POST http://127.0.0.1:<port>/blueprint/load -H 'Content-Type: application/json' \
+      -d '{"name":"hut5","path":"/home/felix/minecraft/bots/blueprints/hut5.schem","at":{"x":2,"y":104,"z":32}}'
+    # -> {"ok":true,"blocks":62,"bill":{"oak_log":16,"oak_planks":46},"size":{...},"warnings":[]}
+    curl -s http://127.0.0.1:<port>/blueprint/list        # what this bot has loaded
+    ./task.sh <port> start buildSchematic '{"blueprint":"hut5","chest":{"x":-2,"y":103,"z":34}}'
+  `at` is the world MIN corner. `path` must live under /home/felix/minecraft/bots/ (or send
+  `base64` instead). Cap 4096 non-air blocks. !! THE BLUEPRINT REGISTRY DOES NOT SURVIVE A
+  PROCESS RESTART — re-POST /blueprint/load after every ./spawn.sh, exactly like ./inject.sh.
+  Small lists can skip the file entirely: {"placements":[{"name":"oak_planks","pos":[2,103,36]}]}.
+
+  Common args on all four: `chest:{x,y,z}` (restock materials mid-build instead of failing —
+  the bot walks over, withdraws only what the rest of the build still needs, and walks back;
+  `maxRestocks` default 3), `clearSite` (buildSchematic default false, the other three true —
+  when true the builder digs blocks occupying build cells; it NEVER touches chests/furnaces/
+  crafting tables/beds — those come back as `protected_block`).
+
+  READ `result.verified`, NOT the placed counter: every build ends with a block-by-block
+  re-read of the site — {ok, mismatched, examples[]}. mismatched>0 means the world does not
+  match the plan (gravity blocks that fell, a server-rejected placement, or a schematic with
+  stairs/doors whose facing v7 does not reproduce yet).
+    {"blocks":62,"placed":62,"already":0,"deferredResolved":0,"restocks":1,"missing":{},
+     "failed":[],"failedCount":0,"verified":{"ok":62,"mismatched":0,"examples":[]}}
+  Failure codes: `no_material` (out of a material and no chest, or the chest is empty too —
+  restock and restart), `build_stuck` (3 placements in a row failed the same way — go look at
+  the site), `not_found`/`unreachable` (bad chest coords). Pass `skipMissing:true` to report
+  missing materials instead of failing.
+
 HOUSE RULES (enforced inside the engine — do not re-implement in driver code)
   Tool preflight (equipBestTool + canHarvest gate, digs raced vs digTime*3+1.5s), drop sweep with
   inventory-delta verification after every dig/kill, one throttled English chat per phase,
@@ -116,7 +163,14 @@ GROWING THE LIBRARY (hard rule)
 KNOWN QUIRKS (1.21.11 / pathfinder 2.4.5) — details in README.md and LEARNING_HANDOFF.md
   leaf_litter wedges prismarine-physics (handled by the stall watchdog); GoalNear can recalc partial
   paths forever near clutter (depositToChest falls back to GoalLookAtBlock); GoalBreakBlock is
-  broken — never use it. skills.js is ~50KB, well under the 1MB /eval cap.
+  broken — never use it. skills.js is ~115KB, well under the 1MB /eval cap.
+  Placement-specific (v7): bot.placeBlock can resolve without the block appearing AND can hang on
+  a server rejection ("Event blockUpdate did not fire within timeout of 5000ms") — the engine
+  races it and re-reads the block, but any RAW /eval placement of yours must verify with
+  bot.blockAt afterwards instead of trusting the promise. Pathfinder digs traversal blocks and
+  spends inventory blocks as scaffolding; during a build the engine swaps in Movements with
+  scafoldingBlocks=[] and an exclusionAreasBreak guard over the build's own cells, and restores
+  your movements in the task's finally — including after a stop/cancel.
 
 ## The learning loop (MANDATORY for every driver)
 
@@ -127,3 +181,30 @@ the open entries and ships fixes, so a finding you don't log is a bug every futu
 bot re-suffers. Workarounds additionally go to LEARNING_HANDOFF.md (driver-facing);
 big roadmap items get triaged into TODO.md by the lead. Log first, work around
 second.
+
+## Update rollout protocol (user law, 2026-09-01)
+
+**Engineer updates benefit EVERYONE.** When an engineer live-verifies an engine/
+payload change: bump the version, then ROLL OUT — notify every driver directly
+(SendMessage), announce the version in chat, and the rollout manager (curator)
+version-audits every bot afterward and chases stragglers until the whole fleet
+runs the new version. No bot gets left behind on an old engine.
+
+**Driver inventions get vetted, then shared.** If a driver/bot invents a major
+improvement (a new primitive, a better pattern, a fix), it does NOT stay private
+to one bot and is NOT self-deployed as engine code: log it as a proposal in
+FEEDBACK.md → an engineer vets it (correctness, safety, fleet fit) → the engineer
+ships it into the engine → fleet-wide rollout per the above. Short-lived personal
+workarounds are fine while waiting, but must be logged the moment they're used.
+
+(The endgame is runner.js auto-inject-on-spawn (SYNTHESIS P0.2) making rollouts
+automatic; until that lands, this manual protocol is law.)
+
+## Resource-harvest distance law (user, 2026-09-01, after repeat base damage)
+Resource gathering (chopTrees, mining sweeps, grass beyond the farm) happens
+>=50 blocks from the plaza center (-3,111,4). Near-base is for BUILDING, FARMING,
+DEPOT work and transit only. Designated harvest zones: NW forest (~-60..-30, z<0),
+SE scrub (x>25, z>40 — clear of CAVECREW), N slopes past z<-20. Rationale: every
+"nearest log" search near base eventually eats a structure (house frames and
+fences are NOT tree-distinguishable to the skills yet). Venture OUT — the world
+is big and the base is finite.

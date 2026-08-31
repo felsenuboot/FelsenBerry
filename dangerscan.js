@@ -1,0 +1,267 @@
+// dangerscan v1 payload (inject via POST /eval, idempotent).
+//
+// The 4Hz "wallhack" hostile scan from research/survival-doctrine.md section 3, plus the
+// status fields three FEEDBACK entries asked for. Pure read — it never moves the bot,
+// never digs, never fights. It only ANSWERS "how dangerous is it right here".
+//
+// Why it works: the server streams every tracked entity within ~48 blocks through
+// bot.entities REGARDLESS of line of sight. Scanning that object is free (data is already
+// client-side) and sees the zombie in the sealed cavity BEFORE the bot digs into it.
+// bot.world is a WorldSync on this stack, so raycast LOS checks are synchronous —
+// verified live, no await in the hot loop.
+//
+// Provides:
+//   globalThis.__danger.score / .state ('calm'|'alert'|'panic') / .threats[]
+//   globalThis.__danger.on(fn)   -> state-change callbacks (survival.js subscribes)
+//   __skills.status() gains  bot.held {name,dur%}, bot.light/skyLight/surfaceExposed,
+//                            and a top-level danger block — drivers get it for free.
+// Resolves FEEDBACK: "tool durability invisible in status", the signal half of
+// "come/goto silently tunnels underground", "elevation overhang blind spot".
+//
+// Ordering: inject AFTER skills.js (it wraps __skills.status). Re-inject after restarts.
+// Tune live:  __danger.weights.creeper = 6   /   __danger.thresholds.alert = 3
+// Remove: __danger.restore()
+if (globalThis.__danger && globalThis.__danger.restore) { try { globalThis.__danger.restore(); } catch (e) {} }
+
+const g = {
+  enabled: true, version: 1,
+  score: 0, state: 'calm', threats: [], nearest: null,
+  scans: 0, errors: 0, lastScan: 0, lastStateChange: 0,
+  light: null, skyLight: null, surfaceExposed: null,
+  held: null,
+  listeners: [],
+  // survival-doctrine section 3 table. All constants live here so field tuning is one /eval.
+  weights: {
+    creeper: 5, skeleton: 4, stray: 4, bogged: 4, witch: 3.5, phantom: 3,
+    cave_spider: 3, drowned: 2.5, zombie: 2.5, husk: 2.5, zombie_villager: 2.5,
+    zombified_piglin: 2, spider: 2, slime: 1, silverfish: 1, endermite: 1,
+    pillager: 3.5, vindicator: 4, evoker: 4, ravager: 5, vex: 2,
+    blaze: 4, ghast: 3, magma_cube: 1.5, piglin_brute: 4.5, hoglin: 3,
+    warden: 10, enderman: 0.5,
+  },
+  thresholds: {
+    radius: 24,        // entities beyond this contribute nothing
+    alert: 2.5,        // >= -> ALERT
+    alertLeave: 1.5,   // hysteresis: drop back to calm only below this
+    panic: 5,          // >= -> PANIC
+    hpPanic: 8,        // existing panicguard rule, kept
+    creeperRadius: 8,  // any creeper this close -> PANIC regardless of score
+    maxRaycasts: 8,    // bound the per-scan LOS cost
+    toolLowPct: 15,    // <= -> log tool_low once per tool
+    panicSelfHealMs: 10000, // clear a latched panic after this much calm IF nobody subscribed
+  },
+  calmSince: 0,
+  intervalMs: 250,
+};
+globalThis.__danger = g;
+
+const pushLog = (lvl, msg) => {
+  try {
+    const S = globalThis.__skills;
+    if (!S || !Array.isArray(S.log)) return;
+    S._seq = (S._seq || 0) + 1;
+    S.log.push({ seq: S._seq, lvl, msg: String(msg).slice(0, 200) });
+    if (S.log.length > 400) S.log.splice(0, S.log.length - 400);
+  } catch (e) {}
+};
+
+// ---- line of sight (sync on WorldSync; null return = nothing solid in the way) ----
+const hasLOS = (eye, ent) => {
+  try {
+    const target = ent.position.offset(0, Math.min(ent.height || 1.8, 1.8) * 0.5, 0);
+    const dir = target.minus(eye);
+    const dist = dir.norm();
+    if (dist < 0.5) return true;
+    const hit = bot.world.raycast(eye, dir.scaled(1 / dist), Math.min(dist, g.thresholds.radius));
+    return !hit;
+  } catch (e) { return true; } // fail toward caution: assume it can see us
+};
+
+// ---- held-item durability ----
+const heldInfo = () => {
+  try {
+    const it = bot.heldItem;
+    if (!it) return null;
+    const max = it.maxDurability || (bot.registry.items[it.type] && bot.registry.items[it.type].maxDurability) || 0;
+    if (!max) return { name: it.name, count: it.count };
+    const used = it.durabilityUsed || 0;
+    return { name: it.name, count: it.count, dur: Math.max(0, Math.round(((max - used) / max) * 100)) };
+  } catch (e) { return null; }
+};
+
+// ---- light / sky exposure (the "am I actually underground" signal) ----
+const lightInfo = () => {
+  try {
+    const p = bot.entity.position;
+    const b = bot.blockAt(p.offset(0, 1, 0)) || bot.blockAt(p);
+    const sky = bot.world.getSkyLight ? bot.world.getSkyLight(p.offset(0, 1, 0)) : (b ? b.skyLight : null);
+    return {
+      light: b && typeof b.light === 'number' ? b.light : null,
+      skyLight: typeof sky === 'number' ? sky : (b ? b.skyLight : null),
+    };
+  } catch (e) { return { light: null, skyLight: null }; }
+};
+
+const scan = () => {
+  const out = { score: 0, threats: [] };
+  const me = bot.entity && bot.entity.position;
+  if (!me || typeof bot.health !== 'number') return out;
+  const eye = me.offset(0, 1.62, 0);
+  const R = g.thresholds.radius;
+
+  // collect candidates first, nearest-first, so the raycast budget goes to what matters
+  const cands = [];
+  for (const e of Object.values(bot.entities)) {
+    if (!e || !e.position || e === bot.entity) continue;
+    if (e.type !== 'hostile' && e.type !== 'mob') continue;
+    const w = g.weights[e.name];
+    if (!w) continue;
+    const d = e.position.distanceTo(me);
+    if (d > R) continue;
+    cands.push({ e, w, d });
+  }
+  cands.sort((a, b) => a.d - b.d);
+
+  let rays = 0;
+  for (const c of cands) {
+    const ranged = c.e.name === 'skeleton' || c.e.name === 'stray' || c.e.name === 'bogged' || c.e.name === 'witch';
+    let los;
+    if (rays < g.thresholds.maxRaycasts) { los = hasLOS(eye, c.e) ? 1 : (ranged ? 0.3 : 0.6); rays++; }
+    else los = ranged ? 0.3 : 0.6; // budget spent: assume no LOS rather than skipping the threat
+    const s = c.w * Math.max(0, (R - c.d) / R) * los;
+    out.score += s;
+    out.threats.push({
+      name: c.e.name, d: Math.round(c.d * 10) / 10, s: Math.round(s * 100) / 100,
+      los: los === 1, ranged, id: c.e.id,
+      pos: [Math.round(c.e.position.x), Math.round(c.e.position.y), Math.round(c.e.position.z)],
+    });
+  }
+
+  // situational multipliers (survival-doctrine section 3)
+  if (bot.health < 10) out.score *= 1.5;
+  if (bot.food < 6) out.score *= 1.25;
+  if (me.y < 0) out.score *= 1.25;
+  const li = lightInfo();
+  if (li.light === 0 && li.skyLight === 0) out.score += 0.5; // standing in spawnable dark
+
+  out.score = Math.round(out.score * 100) / 100;
+  out.threats.sort((a, b) => b.s - a.s);
+  out.light = li.light; out.skyLight = li.skyLight;
+  return out;
+};
+
+const panicNow = (score, threats) => {
+  const T = g.thresholds;
+  return score >= T.panic || bot.health < T.hpPanic ||
+    threats.some((t) => t.name === 'creeper' && t.d <= T.creeperRadius);
+};
+
+const decideState = (score, threats) => {
+  const T = g.thresholds;
+  if (panicNow(score, threats)) { g.calmSince = 0; return 'panic'; }
+  if (g.state === 'panic') {
+    // survival.js owns the panic exit and calls clearPanic() when its recovery
+    // completes. With NO subscriber the latch would stick forever (seen in test),
+    // so a scanner running solo self-heals after PANIC_SELFHEAL_MS of calm.
+    if (g.listeners.length > 0) return 'panic';
+    if (!g.calmSince) g.calmSince = Date.now();
+    if (Date.now() - g.calmSince < g.thresholds.panicSelfHealMs) return 'panic';
+    g.calmSince = 0;
+  }
+  if (score >= T.alert) return 'alert';
+  if (g.state === 'alert' && score >= T.alertLeave) return 'alert'; // hysteresis
+  return 'calm';
+};
+
+let lastToolWarn = '';
+const tick = () => {
+  if (globalThis.__danger !== g || !g.enabled) { clearInterval(g.timer); return; }
+  try {
+    const r = scan();
+    g.score = r.score; g.threats = r.threats.slice(0, 6);
+    g.nearest = r.threats.length ? r.threats[0] : null;
+    g.light = r.light; g.skyLight = r.skyLight;
+    g.surfaceExposed = typeof r.skyLight === 'number' ? r.skyLight > 0 : null;
+    g.held = heldInfo();
+    g.scans++; g.lastScan = Date.now();
+
+    // tool_low: once per tool instance, not per tick
+    if (g.held && typeof g.held.dur === 'number' && g.held.dur <= g.thresholds.toolLowPct) {
+      const key = g.held.name + ':' + Math.floor(g.held.dur / 5);
+      if (key !== lastToolWarn) {
+        lastToolWarn = key;
+        pushLog('warn', `tool_low: ${g.held.name} at ${g.held.dur}% — replacing it outranks the job`);
+      }
+    } else if (g.held && typeof g.held.dur === 'number' && g.held.dur > g.thresholds.toolLowPct + 10) {
+      lastToolWarn = '';
+    }
+
+    const next = decideState(g.score, g.threats);
+    if (next !== g.state) {
+      const prev = g.state;
+      g.state = next; g.lastStateChange = Date.now();
+      const top = g.nearest ? `${g.nearest.name} at ${g.nearest.d}` : 'no visible threat';
+      if (next !== 'calm') pushLog('warn', `danger ${next} (${g.score}): ${top}`);
+      else pushLog('info', `danger clear (${g.score})`);
+      for (const fn of g.listeners.slice()) { try { fn(next, prev, g); } catch (e) { g.errors++; } }
+    }
+  } catch (e) { g.errors++; }
+};
+
+g.on = (fn) => { if (typeof fn === 'function' && !g.listeners.includes(fn)) g.listeners.push(fn); return g.listeners.length; };
+g.off = (fn) => { g.listeners = g.listeners.filter((f) => f !== fn); return g.listeners.length; };
+g.scan = scan;               // one-shot, for manual /eval inspection
+g.clearPanic = () => { g.state = 'calm'; g.lastStateChange = Date.now(); }; // survival.js calls this on recovery
+g.snapshot = () => ({
+  score: g.score, state: g.state, threats: g.threats, held: g.held,
+  light: g.light, skyLight: g.skyLight, surfaceExposed: g.surfaceExposed,
+  scans: g.scans, errors: g.errors,
+});
+
+// ---- graft the new fields onto __skills.status so drivers get them free ----
+// (When P0.4 lands natively in skills.js this wrapper detects it and stands down.)
+const S = globalThis.__skills;
+if (S && typeof S.status === 'function' && !S.status.__dangerWrapped) {
+  const orig = S.status.bind(S);
+  const wrapped = (b, since = 0) => {
+    const st = orig(b, since);
+    try {
+      if (st && st.bot && !st.bot.disconnected) {
+        if (g.held) st.bot.held = g.held;
+        st.bot.light = g.light;
+        st.bot.skyLight = g.skyLight;
+        st.bot.surfaceExposed = g.surfaceExposed;
+      }
+      st.danger = { score: g.score, state: g.state, threats: g.threats.slice(0, 3) };
+      // survival.js does not wrap status itself (one wrapper, no ordering hazard)
+      if (globalThis.__survival && globalThis.__survival.brief) st.survival = globalThis.__survival.brief();
+    } catch (e) {}
+    return st;
+  };
+  wrapped.__dangerWrapped = true;
+  wrapped.__orig = orig;
+  S.status = wrapped;
+  g.statusWrapped = true;
+} else {
+  g.statusWrapped = false;
+}
+
+g.restore = () => {
+  g.enabled = false;
+  if (g.timer) clearInterval(g.timer);
+  g.listeners = [];
+  try {
+    const SS = globalThis.__skills;
+    if (SS && SS.status && SS.status.__dangerWrapped) SS.status = SS.status.__orig;
+  } catch (e) {}
+};
+
+g.timer = setInterval(tick, g.intervalMs);
+tick();
+
+return {
+  installed: true, version: 1, intervalMs: g.intervalMs,
+  statusWrapped: g.statusWrapped, skillsPresent: Boolean(S),
+  weightsKnown: Object.keys(g.weights).length,
+  first: g.snapshot(),
+};

@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "note": "Machine-readable no-dig registry. Source of truth for digguard.js (bot.dig guard) and, once P0.3 lands, for pathfinder Movements exclusionAreasBreak/Place. Human source of truth stays BASE.md section 1 — when you add/change a row there, mirror it here. digguard hot-reloads this file (mtime poll, ~10s), so edits reach running bots without re-injection.",
+  "schema": {
+    "region.kind": "box | columns | sphere",
+    "box": "min [x,y,z] and max [x,y,z], both INCLUSIVE",
+    "columns": "list of [x,z] pairs plus yMin/yMax (inclusive) — for pillar/post structures",
+    "sphere": "center [x,y,z] + radius (block distance, 3D)",
+    "match": "optional regex (string, case-insensitive) on block.name — only blocks matching are protected. Absent = every non-air block in the region.",
+    "exclude": "optional list of boxes carved OUT of the region (intentional gaps: shafts, doorways)",
+    "reason": "shown in the refusal chat line / log"
+  },
+  "home": [-3, 111, 4],
+  "homeNote": "Fleet retreat anchor (crafting_table_1 / plaza hub). survival.js flees here when the base is within 40 blocks and the threat is melee-only.",
+  "neverProtect": [
+    "air", "cave_air", "void_air", "water", "lava", "torch", "wall_torch", "soul_torch",
+    "short_grass", "tall_grass", "fern", "large_fern", "dead_bush", "snow", "vine",
+    "wheat", "carrots", "potatoes", "beetroots", "sugar_cane", "leaf_litter"
+  ],
+  "regions": [
+    {
+      "id": "torch_posts_1",
+      "kind": "columns",
+      "columns": [[-8, -1], [-8, 4], [-8, 9], [-3, -1], [-3, 9], [2, -1], [2, 4], [2, 9]],
+      "yMin": 109,
+      "yMax": 116,
+      "match": "(_log$|^stripped_)",
+      "reason": "plaza_1 torch-post pillars — these are placed structure, not trees"
+    },
+    {
+      "id": "plaza_1_floor",
+      "kind": "box",
+      "min": [-8, 110, -1],
+      "max": [2, 110, 9],
+      "match": "^(cobblestone|dirt|grass_block|stone)$",
+      "exclude": [
+        { "min": [-4, 108, 4], "max": [-4, 110, 4] }
+      ],
+      "reason": "plaza_1 floor course — pathfinder has dug through this twice (BASE.md ss7)"
+    },
+    {
+      "id": "house_1",
+      "kind": "box",
+      "min": [-8, 110, 10],
+      "max": [-3, 114, 15],
+      "match": "(_log$|_planks$|^stripped_|^cobblestone$|_stairs$|_slab$|^glass|_door$)",
+      "reason": "house_1 shell (floor, frame, roof)"
+    },
+    {
+      "id": "main_hall_1",
+      "kind": "box",
+      "min": [-7, 110, -6],
+      "max": [0, 114, -2],
+      "match": "(_log$|_planks$|^stripped_|^cobblestone$|_stairs$|_slab$|^glass|_door$)",
+      "reason": "main_hall_1 shell (under construction by PflasterPeter)"
+    },
+    {
+      "id": "farm_1",
+      "kind": "box",
+      "min": [-2, 109, 10],
+      "max": [4, 111, 15],
+      "match": "^(farmland|oak_fence|oak_fence_gate)$",
+      "reason": "farm_1 tilled plot + fence — crops themselves stay harvestable"
+    },
+    {
+      "id": "pond_1",
+      "kind": "box",
+      "min": [1, 109, 10],
+      "max": [2, 110, 11],
+      "match": "^(cobblestone|dirt|stone|grass_block)$",
+      "reason": "pond_1 basin walls — breaching it drains farm_1's hydration"
+    },
+    {
+      "id": "pen_1",
+      "kind": "box",
+      "min": [-32, 133, 134],
+      "max": [-26, 141, 140],
+      "match": "(_fence$|_fence_gate$)",
+      "reason": "pen_1 livestock fence"
+    },
+    {
+      "id": "base_containers",
+      "kind": "box",
+      "min": [-6, 110, 0],
+      "max": [-2, 112, 5],
+      "match": "^(chest|trapped_chest|furnace|blast_furnace|smoker|crafting_table|barrel)$",
+      "reason": "depot chests A/B/C, furnace_1/2, crafting_table_1"
+    },
+    {
+      "id": "cavecrew_camp",
+      "kind": "sphere",
+      "center": [11, 89, 55],
+      "radius": 16,
+      "reason": "CAVECREW allied-crew camp — foreign property, hands off (BASE.md ss8)"
+    },
+    {
+      "id": "cavecrew_workstations",
+      "kind": "sphere",
+      "center": [12, 89, 56],
+      "radius": 6,
+      "reason": "CAVECREW crafting table / workstations — foreign property"
+    }
+  ]
+}

@@ -182,7 +182,7 @@ async function applyPayloadStack(bot) {
     report.armor = `failed: ${err.message}`;
   }
   // 3. the skill engine + guard payloads — all idempotent, none bot-specific
-  for (const f of ['skills.js', 'digguard.js', 'graychat.js', 'panicguard.js']) {
+  for (const f of ['skills.js', 'digguard.js', 'graychat.js', 'panicguard.js', 'reachguard.js']) {
     const r = await injectPayload(bot, f);
     report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
   }
@@ -448,6 +448,7 @@ const server = http.createServer(async (req, res) => {
         graychat: typeof globalThis.__graychat !== 'undefined',
         panicguard: typeof globalThis.__panic !== 'undefined',
         idleguard: typeof globalThis.__idleguard !== 'undefined',
+        reachguard: typeof globalThis.__reachguard !== 'undefined',
       };
       let movements = null;
       try {

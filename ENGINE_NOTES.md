@@ -1,5 +1,16 @@
 # Engine dev handoff notes (engine-dev teammate, wound down 2026-08-31 ~21:41)
 
+> **SUPERSEDED IN PART — engine is now v7 (2026-09-01).** Everything below about the v5
+> blueprint skills being "code-complete but unverified" is out of date: `buildWall`,
+> `frameStructure` and the new `buildSchematic` are LIVE-VERIFIED, all four build skills now
+> run on one shared `buildCore` (planning → travelling → building → restocking → deferred →
+> finishing + a block-by-block verify pass), `prismarine-schematic` 1.3.0 is adopted as the
+> `.schem` file layer behind `POST /blueprint/load` in runner.js, and `mineflayer-schem` 1.5.2
+> was trialed and rejected (legacy mcedit format only). `buildStaircase` is STILL the one build
+> skill that has never been run live — the warning below stands for that one. See README.md
+> "Blueprint building", DRIVER_GUIDE.md "BLUEPRINT BUILDING", TODO.md item 1 and the v7 quirk
+> block in LEARNING_HANDOFF.md.
+
 Role changed: engine development moves from a single teammate to a multi-model workflow
 (Opus/Sonnet/Fable agents grinding TODO.md in parallel). This file is the state dump for
 whoever picks this up. Read TODO.md, LEARNING_HANDOFF.md, AUTONOMY_PLAN.md, DRIVER_GUIDE.md
