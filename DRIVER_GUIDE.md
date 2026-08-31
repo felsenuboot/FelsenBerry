@@ -1,10 +1,20 @@
-DRIVER GUIDE — Minecraft bot skill library (__skills v7)
+DRIVER GUIDE — Minecraft bot skill library (__skills v9)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
-INJECT (idempotent; MUST re-run after every ./spawn.sh — engine survives reconnects, NOT process restarts)
+INJECT — engine v8+ CHANGED THIS: check GET /state's `payloads` field first. If it's
+present, your bot is on the NEW runner.js process and skills/digguard/graychat/
+panicguard/reachguard already auto-reinstall on every spawn/reconnect — you do NOT need
+to manually re-inject them after a ./stop.sh+./spawn.sh restart. idleguard is the ONE
+exception: it only auto-installs if the process was started with `--role <role>`; if
+`payloads.idleguard` is false after a restart, inject it yourself (role-templated, see
+README.md's "Payload stack" section). If GET /state has NO `payloads` field, your bot
+is still on the pre-v8 runner.js process — treat everything below as still needed after
+every ./spawn.sh, same as before, until you restart the process:
   ./inject.sh <port>
   # raw: jq -Rs '{code:.}' skills.js | curl -s -X POST http://127.0.0.1:<port>/eval -H 'Content-Type: application/json' -d @-
   Safe while a task is RUNNING: old task is stopped cleanly, log/seq preserved, no orphans.
+  Manual re-inject ALWAYS works regardless of runner.js generation — same idempotent
+  jq-pipe pattern for digguard.js/graychat.js/panicguard.js/reachguard.js/idleguard.js.
 
 DISCOVER
   ./task.sh <port> list   # come, collectDrops, chopTrees, mineLane, huntAnimals, depositToChest,
@@ -208,3 +218,13 @@ SE scrub (x>25, z>40 — clear of CAVECREW), N slopes past z<-20. Rationale: eve
 "nearest log" search near base eventually eats a structure (house frames and
 fences are NOT tree-distinguishable to the skills yet). Venture OUT — the world
 is big and the base is finite.
+
+## Server-drop doctrine + completion truth (user, 2026-09-01)
+- If the SERVER drops or crashes: everyone REJOINS, always. Runner processes
+  auto-reconnect (v9 auto-injects the payload stack on every spawn); drivers just
+  verify /state afterward and resume the queue. Never wind a bot down because the
+  server blinked.
+- Task-state truth is status.task.done from __skills.status — NEVER infer from
+  watching the bot move or chat: idle-guard picks up finished bots and makes them
+  look busy, which has fooled multiple drivers into waiting on already-finished
+  tasks.

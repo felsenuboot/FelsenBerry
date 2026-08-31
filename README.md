@@ -66,10 +66,50 @@ Binds to `127.0.0.1:<port>` **only** — never exposed on the network.
 ```sh
 curl -s http://127.0.0.1:3101/state
 # {"name":"FurzFriedrich","connected":true,"position":{"x":-2.5,"y":115,"z":8.7},
-#  "health":20,"food":20,"dimension":"overworld","task":null}
+#  "health":20,"food":20,"dimension":"overworld","task":null,
+#  "payloads":{"skills":9,"digguard":true,"graychat":true,"panicguard":true,
+#              "idleguard":true,"reachguard":true},
+#  "movements":{"parkour":false,"maxDropDown":3,"sprint":true,"towers":false,"digCost":1},
+#  "orphanedGoto":false,"pathStuckRecent":0,"role":"lumberjack"}
 # "task" is non-null while /mine, /follow, or /hunt is active, e.g.
 # {"type":"follow","detail":"KackboonKevin","startedAt":"..."}
 # (bots started before the Baritone-like upgrade don't report "task")
+```
+
+`payloads`/`movements`/`orphanedGoto`/`pathStuckRecent`/`role` are engine v8+ (a bot
+running an OLDER runner.js **process** won't have them yet — a `POST /eval` skills.js
+re-injection alone doesn't add them, only a `./stop.sh` + `./spawn.sh` process restart
+does; check for the `payloads` key's presence to tell which runner.js generation a
+given bot is on). `payloads` is a LIVE check (`typeof globalThis.__x !== 'undefined'`),
+never a cached injection-time report — see "Payload stack" below. `movements` mirrors
+the bot's current `bot.pathfinder.movements` safety knobs. `orphanedGoto` flags a
+leaked `path_update` listener (a stuck `goto` promise still alive); `pathStuckRecent`
+counts `path_reset('stuck')` events in the last 15s (a wedge in progress). `role` is
+whatever `--role` the process was started with (`null` if none — see below).
+
+### Payload stack (engine v8+, auto-injected on every spawn)
+
+Every bot install six *payloads* — the skill engine plus five small guard scripts —
+installed via the same `/eval` AsyncFunction mechanism, each idempotent (safe to
+re-inject; re-installing replaces the old instance cleanly) and each surviving a
+Minecraft *reconnect* by re-running its setup (`bot.on('spawn', ...)`, not `once`).
+None of them survive a **process restart** (`./stop.sh`) on their own — but as of v8,
+`runner.js` re-installs the whole stack automatically on every `spawn` event (first
+connect, reconnect, AND death-respawn), so a `./stop.sh` + `./spawn.sh` cycle is now a
+one-step full upgrade instead of "restart, then remember 5 separate manual injections."
+
+| File | Does | Auto-injected? |
+|---|---|---|
+| `skills.js` | the task engine (see below) | always |
+| `digguard.js` | makes registered base infrastructure undiggable (bot.dig level + pathfinder planner level); reads `protected.json`, hot-reloads it | always |
+| `graychat.js` | routine chat routed through gray tellraw via the local RCON relay (`graybridge.js`), protocol/ledger lines and `!important` lines pass through plain | always |
+| `panicguard.js` | HP<8 abort-and-flee-home reflex, runs at game tick speed inside the ~50s driver polling gap | always |
+| `reachguard.js` | rejects out-of-range dig/place/activate/attack with an immediate `reach_violation` error instead of a silent hang (survival reach is ~4.5 blocks for blocks, ~3.0 for entities) | always |
+| `idleguard.js` | role-templated (`__ROLE__` substituted at inject time) idle-time work | **only if `runner.js` was started with `--role <role>`** — otherwise inject manually, see DRIVER_GUIDE.md |
+
+Manual re-inject (any payload, any time — idempotent):
+```sh
+jq -Rs '{code:.}' digguard.js | curl -s -X POST http://127.0.0.1:3101/eval -H 'Content-Type: application/json' -d @-
 ```
 
 ### POST /chat
