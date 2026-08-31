@@ -52,6 +52,7 @@ const CONTROL_PORT = parseInt(args.port, 10);
 const MC_HOST = args.host || '100.101.197.44';
 const MC_PORT = parseInt(args.mcport || '25565', 10);
 const MC_VERSION = args.version || undefined; // let mineflayer auto-detect unless pinned
+const ROLE = args.role || null; // optional: 'lumberjack'|'miner'|'hunter'|'builder' — enables auto-injected role-templated idleguard on spawn
 
 if (!NAME || !CONTROL_PORT) {
   console.error('Usage: node runner.js --name <username> --port <controlPort> [--host h] [--mcport p] [--version v]');
@@ -67,6 +68,134 @@ tryLoadPlugin('armorManager', () => {
   return m.default || m;
 });
 tryLoadPlugin('pvp', () => require('mineflayer-pvp').plugin);
+
+// ---------- movement profiles (research/movement-engines.md §2.2, P0.2/P0.3) ----------
+// baseMovements() is the SAFE DEFAULT applied on every spawn (see bot.on('spawn') below —
+// 'on' not 'once', because reconnect rebuilds the bot object with stock unsafe defaults;
+// that silent revert was the root cause of the "Movements silently reverted" mystery,
+// see FEEDBACK.md). HAUL/WORK/CAVE are opt-in per-task profiles exposed on globalThis so
+// skills.js (a self-contained /eval payload that can never require()) can reach them by
+// name: globalThis.__movementProfiles.HAUL(bot) etc. Never call before bot.pathfinder
+// exists (i.e. only from inside an /eval body or after 'spawn').
+function baseMovements(bot) {
+  const m = new Movements(bot);
+  const B = bot.registry.blocksByName;
+  // safety doctrine (FEEDBACK: unsafe defaults — parkour+drops+towers — killed MettMarcel)
+  m.allowParkour = false;
+  m.allow1by1towers = false;
+  m.infiniteLiquidDropdownDistance = false;
+  m.scafoldingBlocks = [];
+  m.maxDropDown = 3;
+  // never eat base infrastructure
+  for (const n of ['crafting_table', 'furnace', 'blast_furnace', 'smoker', 'barrel',
+    'chest', 'trapped_chest', 'ender_chest', 'lodestone', 'bell',
+    'enchanting_table', 'anvil', 'brewing_stand', 'loom', 'smithing_table']) {
+    if (B[n]) m.blocksCantBreak.add(B[n].id);
+  }
+  // the wedge fix (movement-engines §2.4): leaf_litter/torch/etc have shapes:[] and the
+  // planner classifies them as "air" (emptyBlocks) — it walks in and never digs them out,
+  // re-planning the identical doomed path every 3.5s until our wall-clock wrapper times
+  // out. blocksToAvoid flips them unsafe, so the planner digs them BEFORE stepping in.
+  for (const n of ['leaf_litter', 'torch', 'wall_torch', 'powder_snow', 'sweet_berry_bush',
+    'magma_block', 'campfire', 'soul_campfire', 'cactus', 'pointed_dripstone']) {
+    if (B[n]) m.blocksToAvoid.add(B[n].id);
+  }
+  // mobs are obstacles, not scenery
+  for (const e of ['creeper', 'zombie', 'skeleton', 'spider', 'witch', 'husk', 'drowned',
+    'enderman', 'phantom', 'pillager']) {
+    m.entitiesToAvoid.add(e);
+  }
+  m.entityCost = 2;
+  m.liquidCost = 8;
+  return m;
+}
+const MOVEMENT_PROFILES = {
+  // long surface hauls: fast, lazy about digging, willing to sprint (the fall death was
+  // parkour+maxDropDown, not sprinting — sprint alone saves ~30% ground speed)
+  HAUL(bot) {
+    const m = baseMovements(bot);
+    m.allowSprinting = true; m.digCost = 15; m.maxDropDown = 3;
+    bot.pathfinder.thinkTimeout = 25000; bot.pathfinder.tickTimeout = 40;
+    bot.pathfinder.searchRadius = -1; bot.pathfinder.enablePathShortcut = true;
+    return m;
+  },
+  // short moves around base: fail fast, never scar the plaza with dig-shortcuts
+  WORK(bot) {
+    const m = baseMovements(bot);
+    m.allowSprinting = false; m.digCost = 25;
+    bot.pathfinder.thinkTimeout = 5000; bot.pathfinder.tickTimeout = 25;
+    bot.pathfinder.searchRadius = 64; bot.pathfinder.enablePathShortcut = false;
+    return m;
+  },
+  // underground: conservative drops, digging IS the job so it stays cheap
+  CAVE(bot) {
+    const m = baseMovements(bot);
+    m.allowSprinting = false; m.digCost = 1; m.maxDropDown = 2; m.liquidCost = 30;
+    bot.pathfinder.thinkTimeout = 10000; bot.pathfinder.tickTimeout = 30;
+    bot.pathfinder.searchRadius = 96; bot.pathfinder.enablePathShortcut = false;
+    return m;
+  },
+};
+globalThis.__movementProfiles = { base: baseMovements, ...MOVEMENT_PROFILES };
+
+// ---------- payload auto-inject (P0.2, the keystone item) ----------
+// skills/digguard/graychat/panicguard/idleguard all used to die on every process restart
+// AND every reconnect (a relog inside a driver's polling gap looked like "no reconnect
+// happened" from outside — see FEEDBACK.md "injection reports can drift from reality").
+// Re-reading from disk on every spawn (not cached at startup) means a live file edit
+// takes effect on the bot's next reconnect without a full process restart.
+const PAYLOAD_DIR = __dirname;
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+async function injectPayload(bot, filename, { template } = {}) {
+  const full = path.join(PAYLOAD_DIR, filename);
+  let code;
+  try {
+    code = fs.readFileSync(full, 'utf8');
+  } catch (err) {
+    return { ok: false, reason: `read failed: ${err.message}` };
+  }
+  if (template) code = template(code);
+  try {
+    const fn = new AsyncFunction('bot', 'mineflayer', 'pathfinder', 'goals', 'Vec3', code);
+    const result = await fn(bot, mineflayer, pathfinderPlugin, goals, Vec3);
+    return { ok: true, result };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+}
+async function applyPayloadStack(bot) {
+  const report = {};
+  // 1. safe default Movements profile — must be set before anything else pathfinds
+  try {
+    bot.pathfinder.setMovements(baseMovements(bot));
+    report.movements = 'safe-default';
+  } catch (err) {
+    report.movements = `failed: ${err.message}`;
+  }
+  // 2. best armor always equipped (survival-doctrine §2)
+  try {
+    if (bot.armorManager && typeof bot.armorManager.equipAll === 'function') {
+      bot.armorManager.equipAll();
+      report.armor = 'equipAll';
+    }
+  } catch (err) {
+    report.armor = `failed: ${err.message}`;
+  }
+  // 3. the skill engine + guard payloads — all idempotent, none bot-specific
+  for (const f of ['skills.js', 'digguard.js', 'graychat.js', 'panicguard.js']) {
+    const r = await injectPayload(bot, f);
+    report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
+  }
+  // 4. idleguard needs a role — only auto-inject when the bot was started with --role
+  if (ROLE) {
+    const r = await injectPayload(bot, 'idleguard.js', { template: (c) => c.replace(/__ROLE__/g, ROLE) });
+    report['idleguard.js'] = r.ok ? `installed (role=${ROLE})` : `failed: ${r.reason}`;
+  } else {
+    report['idleguard.js'] = 'skipped (no --role given at spawn)';
+  }
+  log(`<payload-stack> ${JSON.stringify(report)}`);
+  return report;
+}
 
 // ---------- optional blueprint file layer (prismarine-schematic) ----------
 // skills.js is a self-contained /eval payload and can never require() anything, so
@@ -174,15 +303,30 @@ function createBot() {
     }
   }
 
-  bot.once('spawn', () => {
+  // free telemetry (movement-engines §2.5): attached once per bot INSTANCE (not inside
+  // the spawn handler below, which can fire more than once per instance on death-respawn
+  // — attaching there would leak a duplicate listener each time). A burst of 'stuck'
+  // path_resets within 15s means the planner is re-trying the identical doomed path
+  // (astar.js has no attempt counter) — surfaced in GET /state as pathStuckRecent.
+  bot._pathStuckTimes = [];
+  bot.on('path_reset', (reason) => {
+    if (reason !== 'stuck') return;
+    const now = Date.now();
+    bot._pathStuckTimes.push(now);
+    bot._pathStuckTimes = bot._pathStuckTimes.filter((t) => now - t < 15000);
+  });
+
+  // 'on', not 'once': reconnect calls createBot() again and builds a FRESH bot object
+  // with stock unsafe Movements defaults — that silent revert (not death/respawn) is
+  // the root cause FEEDBACK.md called "Movements silently reverted, cause unknown".
+  // Re-running the full payload stack on every spawn (including death-respawn, which
+  // orphans any in-flight __skills task anyway since it holds a reference to this exact
+  // bot object) is what makes injection durable instead of a driver's runtime patch.
+  bot.on('spawn', async () => {
     connected = true;
     reconnectDelay = 1000; // reset backoff on successful spawn
-    try {
-      bot.pathfinder.setMovements(new Movements(bot));
-    } catch (err) {
-      log(`failed to set movements: ${err.message}`);
-    }
     log(`spawned in world. version=${bot.version} pos=${fmtPos(bot.entity && bot.entity.position)}`);
+    await applyPayloadStack(bot);
     if (!greeted) {
       greeted = true;
       const powers = Object.keys(optionalPlugins).join(', ') || 'none';
@@ -285,7 +429,7 @@ function send(res, status, obj) {
   res.end(body + '\n');
 }
 
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+// AsyncFunction is defined earlier (module top, used by applyPayloadStack too).
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -294,6 +438,33 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'GET /state') {
       const pos = connected && bot && bot.entity ? bot.entity.position : null;
+      // payload presence checked LIVE via globalThis, not a cached injection-time report —
+      // FEEDBACK.md: "injection reports can drift from reality" (a report can say
+      // installed:true while a later relog silently discarded it). __skills also reports
+      // its own engine version so a driver can spot a stale re-injection at a glance.
+      const payloads = {
+        skills: typeof globalThis.__skills !== 'undefined' ? (globalThis.__skills.version || true) : false,
+        digguard: typeof globalThis.__digguard !== 'undefined',
+        graychat: typeof globalThis.__graychat !== 'undefined',
+        panicguard: typeof globalThis.__panic !== 'undefined',
+        idleguard: typeof globalThis.__idleguard !== 'undefined',
+      };
+      let movements = null;
+      try {
+        const m = connected && bot && bot.pathfinder && bot.pathfinder.movements;
+        if (m) movements = { parkour: m.allowParkour, maxDropDown: m.maxDropDown, sprint: m.allowSprinting, towers: m.allow1by1towers, digCost: m.digCost };
+      } catch (_) {}
+      // leaked-goto detector (movement-engines §2.5): goto.js attaches 4 listeners per
+      // call and removes them in cleanup(); an orphaned goto never cleans up, so a
+      // path_update listener count > 1 means a stale promise is still alive somewhere.
+      let orphanedGoto = null;
+      let pathStuckRecent = null;
+      try {
+        if (connected && bot && typeof bot.listenerCount === 'function') {
+          orphanedGoto = bot.listenerCount('path_update') > 1;
+          pathStuckRecent = (bot._pathStuckTimes || []).length;
+        }
+      } catch (_) {}
       return send(res, 200, {
         name: NAME,
         connected,
@@ -302,6 +473,11 @@ const server = http.createServer(async (req, res) => {
         food: connected && bot ? bot.food : null,
         dimension: connected && bot ? bot.game.dimension : null,
         task: currentTask,
+        payloads,
+        movements,
+        orphanedGoto,
+        pathStuckRecent,
+        role: ROLE,
       });
     }
 

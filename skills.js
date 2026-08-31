@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 7;
+const ENGINE_VERSION = 8;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -397,12 +397,26 @@ function makeCtx(bot, task) {
               e.code = r.err.name === 'NoPath' ? 'no_path' : 'path_' + (r.err.name || 'error');
               throw e;
             }
+            // arrival assertion (movement-engines §2.3a): astar.js can resolve an
+            // empty path as SUCCESS from a boxed-in start (bestNode = start node,
+            // reconstructPath = []). Verify we're actually at the goal before
+            // trusting the resolve — a silent no-op becomes an honest no_path.
+            const p = bot.entity.position.floored();
+            let arrived = true;
+            try {
+              if (typeof goal.isEnd === 'function') arrived = Boolean(goal.isEnd(p) || goal.isEnd(p.offset(0, 1, 0)));
+            } catch (_) { arrived = true; } // goal type we can't introspect — don't break it
+            if (!arrived) {
+              const e = new Error('goto resolved without reaching the goal (empty-path noPath)');
+              e.code = 'no_path';
+              throw e;
+            }
             return;
           }
           try { ctx.step(); }
-          catch (e) { try { bot.pathfinder.stop(); } catch (_) {} throw e; }
+          catch (e) { try { bot.pathfinder.setGoal(null); } catch (_) {} throw e; }
           if (Date.now() - t0 > timeoutMs) {
-            try { bot.pathfinder.stop(); } catch (_) {}
+            try { bot.pathfinder.setGoal(null); } catch (_) {}
             const e = new Error(`path_timeout after ${timeoutMs}ms`);
             e.code = 'path_timeout';
             throw e;
@@ -411,7 +425,7 @@ function makeCtx(bot, task) {
           if (p.distanceTo(lastPos) > 0.4) { lastPos = p.clone(); lastMove = Date.now(); }
           else if (Date.now() - lastMove > 6000) {
             if (unsticks >= 3) {
-              try { bot.pathfinder.stop(); } catch (_) {}
+              try { bot.pathfinder.setGoal(null); } catch (_) {}
               const e = new Error('stuck: no movement despite an active path');
               e.code = 'stuck';
               throw e;
@@ -707,6 +721,29 @@ function makeCtx(bot, task) {
         }
       }
       return { ok: false, reason: 'place_failed', error: lastErr };
+    },
+
+    // Movements guard for placement skills (peter-driver, confirmed root cause,
+    // 2026-09-01): bot.pathfinder.movements.canDig defaults true, and short per-block
+    // GoalNear hops inside a confined structure can make the planner prefer DIGGING
+    // through a nearby wall/floor/corner block over walking the slightly longer way
+    // around — even though the target was reachable without digging. Silently ate a
+    // finished floor (23/40 tiles) and later a patched wall, in both cases from ordinary
+    // placement-loop travel, not a bug in placeBlockAt itself. Confirmed fix: canDig=false
+    // for the whole build. Call at the top of any skill that loops placeBlockAt over a
+    // structure; ALWAYS call the returned restore() in a finally, even on throw/cancel.
+    enterBuildSafe() {
+      let prev = null;
+      try {
+        prev = bot.pathfinder.movements || null;
+        const mv = (G.__movementProfiles && typeof G.__movementProfiles.WORK === 'function')
+          ? G.__movementProfiles.WORK(bot) // runner.js v-P0.3: safety+wedge+infra knobs included
+          : new pathfinder.Movements(bot); // older runner.js process — bare fallback
+        mv.canDig = false;
+        if (Array.isArray(mv.scafoldingBlocks)) mv.scafoldingBlocks = [];
+        bot.pathfinder.setMovements(mv);
+      } catch (e) { pushLog('warn', 'enterBuildSafe: movements not applied: ' + e.message); }
+      return () => { try { if (prev) bot.pathfinder.setMovements(prev); } catch (_) {} };
     },
 
     // Withdraw a shopping list from a chest/barrel. needs = {itemName: count}.
@@ -1405,11 +1442,20 @@ async function buildCore(ctx, placements, opts = {}) {
     buildMoves.allowSprinting = false;
     buildMoves.maxDropDown = 3;
     buildMoves.infiniteLiquidDropdownDistance = false;
+    // peter-driver, confirmed root cause 2026-09-01: movements.canDig defaults true, and
+    // short per-block GoalNear hops inside a confined structure can make the A* planner
+    // prefer DIGGING through a nearby wall/floor/corner over walking the longer way round
+    // — even when the target is reachable without digging. Ate a finished floor (23/40
+    // tiles) and later a patched wall, purely from ordinary build-loop travel. The
+    // exclusionAreasBreak guard below protects the build's OWN cells specifically; canDig
+    // false is the confirmed, unconditional fix (verified live: zero further collateral
+    // damage) and does NOT block placeBlockAt's own explicit clear-a-wrong-block digBlock
+    // step — that's a direct bot.dig() call, not gated by this planner-only flag.
+    buildMoves.canDig = false;
     // exclusionBreak >= 100 makes a block un-breakable to the planner (movements.js
-    // safeToBreak) — the build's own cells are off limits, everything else still pathable.
+    // safeToBreak) — extra belt-and-suspenders on the build's own cells specifically.
     const guard = (block) => (block && block.position && buildKeys.has(key(block.position)) ? 100 : 0);
     if (Array.isArray(buildMoves.exclusionAreasBreak)) buildMoves.exclusionAreasBreak.push(guard);
-    else { buildMoves.canDig = false; pushLog('warn', 'no exclusionAreasBreak in this pathfinder — falling back to canDig:false'); }
     if (Array.isArray(buildMoves.exclusionAreasPlace)) buildMoves.exclusionAreasPlace.push(guard);
     applyBuildMoves();
   } catch (e) { pushLog('warn', 'build movements not applied: ' + e.message); buildMoves = null; }
@@ -2256,48 +2302,56 @@ S.define('buildStaircase', {
     ctx.progress(0, Math.max(1, start.y - toY), 'y-levels');
     ctx.setPhase('building', `Building a staircase down to y=${toY}. Nice and tidy, real stairs this time.`);
 
+    // peter-driver's confirmed floor/wall-eating bug (see buildCore) applies equally
+    // here — the single-step ctx.goto below is a short GoalBlock hop right next to a
+    // structure the bot is actively placing. canDig=false for the duration; headroom
+    // clearing above still works fine since that's an explicit digBlock call, not
+    // pathfinder-driven digging.
+    const restoreMoves = ctx.enterBuildSafe();
     let pos = start.clone();
-    while (pos.y > toY && steps < maxSteps) {
-      ctx.step();
-      const stepPos = pos.offset(dx, -1, dz);
-      // headroom: clear a 1x2 walkway above the step so the bot (and anyone else) can use it
-      for (const clearPos of [pos.offset(dx, 0, dz), pos.offset(dx, 1, dz)]) {
-        const b = bot.blockAt(clearPos);
-        if (b && !AIR.has(b.name) && b.diggable && !PROTECTED.has(b.name)) await ctx.digBlock(clearPos);
-      }
-      let r = await ctx.placeBlockAt(stepPos, material);
-      if (!r.ok && r.reason === 'no_reference') {
-        // likely floating over open air (e.g. into a quarry pit) — lay one support
-        // block first so the stair has something solid to attach to, then retry.
-        const supportPos = stepPos.offset(0, -1, 0);
-        const sb = bot.blockAt(supportPos);
-        if (sb && AIR.has(sb.name)) {
-          const filler = bot.inventory.items().find((i) => ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone'].includes(i.name));
-          if (filler) {
-            const sr = await ctx.placeBlockAt(supportPos, filler.name);
-            if (sr.ok) r = await ctx.placeBlockAt(stepPos, material);
+    try {
+      while (pos.y > toY && steps < maxSteps) {
+        ctx.step();
+        const stepPos = pos.offset(dx, -1, dz);
+        // headroom: clear a 1x2 walkway above the step so the bot (and anyone else) can use it
+        for (const clearPos of [pos.offset(dx, 0, dz), pos.offset(dx, 1, dz)]) {
+          const b = bot.blockAt(clearPos);
+          if (b && !AIR.has(b.name) && b.diggable && !PROTECTED.has(b.name)) await ctx.digBlock(clearPos);
+        }
+        let r = await ctx.placeBlockAt(stepPos, material);
+        if (!r.ok && r.reason === 'no_reference') {
+          // likely floating over open air (e.g. into a quarry pit) — lay one support
+          // block first so the stair has something solid to attach to, then retry.
+          const supportPos = stepPos.offset(0, -1, 0);
+          const sb = bot.blockAt(supportPos);
+          if (sb && AIR.has(sb.name)) {
+            const filler = bot.inventory.items().find((i) => ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone'].includes(i.name));
+            if (filler) {
+              const sr = await ctx.placeBlockAt(supportPos, filler.name);
+              if (sr.ok) r = await ctx.placeBlockAt(stepPos, material);
+            }
           }
         }
+        if (r.ok && !r.already) placedStairs++;
+        else if (!r.ok) {
+          stoppedBecause = r.reason === 'no_material' ? 'no_material' : (r.reason || 'blocked');
+          break;
+        }
+        if (args.rail) {
+          const railPos = stepPos.offset(dz !== 0 ? 1 : 0, 1, dx !== 0 ? 1 : 0);
+          const rr = await ctx.placeBlockAt(railPos, args.rail);
+          if (rr.ok && !rr.already) placedRail++;
+        }
+        try { await ctx.goto(new goals.GoalBlock(stepPos.x, stepPos.y + 1, stepPos.z), 10000); }
+        catch (_) { stoppedBecause = 'stuck'; break; }
+        pos = stepPos.offset(0, 1, 0);
+        steps++;
+        ctx.progress(start.y - pos.y, null);
+        const tr = await ctx.autoTorch(torchState, torchEvery);
+        if (tr.placed) { torches++; if (!saidTorch) { saidTorch = true; ctx.say('Lighting the stairs as I go.'); } }
+        if (steps % 16 === 0) await ctx.collectDrops(6, 8000);
       }
-      if (r.ok && !r.already) placedStairs++;
-      else if (!r.ok) {
-        stoppedBecause = r.reason === 'no_material' ? 'no_material' : (r.reason || 'blocked');
-        break;
-      }
-      if (args.rail) {
-        const railPos = stepPos.offset(dz !== 0 ? 1 : 0, 1, dx !== 0 ? 1 : 0);
-        const rr = await ctx.placeBlockAt(railPos, args.rail);
-        if (rr.ok && !rr.already) placedRail++;
-      }
-      try { await ctx.goto(new goals.GoalBlock(stepPos.x, stepPos.y + 1, stepPos.z), 10000); }
-      catch (_) { stoppedBecause = 'stuck'; break; }
-      pos = stepPos.offset(0, 1, 0);
-      steps++;
-      ctx.progress(start.y - pos.y, null);
-      const tr = await ctx.autoTorch(torchState, torchEvery);
-      if (tr.placed) { torches++; if (!saidTorch) { saidTorch = true; ctx.say('Lighting the stairs as I go.'); } }
-      if (steps % 16 === 0) await ctx.collectDrops(6, 8000);
-    }
+    } finally { restoreMoves(); }
     if (steps >= maxSteps && stoppedBecause === 'reached') stoppedBecause = 'max_steps';
     ctx.setPhase('collecting', 'Sweeping the staircase clean.');
     await ctx.collectDrops(8, 10000);
