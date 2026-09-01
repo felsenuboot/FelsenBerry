@@ -81,7 +81,7 @@ issues. **PHASE-2 — cooperation (deprioritized).** #1, #6, #8 only.
 | 24 | queue loop/onEmpty re-seed | 1 | medium | engine-dev-2 | workaround OK, not blocking |
 | 25 | runner.js goto response logging | 1 | low | engine-dev-2 | small, independent |
 | ~~30~~ | ~~TOOLGUARD + ensureTool~~ | — | — | — | **CLOSED** `1bcab7b` |
-| 26 | Baritone: 7 findings, 1 safety-critical | 1 | high | engine-dev-3 | **BLOCKED** — waiting on engine-dev-2's digguard refactor before wiring item 1's ashDig guard |
+| 26 | Baritone: 6 findings remaining (item 1 shipped) | 1 | medium (was high) | engine-dev-3 | item 1 (ashDig/digguard bypass) SHIPPED `fbae83c`, digguard v5; items 2-7 are adapter-already-handles-it porting + 2 docs fixes |
 | ~~4~~ | ~~spawnProof + BASE-vs-reality diff~~ | — | — | — | **CLOSED** `271896e` |
 | ~~5~~ | ~~farmCycle~~ | — | — | — | **CLOSED** `8b285cb` |
 | 13 | tillFarmland — **bug half only** (revert root cause) | 1 | medium (was high) | engine-dev-3 | skill half shipped `8b285cb`; root-cause revert bug still unexplained, farmCycle re-tills as a mitigation |
@@ -109,12 +109,14 @@ the rule starts biting from next cycle.
 
 ## Owner load
 
-engine-dev-2: 11 (1 blocked-on-design [#28], 1 picked-up [#31], rest active;
-#30 closed this cycle).
-engine-dev-3: 9 (#4 and #5 closed this cycle; #26 blocked pending
-engine-dev-2; #19 the remaining active priority-high; #13 dropped to medium
-now its skill half shipped).
-engine-dev: 5 (curator lane — intentionally lighter, QA/fixtures/docs scope).
+engine-dev-2: 11 (#28 unblocked+top-priority and actively being built
+[agenda.js in the working tree], #31 picked-up; #30 closed this cycle).
+engine-dev-3: 9 (#4 and #5 closed this cycle; #26 unblocked and dropped to
+medium, item 1 shipped; #19 the remaining active priority-high; #13 dropped
+to medium now its skill half shipped; #19/#35 both waiting on skills.js —
+currently engine-dev-2's active file for #28).
+engine-dev: 5 (curator lane — intentionally lighter, QA/fixtures/docs scope;
+producing real Tier-0 fixture results now, bench/results/).
 
 ## Implementation briefs on file (ready to pick up, no re-research needed)
 
