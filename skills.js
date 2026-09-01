@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 30;
+const ENGINE_VERSION = 31;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -143,6 +143,14 @@ const TOOL_LOW_PCT = 20; // preflight durability gate (status warns at 15% mid-t
 // the 'descended legitimately, then stranded and mobbed at the bottom' death.
 // (research/cavecrew-delta-2.md ss3.2)
 const MAX_BELOW = 5;   // default: never select a target more than this far under our feet
+// ...and the same bound has to exist ABOVE. MAX_BELOW alone is one-sided, which reads as
+// "don't chase it down a ravine" and silently means "any height is fine". Measured: a bot at
+// y73 inside a cave, needing wood for a pickaxe, passed twelve trees at y113 through the
+// filter, spent 36s failing to path to each in turn, and reported "no wood in reach" — a
+// reachability failure wearing a supply failure's name. A canopy or a hillside is worth a
+// look; the surface seen from inside a cave is a different journey, and one the caller must
+// decide on deliberately rather than discover by timeout.
+const MAX_ABOVE = 10;
 const SAPLING = (sp) => (sp === 'mangrove' ? 'mangrove_propagule' : sp + '_sapling');
 // mcData .drops is unreliable (most leaves report []) — hard-coded drop table:
 const DROPS = {
@@ -1189,6 +1197,41 @@ function cheapestSatisfying(need) {
   }
   return need.cls ? `stone_${need.cls}` : null;
 }
+// The tier the bot can pay for RIGHT NOW, out of what it is already carrying.
+//
+// cheapestSatisfying chooses by price, so it always answers "wooden" and then goes looking
+// for wood. Underground that is exactly backwards: wood is the expensive material down
+// there, and the cobblestone the kit already requires is sitting in the bag. Measured: a bot
+// at y73 in a cave, no pickaxe, 58 cobblestone held, spent 36s failing to reach surface
+// trees and gave up — while carrying twenty pickaxe heads' worth of stone.
+//
+// So: before falling back to price, check whether a tier's whole bill (head + sticks +
+// table) is already payable from carried stock. If one is, no trip is needed at all. If none
+// is, nothing changes and the old behaviour stands. Only wooden and stone are bootstrappable
+// (craftToolChain's own constraint), and the tiers stay in cheap-first order so a bot that
+// can afford both still spends the cheaper material.
+function payableTier(bot, need) {
+  const count = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+  const planks = bot.inventory.items().filter((i) => /_planks$/.test(i.name)).reduce((a, i) => a + i.count, 0);
+  const logs = bot.inventory.items().filter((i) => /_log$/.test(i.name)).reduce((a, i) => a + i.count, 0);
+  const plankStock = planks + logs * 4;
+  let tableInReach = false;
+  try {
+    tableInReach = bot.inventory.items().some((i) => i.name === 'crafting_table')
+      || Boolean(bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 }));
+  } catch (_) {}
+  // a 3x3 tool recipe needs a table; without one in reach it costs 4 more planks to make
+  const tableCost = tableInReach ? 0 : 4;
+  const stickCost = count('stick') >= 2 ? 0 : 2;          // 2 planks -> 4 sticks
+  for (const t of ['wooden', 'stone']) {
+    const name = `${t}_${need.cls}`;
+    if (!satisfiesNeed(name, need)) continue;
+    const headPlanks = t === 'wooden' ? 3 : 0;
+    if (t === 'stone' && count('cobblestone') < 3) continue;
+    if (plankStock >= headPlanks + stickCost + tableCost) return name;
+  }
+  return null;
+}
 
 // Bounded goto for the acquisition path. A raw bot.pathfinder.goto() never times out —
 // the first live ensureTool run hung indefinitely on one, stalling the whole chain with
@@ -1259,7 +1302,10 @@ S.ensureTool = async function (bot, spec, opts = {}) {
   }
 
   const cfg = readCfg();
-  const want = cheapestSatisfying(need);
+  // what it can pay for out of the bag beats what is cheapest on paper — see payableTier
+  const payable = payableTier(bot, need);
+  const want = payable || cheapestSatisfying(need);
+  if (payable) steps.push('tier:payable:' + payable);
 
   // 2. depot withdrawal — the fleet banks spares; use them before burning fresh wood
   if (opts.depot !== false && cfg.depot) {
@@ -1360,20 +1406,35 @@ async function craftToolChain(bot, want, cfg, steps) {
 
   if (plankSupply() < plankBill()) {
     const logIds = SPECIES.map((sp) => bot.registry.blocksByName[sp + '_log']).filter(Boolean).map((d) => d.id);
-    const found = bot.findBlocks({ matching: logIds, maxDistance: 48, count: 12 })
-      .filter((p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW);
-    if (!found.length) return { ok: false, reason: `need ${plankBill()} planks, have ${plankSupply()} worth, and no wood in reach` };
-    steps.push('gather:wood');
+    const myY = Math.floor(bot.entity.position.y);
+    const seen = bot.findBlocks({ matching: logIds, maxDistance: 48, count: 12 });
+    const found = seen.filter((p) => p.y >= myY - MAX_BELOW && p.y <= myY + MAX_ABOVE);
+    if (!found.length) {
+      // Say which of the two it is. "No wood in reach" when twelve trees are visible 40
+      // blocks overhead sends the reader hunting for a supply bug that isn't there; the
+      // caller's real problem is that it is underground and has to have brought the
+      // materials with it.
+      const dys = seen.map((p) => p.y - myY).sort((a, b) => Math.abs(a) - Math.abs(b));
+      const why = seen.length
+        ? `${seen.length} logs found but all out of vertical reach (nearest ${dys[0] > 0 ? '+' : ''}${dys[0]}, band -${MAX_BELOW}..+${MAX_ABOVE})`
+        : 'no wood in reach';
+      return { ok: false, reason: `need ${plankBill()} planks, have ${plankSupply()} worth, and ${why}` };
+    }
+    let reached = 0;
     for (const p of found) {
       if (plankSupply() >= plankBill()) break;
       const blk = bot.blockAt(p);
       if (!blk) continue;
       if (!await gotoT(bot, p.x, p.y, p.z, 2, 20000)) continue;
+      reached++;
       // bootstrap: logs drop by hand, and toolguard would otherwise deadlock us here —
       // no axe means no wood means no axe. This is the one sanctioned hand-on-log.
       try { await bot.dig(blk, true, { force: true }); } catch (_) {}
       await new Promise((r) => setTimeout(r, 500));
     }
+    // record REACHED, not merely attempted: 'gather:wood' followed by 'planks:0' left it
+    // ambiguous whether the trip or the crafting was what failed.
+    steps.push(`gather:wood(${reached}/${found.length} reached)`);
   }
   // logs -> planks until the bill is covered
   let guard = 0;
@@ -1391,7 +1452,47 @@ async function craftToolChain(bot, want, cfg, steps) {
   // the tool itself is a 3x3 recipe: it needs a real crafting table in reach
   const tablePos = Array.isArray(cfg.craftingTable) ? cfg.craftingTable
     : (cfg.depot && Array.isArray(cfg.depot.craftingTable) ? cfg.depot.craftingTable : null);
+  // Place a carried table next to us, and report whether it worked.
+  //
+  // This used to look only at the four lateral cells at foot level, and only ever place on
+  // the TOP face of the block beneath them. That is a surface assumption, and underground is
+  // where crafting in place actually matters. Measured, in the exact scenario this path
+  // exists for: a bot standing in a one-wide gap at y73 had three solid neighbours (spot not
+  // air, skipped) and one open neighbour over a drop (nothing beneath to place on, skipped),
+  // so it reported "could not place one" while holding a crafting table. A player would have
+  // set it against the wall. So: any adjacent solid FACE will do, and head level counts too.
+  const FACES = [[0, -1, 0], [0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+  const placeCarriedTable = async () => {
+    const ct = bot.inventory.items().find((i) => i.name === 'crafting_table');
+    if (!ct) return false;
+    const feet = bot.entity.position.floored();
+    const cands = [];
+    for (const dy of [0, 1]) for (const off of [[1, 0], [-1, 0], [0, 1], [0, -1]]) cands.push(feet.offset(off[0], dy, off[1]));
+    for (const at of cands) {
+      const spot = bot.blockAt(at);
+      if (!spot || !AIR.has(spot.name)) continue;
+      for (const f of FACES) {
+        const ref = bot.blockAt(at.offset(f[0], f[1], f[2]));
+        if (!ref || ref.boundingBox !== 'block') continue;
+        try {
+          await bot.equip(ct, 'hand');
+          // placeBlock puts the new block at ref + face, so the face points back at `at`
+          await bot.placeBlock(ref, new Vec3(-f[0], -f[1], -f[2]));
+          steps.push('place:table');
+          return true;
+        } catch (_) {}
+      }
+    }
+    return false;
+  };
   let table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
+  // A table in the bag beats a table at the depot. This used to travel to the depot's table
+  // FIRST, so a bot that had brought its own would still spend a 25s cross-map goto (and,
+  // underground, fail it) before discovering it was carrying the answer. Same principle as
+  // payableTier: spend what you already have before going to fetch.
+  if (!table && await placeCarriedTable()) {
+    table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
+  }
   if (!table && tablePos) {
     try {
       await gotoT(bot, tablePos[0], tablePos[1], tablePos[2], 2, 25000);
@@ -1399,26 +1500,10 @@ async function craftToolChain(bot, want, cfg, steps) {
     } catch (_) {}
   }
   if (!table) {
-    // no table anywhere: craft and place our own, that's what a player would do
-    if (!bot.inventory.items().some((i) => i.name === 'crafting_table')) {
-      await S.craftSafe(bot, 'crafting_table', 1);
-      steps.push('craft:table');
-    }
-    const ct = bot.inventory.items().find((i) => i.name === 'crafting_table');
-    if (ct) {
-      const feet = bot.entity.position.floored();
-      for (const off of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
-        const at = feet.offset(off[0], 0, off[1]);
-        const ref = bot.blockAt(at.offset(0, -1, 0));
-        const spot = bot.blockAt(at);
-        if (!ref || ref.boundingBox !== 'block' || !spot || !AIR.has(spot.name)) continue;
-        try {
-          await bot.equip(ct, 'hand');
-          await bot.placeBlock(ref, new Vec3(0, 1, 0));
-          steps.push('place:table');
-          break;
-        } catch (_) {}
-      }
+    // no table anywhere and none carried: craft one and place it, as a player would
+    await S.craftSafe(bot, 'crafting_table', 1);
+    steps.push('craft:table');
+    if (await placeCarriedTable()) {
       table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
     }
   }
