@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 16;
+const ENGINE_VERSION = 17;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -493,6 +493,107 @@ function makeCtx(bot, task) {
       } catch (_) {}
       try { bot.setControlState('jump', false); bot.setControlState('back', false); } catch (_) {}
     },
+    // Long-haul travel (movement-engines ss2.7). One A* over 200+ blocks of broken terrain
+    // does not finish inside the think budget, and the far chunks are not loaded so the
+    // geometry is literally unknown — that, not the movement engine, is why long hauls fail.
+    // So: walk it in ~80-block legs. Each leg is a small fully-loaded search that finishes
+    // in well under a second, and the NEXT waypoint is re-snapped after every leg because
+    // by then its chunks have loaded.
+    //
+    // Ground-snapping refuses to guess: blockAt returns null past loaded chunks, and a
+    // waypoint invented inside solid rock or over a ravine is worse than none. When the snap
+    // fails we hand the leg to GoalNearXZ and let Y sort itself out on arrival.
+    async gotoFar(target, opts = {}) {
+      const legLength = Math.max(16, Math.min(opts.legLength || 80, 128));
+      const range = opts.range == null ? 1 : opts.range;
+      const timeoutMs = opts.timeoutMs || 240000;
+      const legTimeout = opts.legTimeoutMs || 45000;
+      const tgt = new Vec3(Math.floor(target.x), Math.floor(target.y), Math.floor(target.z));
+      const dXZ = (a, b) => Math.sqrt((a.x - b.x) ** 2 + (a.z - b.z) ** 2);
+      const t0 = Date.now();
+      const legs = [];
+
+      // first standable y at (x,z): solid floor, two empty cells above, nothing nasty
+      const snap = (x, z, fromY) => {
+        for (let y = fromY + 8; y >= fromY - 20; y--) {
+          const below = bot.blockAt(new Vec3(x, y - 1, z));
+          const feet = bot.blockAt(new Vec3(x, y, z));
+          const head = bot.blockAt(new Vec3(x, y + 1, z));
+          if (!below || !feet || !head) continue;              // unloaded — never guess
+          if (below.boundingBox !== 'block') continue;
+          if (feet.boundingBox !== 'empty' || head.boundingBox !== 'empty') continue;
+          if (HAZARD.has(below.name) || HAZARD.has(feet.name) || HAZARD.has(head.name)) continue;
+          return y;
+        }
+        return null;
+      };
+
+      if (dXZ(bot.entity.position, tgt) <= legLength) {
+        await ctx.gotoNear(tgt, range, Math.min(timeoutMs, 60000));
+        return { legs: 0, direct: true };
+      }
+      const restore = ctx.enterHaul();
+      try {
+        let poor = 0, guard = 0;
+        while (guard++ < 64) {
+          ctx.step();
+          const here = bot.entity.position;
+          const remain = dXZ(here, tgt);
+          if (remain <= legLength) break;
+          if (Date.now() - t0 > timeoutMs) {
+            throw fatal('path_timeout', `gotoFar exceeded ${Math.round(timeoutMs / 1000)}s with ${Math.round(remain)} blocks to go`,
+              'raise timeoutMs, or break the trip into explicit waypoints');
+          }
+          const f = legLength / remain;
+          const wx = Math.floor(here.x + (tgt.x - here.x) * f);
+          const wz = Math.floor(here.z + (tgt.z - here.z) * f);
+          const wy = snap(wx, wz, Math.floor(here.y));
+          const before = remain;
+          let how = wy == null ? 'xz' : 'ground';
+          try {
+            if (wy == null) await ctx.goto(new goals.GoalNearXZ(wx, wz, 6), legTimeout);
+            else await ctx.goto(new goals.GoalNear(wx, wy, wz, 2), legTimeout);
+          } catch (e) { how += ':' + (e.code || 'err'); }
+          const gained = before - dXZ(bot.entity.position, tgt);
+          legs.push({ to: [wx, wy, wz], how, gained: Math.round(gained) });
+          // two legs in a row that barely move = wedged or walled off; stop burning time
+          if (gained < 10) {
+            if (++poor >= 2) {
+              throw fatal('no_progress', `two consecutive legs gained under 10 blocks (${Math.round(dXZ(bot.entity.position, tgt))} still to go)`,
+                'the route is blocked — reposition the bot or pick an intermediate waypoint by hand');
+            }
+          } else poor = 0;
+        }
+        // Final approach. The caller's Y is usually a guess — a long haul is aimed at an XZ
+        // and whatever ground is there. A GoalNear to a Y that turns out to be inside rock
+        // or hanging in air makes pathfinder search exhaustively and time out: measured, a
+        // 223-block haul walked 207 blocks cleanly and then died with path_Timeout at 21
+        // blocks out purely because the target Y was wrong. So re-snap the destination now
+        // that its chunks are loaded, and if even that fails, settle for the right XZ.
+        const left = Math.max(20000, timeoutMs - (Date.now() - t0));
+        const finalTimeout = Math.min(left, 90000);
+        const snappedY = snap(tgt.x, tgt.z, Math.floor(bot.entity.position.y));
+        const dest = snappedY == null ? tgt : new Vec3(tgt.x, snappedY, tgt.z);
+        let arrived = true;
+        try {
+          await ctx.gotoNear(dest, range, finalTimeout);
+        } catch (e) {
+          arrived = false;
+          try {
+            await ctx.goto(new goals.GoalNearXZ(tgt.x, tgt.z, Math.max(range, 3)), Math.min(45000, finalTimeout));
+            arrived = true;
+          } catch (e2) {
+            throw fatal(e.code || 'no_path', `final approach failed ${Math.round(dXZ(bot.entity.position, tgt))} blocks out: ${e.message}`,
+              'the destination may not be standable — aim at reachable ground, or raise range');
+          }
+        }
+        return { legs: legs.length, detail: legs.slice(-8), snappedFinalY: snappedY,
+          finalVia: arrived && snappedY != null ? 'ground' : 'xz',
+          distXZ: Math.round(dXZ(bot.entity.position, tgt)),
+          elapsedS: Math.round((Date.now() - t0) / 1000) };
+      } finally { try { restore(); } catch (_) {} }
+    },
+
     async gotoNear(p, range = 1, timeoutMs = 30000) {
       return ctx.goto(new goals.GoalNear(p.x, p.y, p.z, range), timeoutMs);
     },
@@ -2081,10 +2182,17 @@ S.define('come', {
   fn: async (ctx) => {
     const { args } = ctx;
     ctx.setPhase('travelling', `Heading to ${Math.round(args.x)}, ${Math.round(args.y)}, ${Math.round(args.z)}.`);
-    const restoreMoves = ctx.enterHaul();
-    try {
-      await ctx.retry('travel', () => ctx.gotoNear(args, args.range || 1, 60000), 2);
-    } finally { restoreMoves(); }
+    // Anything beyond one leg goes through gotoFar: a single 60s A* over that distance
+    // was the standing long-haul failure (gotoFar sets the HAUL profile itself).
+    const far = Math.sqrt((args.x - ctx.bot.entity.position.x) ** 2 + (args.z - ctx.bot.entity.position.z) ** 2) > 80;
+    if (far) {
+      await ctx.gotoFar(args, { range: args.range || 1, timeoutMs: args.timeoutMs || 240000 });
+    } else {
+      const restoreMoves = ctx.enterHaul();
+      try {
+        await ctx.retry('travel', () => ctx.gotoNear(args, args.range || 1, 60000), 2);
+      } finally { restoreMoves(); }
+    }
     ctx.setPhase('arrived');
   },
   doneMsg: () => 'Arrived.',
