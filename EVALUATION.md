@@ -728,11 +728,13 @@ real launch, confirm via `ps`/the spawn command that the actual soak bot process
 was started with `--agenda`** — otherwise this exact staleness would occur for
 real on the graded run and silently fail this criterion every time.
 
-**Recoverable tool-break induction (REVISED per engine-dev-3's calibration — see
-below for why the original deep-strand design was wrong)**: induce the break
-where wood IS reachable — near the surface / near the project's start, NOT deep
-in an unbounded descent. Identify the currently-equipped tool
-(`bot.heldItem.name`) and its `maxDurability`
+**Recoverable tool-break induction (RE-REVISED — deep-kit provisioning, agenda
+v11, makes AT-DEPTH recoverable too, so the earlier near-surface-only
+restriction is lifted; see below for the reasoning and what's still excluded)**:
+induce the break DURING the project, wherever the bot naturally is — likely at
+depth while mining, since that's the realistic case (a mining bot breaks its
+tool where it mines). Identify the currently-equipped tool (`bot.heldItem.name`)
+and its `maxDurability`
 (`bot.registry.items[bot.heldItem.type].maxDurability`) via `/eval`, then
 `clear <bot> minecraft:<toolname>` followed by
 `give <bot> minecraft:<toolname>[minecraft:damage=<maxDurability-1>] 1` — the
@@ -744,23 +746,33 @@ organic decay, and breaks DURING real use rather than being silently swapped.
 **Pass**: `/state.agenda` shows `blocked:"no_tool"` clear again (TOOL rung's own
 `clear()` condition satisfied — a working tool of the active class re-equipped)
 AND `rung` returns to `PROJECT` with the SAME project held, within a generous
-bound (10 minutes — a full gather-wood/craft-planks/place-table/craft-tool chain
-plus real travel time, not the 33s empty-inventory-right-next-to-a-tree baseline
-on #30). This tests whether the engine self-recovers a tool break WHEN RECOVERY
-IS ACTUALLY POSSIBLE — a genuine phase-1 self-sufficiency question.
+bound (10 minutes — a full recovery chain plus real travel time, not the 33s
+empty-inventory-right-next-to-a-tree baseline on #30), via EITHER path the
+location calls for: in-place recraft at depth (from carried cobble+sticks+table,
+the deep-kit provisioning) or wood-gathering near the surface. This tests
+whether the engine self-recovers a tool break WHEN RECOVERY IS ACTUALLY
+POSSIBLE — a genuine phase-1 self-sufficiency question, now validated in its
+realistic setting rather than an artificially easy one.
 
-**Why this is NOT the deep-strand version originally drafted here**: the
-toolless-at-depth scenario (last pickaxe breaks deep underground, no reachable
-wood, produce()/ensureTool genuinely cannot recover) is a KNOWN, EXPECTED
-phase-1.5 gap per engine-dev-3's calibration — continuous deep-mining
-sustainability is a harder, later problem, not a phase-1 acceptance requirement.
-Inducing it here would deliberately trigger a known-to-fail scenario and wrongly
-sink an otherwise-passing phase-1 run on a gap phase-1 was never scoped to
-close. The kit-foresight open question from FEEDBACK.md stays open and
-un-speculated-on regardless — it just isn't what THIS criterion tests. If the
-deep-strand scenario is ever deliberately exercised (a separate, later
-phase-1.5 soak), THAT would be the concrete failure to cite when filing the
-foresight rung — not this run.
+**Contingent on**: engine-dev-2's tool-break leg + engine-dev-3's re-verify
+confirming the in-place recraft is robust. Once those pass, at-depth C5 is safe
+to grade; until then, prefer the near-surface variant to avoid grading an
+in-flight capability.
+
+**What's still excluded — the pure-strand case stays phase-1.5**: the deep-kit
+provisioning covers a tool breaking with MAKINGS still carried (cobble, sticks,
+a table, or materials to gather them in place). It does NOT cover the case
+where the makings themselves are ALSO absent (no cobble, no sticks, no reachable
+wood at all) — that remains the known, expected phase-1.5 gap per
+engine-dev-3's original calibration: continuous deep-mining sustainability
+without any resupply is a harder, later problem. Inducing THAT specific
+starvation-of-materials variant here would still wrongly sink an
+otherwise-passing phase-1 run on a gap phase-1 was never scoped to close — only
+the ordinary "tool breaks, bot has or can reach what it needs to recover"
+scenario is in-scope now. The kit-foresight open question from FEEDBACK.md stays
+open and un-speculated-on regardless; if the pure-strand scenario is ever
+deliberately exercised (a separate, later phase-1.5 soak), THAT would be the
+concrete failure to cite when filing the foresight rung — not this run.
 
 **Project scoping note (applies to C4 as much as C5)**: for the same reason, the
 soak's PROJECT must be BOUNDED and completable — e.g. `safeDescend` to a
