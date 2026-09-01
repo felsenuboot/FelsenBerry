@@ -31,26 +31,34 @@ const note = (call, dist) => {
   }
 };
 
-const origDig = bot.dig.bind(bot);
 const origPlaceBlock = bot.placeBlock.bind(bot);
 const origActivateBlock = bot.activateBlock.bind(bot);
 const origAttack = bot.attack.bind(bot);
 
-bot.dig = (block, ...rest) => {
-  try {
-    if (g.enabled && block && block.position) {
-      const d = block.position.offset(0.5, 0.5, 0.5).distanceTo(eyePos());
-      if (d > BLOCK_REACH) {
-        note('dig', d);
-        return Promise.reject(Object.assign(
-          new Error(`reach_violation: dig target ${d.toFixed(1)}m away (max ${BLOCK_REACH})`),
-          { code: 'reach_violation' },
-        ));
-      }
-    }
-  } catch (e) { /* never let the guard itself break a legitimate call */ }
-  return origDig(block, ...rest);
-};
+// bot.dig is now a CHAIN LINK (GitHub #55): the reach check is registered into digchain (the
+// single bot.dig wrap point) as guard 'reach' at order 0, instead of this file re-wrapping
+// bot.dig itself. placeBlock/activateBlock/attack stay single-wrapper below — they are not on
+// the bot.dig chain. A check returns {reject:err} to refuse or null to pass.
+function reachDigCheck(block, forceLook, digFace, opts) {
+  if (!g.enabled || !block || !block.position) return null;
+  const d = block.position.offset(0.5, 0.5, 0.5).distanceTo(eyePos());
+  if (d > BLOCK_REACH) {
+    note('dig', d);
+    return { reject: Object.assign(
+      new Error(`reach_violation: dig target ${d.toFixed(1)}m away (max ${BLOCK_REACH})`),
+      { code: 'reach_violation' },
+    ) };
+  }
+  return null;
+}
+if (globalThis.__digchain && globalThis.__digchain.register) {
+  globalThis.__digchain.register('reach', 0, reachDigCheck);
+} else {
+  // digchain MUST be injected first (runner.js order). No self-wrap fallback: a silent
+  // second wrap point is exactly what #55 removes. Fail LOUD so stack-check catches it.
+  try { console.error('[reachguard] __digchain absent — reach dig-guard NOT installed (inject digchain.js before the guards)'); } catch (e) {}
+  g.chainMissing = true;
+}
 
 bot.placeBlock = (referenceBlock, faceVector, ...rest) => {
   try {
@@ -100,7 +108,7 @@ bot.attack = (entity, ...rest) => {
 
 g.restore = () => {
   g.enabled = false;
-  bot.dig = origDig;
+  try { if (globalThis.__digchain && globalThis.__digchain.unregister) globalThis.__digchain.unregister('reach'); } catch (e) {}
   bot.placeBlock = origPlaceBlock;
   bot.activateBlock = origActivateBlock;
   bot.attack = origAttack;

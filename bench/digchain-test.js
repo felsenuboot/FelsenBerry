@@ -97,6 +97,17 @@ function registerAll(reachFn, toolFn, protFn) {
   ok(fakeBot._equipped === tool, 'a guard {equip} equips the item (equip-first)');
   ok(re === 'DUG:p1:stone', 'after equip, the chain continues to the original');
 
+  // ---- _unstick backstop (eng-2, #55): a PROTECTED block dug with NO force must still be
+  // rejected. v41's generalized _unstick digs any empty-boundingBox block and relies on the
+  // protection level's rejection at bot.dig as its backstop, so this must hold through the chain. ----
+  globalThis.__digchain.register('reach', 0, passCheck('reach'));
+  const protErr = Object.assign(new Error('protected_structure:plaza'), { code: 'protected_structure' });
+  globalThis.__digchain.register('protection', 1, () => ({ reject: protErr }));
+  globalThis.__digchain.register('tool', 2, passCheck('tool'));
+  let backstop = null;
+  try { await fakeBot.dig({ name: 'stone' }); } catch (e) { backstop = e; }   // NO force passed
+  ok(backstop === protErr, '_unstick backstop: a protected block dug with NO force is rejected by the protection level');
+
   // ---- a guard that THROWS a non-coded bug must never break a real dig ----
   globalThis.__digchain.register('tool', 1, () => { throw new Error('guard bug, no code'); });
   globalThis.__digchain.register('protection', 2, passCheck('protection'));

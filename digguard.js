@@ -100,36 +100,32 @@ g.hit = (pos, name) => {
   return null;
 };
 
-// ---- level 1: bot.dig ----
-const orig = bot.dig.bind(bot);
-const guardedDig = (block, ...rest) => {
-  try {
-    if (g.enabled && block && block.position) {
-      const r = g.hit(block.position, block.name);
-      if (r) {
-        g.blocked++;
-        g.blockedByRegion[r.id] = (g.blockedByRegion[r.id] || 0) + 1;
-        if (g.blockedByRegion[r.id] <= 2) {
-          try { bot.chat("Hands off - " + r.id + " is protected base structure (" + r.reason + "). Backing off."); } catch (e) {}
-        }
-        return Promise.reject(new Error('protected_structure:' + r.id));
-      }
+// ---- level 1: bot.dig protection, now a CHAIN LINK (GitHub #55) ----
+// The protection check is registered into digchain (the single bot.dig wrap point) as guard
+// 'protection' at order 1 — a hard VETO that runs before the tool equip-check's side effect,
+// after the reach veto. This file no longer re-wraps bot.dig itself; the chain owns the wrap.
+// LEVELS 2 (pathfinder exclusionAreasBreak) and 3 (ashDig) below are UNCHANGED — neither is on
+// the bot.dig path, so consolidating level 1 leaves them exactly as they were.
+function protectionDigCheck(block, forceLook, digFace, opts) {
+  if (!g.enabled || !block || !block.position) return null;
+  const r = g.hit(block.position, block.name);
+  if (r) {
+    g.blocked++;
+    g.blockedByRegion[r.id] = (g.blockedByRegion[r.id] || 0) + 1;
+    if (g.blockedByRegion[r.id] <= 2) {
+      try { bot.chat("Hands off - " + r.id + " is protected base structure (" + r.reason + "). Backing off."); } catch (e) {}
     }
-  } catch (e) {}
-  return orig(block, ...rest);
-};
-guardedDig.__digguardWrapper = true;
-guardedDig.__wrappedTarget = orig;
-bot.dig = guardedDig;
-// NOTE — no self-heal here, deliberately. A payload below us restoring its own bot.dig
-// patch by assignment would drop every guard above it, and the obvious defence (a timer
-// that re-wraps when we notice we're gone) is a TRAP: detecting "am I still in the chain"
-// requires walking it, every wrapper must publish what it wraps for that walk to work, and
-// reachguard/graychat/idleguard don't. Built it anyway, and it re-layered on top of a
-// wrapper it couldn't see through, forming a cycle: 9.2 MILLION recursive dig calls in one
-// test. The real fix is at the source — idleguard v8 disables in place instead of
-// restoring, which removes the only documented trigger. If a self-heal is ever genuinely
-// needed, first make EVERY dig wrapper publish __wrappedTarget, then walk it.
+    return { reject: new Error('protected_structure:' + r.id) };
+  }
+  return null;
+}
+if (globalThis.__digchain && globalThis.__digchain.register) {
+  globalThis.__digchain.register('protection', 1, protectionDigCheck);
+} else {
+  // No self-wrap fallback: a silent second wrap point is exactly the stacking #55 removes.
+  try { console.error('[digguard] __digchain absent — protection dig-guard NOT installed (inject digchain.js before the guards)'); } catch (e) {}
+  g.chainMissing = true;
+}
 
 
 // ---- level 2: pathfinder planner ----
@@ -227,7 +223,8 @@ g.reload = () => { const changed = load(true); wireMovements(); return { changed
 g.restore = () => {
   g.enabled = false;
   if (g.timer) clearInterval(g.timer);
-  try { bot.dig = orig; } catch (e) {}
+  // level-1 is now a chain link: unregister from digchain instead of restoring bot.dig.
+  try { if (globalThis.__digchain && globalThis.__digchain.unregister) globalThis.__digchain.unregister('protection'); } catch (e) {}
   // level-3 ashDig restore is owned by engine-dev-3 (#26); guarded so restore()
   // cannot throw while that block is being (re)added.
   try { if (g.origAsh && typeof g.restoreAsh === 'function') g.restoreAsh(); } catch (e) {}
