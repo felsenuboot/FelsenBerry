@@ -235,6 +235,27 @@ if (by) {
 }
 if (has('goto') || !by) printMovement(movement(gotos));
 
+// ---------- ladder coverage (#52/M1) ----------
+// Fraction of ticks resolved by a FIRING rung vs IDLE fall-through, from the agenda's own
+// periodic `note` stream (emitted on every rung transition -- `agenda.js:685`). Not a true
+// per-tick count (notes are transition-sampled, not one-per-tick), but every transition IS
+// captured, so this reads as "share of the run's active TIME spent on a firing rung vs
+// idling" -- the practical form of the metric or a driverless run has no ticks to compare
+// against. n<5 is suppressed same as every other cell in this doctrine (a 1/1 reads like
+// triumph).
+const notes = recs.filter((r) => r.ev === 'note');
+if (notes.length) {
+  const firing = notes.filter((r) => r.agenda && r.agenda !== 'IDLE').length;
+  console.log('\n── ladder coverage (share of rung-transitions that were a firing rung, not IDLE) ──');
+  if (notes.length < 5) console.log(`  n=${notes.length} (suppressed)`);
+  else console.log(`  ${rate(firing, notes.length)}   <- IDLE-only share is the complement`);
+  const byRung = {};
+  for (const r of notes) byRung[r.agenda] = (byRung[r.agenda] || 0) + 1;
+  console.log(`  by rung: ${Object.entries(byRung).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join('  ')}`);
+} else {
+  console.log('\n── ladder coverage ── (no `note` events — this ledger predates the agenda, or the bot never ran it)');
+}
+
 // ---------- repeat clusters ----------
 // A failure counter is a SYMPTOM counter. Ten wedges from one retrying rung look like a
 // broad movement problem pooled, and collapse to a single missing config line when grouped
