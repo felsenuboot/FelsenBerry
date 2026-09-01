@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 34;
+const ENGINE_VERSION = 36;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1496,6 +1496,9 @@ async function craftToolChain(bot, want, cfg, steps) {
   // so it reported "could not place one" while holding a crafting table. A player would have
   // set it against the wall. So: any adjacent solid FACE will do, and head level counts too.
   const FACES = [[0, -1, 0], [0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+  // Where WE put a table down, so we can take it back afterwards. Only ever set by our own
+  // placement — a table we found (the depot's, a player's) must never be broken.
+  let ourTable = null;
   const placeCarriedTable = async () => {
     const ct = bot.inventory.items().find((i) => i.name === 'crafting_table');
     if (!ct) return false;
@@ -1513,6 +1516,7 @@ async function craftToolChain(bot, want, cfg, steps) {
           // placeBlock puts the new block at ref + face, so the face points back at `at`
           await bot.placeBlock(ref, new Vec3(-f[0], -f[1], -f[2]));
           steps.push('place:table');
+          ourTable = at.clone();
           return true;
         } catch (_) {}
       }
@@ -1544,6 +1548,35 @@ async function craftToolChain(bot, want, cfg, steps) {
   if (!table) return { ok: false, reason: 'no crafting table in reach and could not place one' };
   const r = await S.craftSafe(bot, want, 1, { table: table.position });
   steps.push(`craft:${want}:${r.made || 0}`);
+  // TAKE THE TABLE BACK. A table we placed is a tool, not litter — a player mines it up and
+  // walks on with it. Skipping this had a sharp cost, found live: the deep kit REQUIRES a
+  // carried crafting_table, so placing it to craft a replacement pickaxe consumed the very
+  // kit item the gate checks, and the bot's next departure was refused for a table it was
+  // standing next to. It also leaves a crafting table abandoned wherever a tool broke, which
+  // is exactly the kind of scar the fleet is supposed not to leave.
+  // Only ever the one WE placed: a table we merely found belongs to someone.
+  if (ourTable) {
+    try {
+      const blk = bot.blockAt(ourTable);
+      // same check ctx.isProtected makes, inline: craftToolChain is module-scope and has no
+      // ctx. Fails OPEN (not protected) when digguard is absent, matching that helper.
+      const dg = globalThis.__digguard;
+      const guarded = dg && typeof dg.hit === 'function' ? Boolean(dg.hit(ourTable, 'crafting_table')) : false;
+      if (blk && blk.name === 'crafting_table' && !guarded) {
+        // force: a crafting table drops bare-handed, but toolguard classes it as axe-work and
+        // rejects the dig when no axe is held — which is how the first attempt at this failed
+        // with `tool_missing: crafting_table`. Taking back a table we just put down is the
+        // same sanctioned override as the hand-on-log bootstrap, and for the same reason: the
+        // guard is protecting against wrong-tool WORK, not against picking our own kit back up.
+        await bot.dig(blk, true, { force: true });
+        await gotoT(bot, ourTable.x, ourTable.y, ourTable.z, 1, 5000);   // step onto the drop
+        // 800ms, not 400: the pickup event landed AFTER the function returned at 400, so the
+        // caller saw a table it did not have yet. Same settle craftSafe uses, same reason.
+        await new Promise((res) => setTimeout(res, 800));
+        steps.push('take:table');
+      }
+    } catch (e) { steps.push('take:table:' + String(e.message || e).slice(0, 30)); }
+  }
   return r.made > 0 ? { ok: true } : { ok: false, reason: r.reason || 'craft produced nothing' };
 }
 
