@@ -7,17 +7,16 @@ spawning a rival KackboonKevin connection (duplicate_login identity war, already
 Framework bots (a runner.js HTTP port) go through that port; Kevin goes through kevin-driver
 only. See LEARNING_HANDOFF.md's Hard conventions #6 for the full note.
 
-USER-CRITICAL LAW: RIGHT TOOL, ALWAYS (2026-09-01). Before any dig/chop/harvest/build action,
-verify the correct tool CLASS and the best TIER you actually own is equipped — never proceed
-with a bare fist or the wrong tier "to save time." If the right tool is missing: ACQUIRE IT
-FIRST — withdraw from depot chest B (announce the ledger line) or craft it via `ctx.craftSafe`
-at a table — then do the job. This is a behavioral bridge law; engine enforcement (toolguard +
-ensureTool, an auto-equip-and-block-if-missing check baked into the skill primitives) is
-engine-dev-2's current top item and will retire this once it ships — until then it's on you to
-check by hand. Exception that stays even after the engine lands: the cheap-tool-for-travel
-doctrine (deliberately holding a cheap/stone tool while walking long distances, since
-pathfinder digs traversal blocks with whatever's held and a good tool's durability is worth
-protecting — see LEARNING_HANDOFF's tool-durability-on-travel entry).
+RETIRED LAW: RIGHT TOOL, ALWAYS (added 2026-09-01, retired 2026-09-01 — see the RETIRED
+entry further down for the full note). toolguard.js v2 + `__skills.ensureTool` now enforce
+this at the engine level: `ctx.digBlock`/skill primitives auto-equip the best owned tool and
+block with a typed `tool_missing` error (rather than silently proceeding bare-fisted) when
+none is held, withdrawing from the depot or crafting fresh as needed. You no longer need to
+check tool class/tier by hand before a dig/chop/harvest/build call. Exception that stays even
+with the engine gate live: the cheap-tool-for-travel doctrine (deliberately holding a
+cheap/stone tool while walking long distances, since pathfinder digs traversal blocks with
+whatever's held and a good tool's durability is worth protecting — see LEARNING_HANDOFF's
+tool-durability-on-travel entry) is a driver choice the engine doesn't make for you.
 
 INJECT — engine v8+ CHANGED THIS: check GET /state's `payloads` field first. If it's
 present, your bot is on the NEW runner.js process and skills/dangerscan/survival/
@@ -33,6 +32,27 @@ every ./spawn.sh, same as before, until you restart the process:
   Safe while a task is RUNNING: old task is stopped cleanly, log/seq preserved, no orphans.
   Manual re-inject ALWAYS works regardless of runner.js generation — same idempotent
   jq-pipe pattern for digguard.js/graychat.js/panicguard.js/reachguard.js/idleguard.js.
+
+SUSPENDING IDLEGUARD for a long manual eval or travel troubleshooting — three levers,
+weakest to strongest:
+  `__idleguard.pause(ms)` — cheapest, but does NOT protect against the stall-buster
+    (v3 gap: the stall-buster block runs before the pause check in the same tick), so a
+    slow/legitimate long travel can still get its goal yanked mid-pause.
+  `globalThis.__idleguard.busy = true` (set `= false` when done) — PREFERRED for long
+    evals (marcel-driver, confirmed live). Skips the guard's own idle-fire tick entirely
+    without touching anything it wraps, so it's strictly safer than stop() and doesn't
+    need re-injection afterward.
+  `__idleguard.stop()` — now SAFE (idleguard v8+), but no longer necessary as the default
+    reach-for-first tool now that busy=true exists. HISTORY, so nobody reintroduces the
+    bug: before v8, stop() RESTORED bot.dig/setGoal/etc. to their pre-idleguard originals
+    by assignment — but digguard/reachguard/toolguard wrap those SAME methods on top of
+    idleguard's wrapper, so restoring idleguard's copy silently tore all of them off at
+    once (structure protection, reach limits, tool enforcement — gone, while every
+    `payloads`/presence check kept reporting them installed). v8 fixes this at the root:
+    the wrapper is permanent and goes INERT when stopped rather than restoring anything,
+    and re-injection rebinds the existing wrapper instead of stacking a new one. stop()
+    is real going forward, but prefer busy=true for anything short enough not to need the
+    full disable.
 
 DISCOVER
   ./task.sh <port> list   # come, collectDrops, chopTrees, mineLane, huntAnimals, depositToChest,
@@ -259,11 +279,19 @@ instead of a silent hang) — live on every bot that's process-restarted onto
 v10+. No more manual reach-checking needed; the engine won't let a bad call
 through.
 
-**STILL ACTIVE — right-tool-always** (added ~2026-09-01, see the HARD LAW
-above). Retires once engine-dev-2's toolguard/ensureTool gate ships and
-verifies (their current top item) — a full laws→gates conversion table is
-coming from them after that lands; apply it here when it arrives. Until then,
-keep checking tool class + tier by hand before every dig/chop/harvest/build.
+**RETIRED — right-tool-always** (was: "before any dig/chop/harvest/build
+action, verify the correct tool class and best tier is equipped by hand;
+acquire it first if missing"). Enforced by `toolguard.js` v2 + `ensureTool`
+since engine v23 — shipped and verified (felsenuboot/felcrew-mcp#30, closed
+with evidence 2026-09-01): live-verified equip-swap when a wrong tool is held
+next to a matching resource, live-verified rejection with a typed
+`tool_missing` error when the right tool isn't owned and can't be acquired,
+and `ensureTool` proven end-to-end from a completely empty inventory (gather
+-> craft planks -> craft+place a table -> craft the tool -> equip, 33s, zero
+driver involvement). No more manual tool-checking needed before a
+dig/chop/harvest/build call; the engine won't let a bad one through silently.
+The cheap-tool-for-travel exception noted in the original law is a driver
+choice, not something the gate makes for you, so it still stands.
 
 ## Resource-harvest distance law (user, 2026-09-01, AMENDED 2026-09-01)
 Original law: resource gathering (chopTrees, mining sweeps, grass beyond the farm)

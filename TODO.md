@@ -214,3 +214,28 @@ research/chat-protocol.md, research/build-aesthetics.md. Top actionable items, i
    2.10.0 native binary downloads its own Java; hmc-specifics needs no fabric-api;
    jar sha256-pinned; ~40 min smoke tests remain. ashfinder = opt-in /goto2 fallback
    ONLY (loaded in createBot, never inject; assert arrival — it lies about success).
+
+## Baritone status (2026-09-01, team-lead-workflow — full handoff in BARITONE.md)
+Sidecar WORKS end to end: HeadlessMC 2.10.0 native (no system Java), Baritone
+1.21.11 standalone (no Meteor), joined as GrubenGuenther, #goto/#mine/#stop all
+verified, RAM 1.6-1.8GB under the 2G cap, clean shutdown, slot freed. Driven via
+guarded HTTP adapter on 127.0.0.1:3109 (adapter.mjs + baritone.sh in
+/home/felix/minecraft/baritone/). ashfinder 4.6.2 installed + goto2.patch.js
+written, NOT merged, NOT A/B-tested. Next steps, in order:
+1. Lead: add BASE.md rows for FEL-BT-1 (x75..85,z0..10, smoke-test only) and
+   DIGTEST_1 (x=-100..-90,z=-60..-50); designate a PRODUCTION mining zone ≥150
+   blocks from every anchor edge (FEL-BT-1 at 83 blocks does NOT clear the fence).
+2. Run first production #mine job in that zone via the adapter; validate the
+   untested allowOnlyExposedOres + backfill behavior (tunnel shape, refill).
+3. Run the ashfinder A/B (research/goto2-ab-plan.md, 60 trips, 6 route classes);
+   adopt /goto2 only on +20pp arrival with zero deaths/protected-breaks/falseSuccess.
+4. Merge goto2.patch.js into runner.js once the runner-owning workflow finishes
+   (5 edits in the patch header; MUST load in createBot pre-spawn) and move its
+   bot.ashDig guard into digguard.js permanently.
+5. Fix bcmd.sh: 14-try escalating backoff + confirm #set via "Successfully set"
+   (6 tries proven insufficient — launcher swallowed 6 consecutive lines).
+6. Cleanup: delete baritone/loopback-proxy.js (dead weight); correct
+   movement-engines.md §1.3 (ashfinder events are fiction: only stopped/
+   pathStarted exist) and §3.6 (gui DOES dump inventory under -lwjgl).
+7. Optional: wire drivers to the adapter for >150-block hauls (allowBreak=false
+   navigation is verified zero-impact); keep pathfinder for everything near base.

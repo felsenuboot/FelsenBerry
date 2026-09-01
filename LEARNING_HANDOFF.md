@@ -125,6 +125,20 @@ insight applied to our stack, and it's what keeps token costs near zero at scale
   `get-block-info` takes FLAT `x`/`y`/`z` number params, not a nested
   `{"position":{x,y,z}}` object — the nested form fails validation with
   "Expected number, received nan" (found live 2026-09-01, kevin-driver).
+  Connection-state error text tells you what's happening: mid-restart, any
+  mcp__minecraft__* call returns "Bot is connecting to the Minecraft server.
+  Please wait a moment and try again." — a plain wait-then-retry (8-20s) has
+  always cleared this live (verified across two server restarts same shift).
+  A full server outage instead returns "Cannot connect to Minecraft server at
+  <host>:<port>" — no in-flight retry signaled. There is NO reconnect/restart
+  tool exposed to the Kevin driver in the current toolset (only get/move/dig/
+  place/equip/craft/smelt/chat/find/list/look/jump-type tools) — a driver
+  hitting the "Cannot connect" message can only wait and periodically retry
+  (not in a tight loop), never force a reconnect. Root cause of the two
+  distinct messages (does the underlying yuniko MCP bot object retry on its
+  own eventually, or does something external need to restart it?) not
+  confirmed — worth an engine-side look if a "Cannot connect" state is ever
+  seen to persist past a full server-back window (kevin-driver, 2026-09-01).
 - **Crafting-void quirk, correction (verified live 2026-08-31, FurzFriedrich)**: for
   crafts of *unstackable* items (tools/weapons — pickaxe, axe, sword, all max stack
   1), a count-verify using `inventory.items().find(x=>x.name===...)` ALWAYS looks

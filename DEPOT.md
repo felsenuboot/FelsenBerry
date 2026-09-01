@@ -9,8 +9,15 @@ places them.
 | Chest | Category | Coordinates |
 |-------|----------|-------------|
 | A | Wood: logs, planks, sticks, saplings | (-5, 111, 1) |
-| B | Minerals: cobblestone, ores, ingots, coal | (-5, 111, 3) |
+| B | Tools, valuables, torches, ores/ingots (NOT bulk stone — see D) | (-5, 111, 3)-(-6, 111, 3), double chest, 54 slots |
 | C | Food & misc: meat, wool, eggs, seeds, leather | (-3, 111, 1) |
+| D | Bulk stone-class: cobblestone, deepslate, andesite, granite, diorite, gravel | planned — near the wall staging point, see BASE.md |
+
+**Category split (2026-09-01)**: chest B filled from Bernd's 424-item diamond-run haul
+and was upgraded to a double chest, but bulk stone still crowds out tools/valuables.
+Chest D (planned) takes over ALL stone-class bulk so B stays usable for what actually
+needs quick access. Redistribution from B into D happens once D is placed — announce
+the move as a paired `DEPOT -N <item> (chest B)` / `DEPOT +N <item> (chest D)`.
 
 **Chest B special item**: 1 TNT — recovered plaza evidence (2026-09-01), banked on
 team-lead's order after Peter recovered it from the creeper-explosion investigation.

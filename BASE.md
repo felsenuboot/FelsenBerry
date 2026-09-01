@@ -19,8 +19,9 @@ and MUST follow section 5 step by step. All chat announcements are in English.
 |------------------|-----------------|-----------------------------|---------|-----------------|----------------|------------|
 | crafting_table_1 | crafting_table  | (-3, 111, 4)                | built   | shared          | (pre-registry) | 2026-08-31 |
 | depot_chest_a    | chest           | (-5, 111, 1)                | built   | shared          | FurzFriedrich  | 2026-08-31 |
-| depot_chest_b    | chest           | (-5, 111, 3)                | built   | shared          | FurzFriedrich  | 2026-08-31 |
+| depot_chest_b    | double_chest    | (-5, 111, 3)-(-6, 111, 3)   | built   | shared          | FurzFriedrich  | 2026-09-01 | (upgraded to double chest by BuddelBernd 2026-09-01 — the single chest hit full after the diamond-run haul; merged an extra chest onto the west face, 54 slots now)|
 | depot_chest_c    | chest           | (-3, 111, 1)                | built   | shared          | FurzFriedrich  | 2026-08-31 |
+| depot_chest_d    | double_chest    | (-6, 111, 8), upgrading to a double chest | planned | shared        | KloputzKarl    | 2026-09-01 | (bulk stone-class overflow chest per team-lead's depot-expansion task — chest B filled from Bernd's diamond-run haul and needed to stop absorbing cobble/deepslate/andesite/granite/diorite/gravel. Rather than place a THIRD chest in the area, upgrading the existing perimeter_wall_1 staging chest (already at this spot, already holding 192+ cobblestone for the wall) into depot_chest_d directly — it's already doing this job, just needs the second chest merged on for double-chest capacity and a DEPOT.md category-map entry (done). Redistribution pass from chest B pending server return.) |
 | furnace_1        | furnace         | (-3, 111, 3)                | built   | exclusive-lease | (pre-registry) | 2026-08-31 |
 | furnace_2        | furnace         | (-3, 111, 2)                | built   | exclusive-lease | PflasterPeter  | 2026-08-31 |
 | plaza_1          | plaza_11x11     | x=-8..2, z=-1..9, floor 110 | built   | shared          | PflasterPeter  | 2026-08-31 |
@@ -37,7 +38,10 @@ and MUST follow section 5 step by step. All chat announcements are in English.
 | pen_2            | fence_pen_7x7   | x=7..13, z=10..16, y=119 (fence), floor y=118, entrance gap (10,119,16) | built | shared        | KloputzKarl    | 2026-09-01 | (replaces retired pen_1 per team-lead directive — sunlit flat plateau ~8 blocks above/east of farm_1, full skyLight 15, spatially clear of path_1's low-elevation route toward (10,92,50). 23 oak_fence perimeter blocks (built with the new engine v8 buildWall skill — verified block-by-block, far more reliable than hand-placement), a 1-wide open entrance gap at (10,119,16) instead of a crafted gate — see FEEDBACK.md, oak_fence_gate has no working recipe via bot.craft on this server right now, so the entrance is a plain fence block you dig+replace to open/close. 6 torches on the corners/entrance posts. Coordinated site via chat with peter-driver/marcel-driver before building; no objections raised.) |
 | main_hall_1      | hall_8x5        | x=-7..0, z=-6..-2, floor+walls y110..113, roof y114, open colonnade on the south (plaza-facing) wall between corner posts (-7,-2) and (0,-2), 3 interior torches | built | shared | PflasterPeter | 2026-09-01 | (user-requested: covers the crafting-table/depot hub where the fleet congregates) |
 | farm_2           | wheat_farm_9x9  | x=-17..-9, z=0..8, y=110, single water source at (-13,110,4) | planned | shared | KloputzKarl | 2026-09-01 | (canonical vanilla 9x9-per-water-source design — 1 source block hydrates all 80 surrounding farmland tiles, the maximum footprint one water source can cover; far more water-efficient than farm_1's 2x2-pond approach. Site: flat plateau west of the plaza in the old defunct zetbot2 claim zone, clear of every registered structure. NOTE: this sits just outside perimeter_wall_1's current envelope (x=-12..15) — flagging for Bernd/team-lead in case the wall boundary should extend ~5 blocks west to include it; building a standalone fence+torch perimeter around the farm itself regardless so it isn't undefended either way.) |
-| perimeter_wall_1 | wall_2high_posts | envelope x=-12..15, z=-9..18 (54x27, ~158 blocks of wall line minus 1 gate), 2-high cobblestone, oak-log post every 6 blocks + torch per post, gate at south z=18 x≈5 (path_1) | planned | shared | BuddelBernd (staging by KloputzKarl) | 2026-09-01 | (Bernd is the builder, mid-return from a diamond run and unreachable for the exact plan — team-lead authorized staging from the standing spec so Friedrich/Karl aren't blocked; Bernd confirms/adjusts numbers on arrival. Materials needed: ~320 cobblestone, ~81 oak_log stripped into posts (27 posts x 3), ~30 torches (Friedrich running a charcoal-pipeline restock of chest B, ~11min out as of this note; Karl holds 29 as bridge stock). STAGING CHEST at (-6,111,8) — 192 cobblestone banked so far (chest B down to ~23, ~105+ more still needed — top up from quarry or Bernd's returning haul). Originally planned for the SE plaza corner (0,111,9) but that spot is inside the block-update-bug zone (x=0..2,z=-1..9 — see FEEDBACK.md, confirmed to break PLACEMENT too, not just light) — moved off it rather than fight the bug. CONSTRUCTION NOTE from PflasterPeter: the north run at z=-9 will need to step down rather than run flat — there's a real 5-block cliff drop at z=-7, just past main_hall_1's north wall (z=-6); a level wall there would end up floating. No north gate needed (Peter's earlier note was this terrain warning, not a gate request) — main_hall_1's own access is entirely via its south colonnade onto the plaza.) |
+| perimeter_wall_1 | wall_2high_posts | envelope x=-12..15, z=-9..18, WITH A BULGE around farm_2: x=-12 line jogs out to x=-19 between z=-1 and z=9 (two E-W connectors at z≈-1 and z≈9 from x=-12 to x=-19, plus a N-S line at x=-19 spanning z=-1..9) to clear farm_2 (x=-17..-9,z=0..8) with ~2 blocks buffer. 2-high cobblestone, stripped-log post every 6 blocks + torch per post, gate at south z=18 x≈5 (path_1). | in-progress | shared | PflasterPeter (ownership transferred from BuddelBernd 2026-09-01 by team-lead — Peter is building it, Bernd's assignments kept slipping; Bernd takes the east+south runs as sections under Peter's coordination once ready) | 2026-09-01 | (Materials needed: ~320+ cobblestone, ~81+ log posts stripped, ~30+ torches. STAGING CHEST at (-6,111,8). CONSTRUCTION NOTE: the north run at z=-9 steps down past x=4 — real 5-block cliff drop at z=-7 (past main_hall_1's north wall at z=-6), a level wall there would float. No north gate — main_hall_1's access is via its south colonnade onto the plaza. BULGE NOTE: farm_2 sits directly on the original x=-12 line (real farmland+water already placed at x=-12..-14,z=1-5, confirmed live via unreachable placement attempts, not just "planned" on paper) — team-lead's decision was to jog around it rather than force through, since a straight wall cutting through a field reads as bot damage. West run's non-bulge segments (z=-9..-1, z=9..18 at x=-12) are built; the bulge itself (z=-1..9 detour) is next.) |
+| FEL-BT-1         | baritone_test_zone | x=75..85, z=0..10   | built (used) | shared      | (baritone workflow) | 2026-09-01 | (smoke-test zone used by the Baritone adapter verification workflow; registering per team-lead's request so it's not mistaken for unclaimed ground.) |
+| DIGTEST_1        | baritone_test_zone | x=-100..-90, z=-60..-50 | built (used) | shared  | (baritone workflow) | 2026-09-01 | (second Baritone smoke-test zone; same purpose as FEL-BT-1, registered per team-lead's request.) |
+| production_mine_1 | baritone_mine_site | center ~(-200,-150), exact footprint TBD on arrival | planned | shared | KloputzKarl | 2026-09-01 | (designated per team-lead's Baritone-adapter mining fence requirement: ≥150 blocks from every protected.json anchor EDGE and from the CAVECREW camp. Sited by calculation, not a live survey — nearest base anchor edge (main_hall_1) computes to ~241 blocks, CAVECREW camp edge ~303 blocks, comfortable margin over the 150 minimum. NOT terrain-verified: picked by geometry (far NW of the base cluster) since no census data covers this area and a live check wasn't possible with the server down. Whoever sends Baritone here first should confirm it's actually exposed stone/hillside and not, say, ocean, before industrial digging starts, and tighten this row to the real footprint once confirmed. Expect industrial digging — this is a baritone-mining-only zone, not for casual resource runs.) |
 
 Column rules:
 
@@ -322,6 +326,11 @@ You need infrastructure of type T (a crafting table, furnace, bed, chest, ...):
   hazard, no jump needed) along one straight edge, reads as an intentional
   slightly-raised dais rather than bot damage. Revisit with a border row if
   it looks wrong in a screenshot — team-lead left this as driver's call.
+- 2026-09-01 depot_chest_b upgraded to double_chest by BuddelBernd — the diamond-run
+  haul (8 diamonds + 424 total stone/ore items) filled the single chest solid. Merged
+  a spare chest onto the west face at (-6,111,3); confirmed 90-slot window (54
+  container + 36 inventory) after placement. Coords row updated to a range covering
+  both halves. Announced in chat.
 
 ## 7. Site safety notes (Kevinplatz v1)
 
@@ -392,6 +401,19 @@ You need infrastructure of type T (a crafting table, furnace, bed, chest, ...):
   original report. Cause of the original destruction still unknown/unwitnessed;
   Bernd separately found "broken chests and a logpile" near zetbot2 territory
   while mining around the same time — possibly related, not confirmed.
+
+- 2026-09-01 perimeter_wall_1 material supply update by FurzFriedrich — 43 of the
+  ~81 needed stripped_oak_log posts banked (staged near (7,112,8), east of
+  farm_1, ready for karl-driver's staging chest at (-6,111,8)). Also delivered
+  the charcoal-pipeline torch restock: 90 torches banked to chest B via
+  furnace_1 (oak_log) + furnace_2 (birch_log) running in parallel, fed with
+  their own charcoal output as self-sustaining fuel — both furnaces still
+  running for a second batch. Chest A's oak_log stock ran out mid-strip
+  (furnace loads consumed most of it); remaining posts depend on further
+  chopping. Note for the record: both of my stone_axes broke from the combined
+  chop+strip workload during this stretch (right-tool-law gap — replaced with
+  stone again in the moment since chest B had no iron at the time; craft an
+  iron axe once iron is available, flagged per engine-dev's audit).
 
 ## 10. Engine test debris (NOT infrastructure — free to demolish)
 
