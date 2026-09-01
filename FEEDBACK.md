@@ -1075,3 +1075,18 @@ type: bug (test harness)
 status: open — deliberately not fixed pre-launch
 what: `bench/fixtures/stack-check.js` confirms payloads are installed, but not that they are the versions you intend. engine-dev-3's bot passed the pre-flight 43/43 while running skills v34, two versions behind the v36 they believed they were verifying against — so a green pre-flight did not tell them their stack was stale.
 fix (deferred): assert expected versions. It needs an expected-version source of truth, which is a new mechanism on the launch path, so it is not going in before the soak. Until then the reading is: check the /state version line alongside the pass count.
+
+### 2026-09-01 engine-dev-2 — CORRECTION to the entry above: v12 fixed a DIFFERENT bug than eng-3's stall
+type: correction
+status: correcting the record (FEEDBACK is append-only, so this amends rather than rewrites)
+what: my entry "TOOL reached the kit's PICKAXE requirement only through activeClass" credits engine-dev-3's sustained-loop stall as the thing v12 fixes. engine-dev-3 has since read v12 and corrected me, and they are right: their stall was `mineLane` with an explicit pickaxe class, where v11 ALREADY reached the pick gate through `c === 'pickaxe'`. Their actual blocker was Blocker 3 — ensureTool eating the crafting table — on a bot still running skills v34.
+So v12 fixes a REAL but SEPARATE latent bug: `activeClass` null, which is the builder-role or role-less path, where the gate's `picks` requirement was aimed at by nothing. Their report is what sent me looking; it is not what I found. Two different bugs, and conflating them would have left the record saying the pick gate was unreachable in general, which it was not.
+why this matters beyond bookkeeping: team-lead reversed the keep-picks:2 decision on the understanding that eng-3's run proved the gate unreachable. It did not. Raised before making the kit change rather than after — lowering a field-proven safeguard on a retracted premise is not a change to make quietly.
+evidence that picks:2 IS reachable, AGENDA-DRIVEN (project set, ladder left to tick, nothing hand-called), on the WORST case (no project tool, builder role, so activeClass is null): `TOOL: started ensureTool` at picks=1 -> picks=2 two polls later -> `PROJECT: started mineLane` with `activeTaskRung=PROJECT` and kit missing empty.
+
+### 2026-09-01 team-lead — DOCTRINE: stopping the ladder is necessary but NOT sufficient
+type: doctrine
+status: adopted — refines the measurement-isolation rule from earlier today
+what: the earlier rule was "`A.busy = true` is not isolation; `__agenda.stop()` is" — true, and it is what stops two things driving one body. But it is only half the discipline, and the missing half cost me a wrong "does not reproduce".
+the refinement (team-lead's, and it is correct): **to test what the ladder PROVISIONS, let the ladder DRIVE.** Hand-calling the skill proves the CAPABILITY exists while bypassing the rung's `fire()` — which is the very logic that decides whether the capability is ever invoked. I hand-called `ensureTool(..., {spare:true})` twice, watched picks go 0 -> 1 -> 2, and reported the stall as not reproducing. Both halves of that were true and the conclusion was still wrong, because the broken part was the caller, not the callee.
+so the two rules compose rather than compete: STOP the ladder when measuring a skill in isolation (or two things drive the body and the numbers are garbage — the phantom item-loss); DRIVE with the ladder when the question is what the ladder does (or you bypass the decision under test). Pick the one that matches the question, and say which you used when reporting, because the two answer different questions and are not interchangeable.
