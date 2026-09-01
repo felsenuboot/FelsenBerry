@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 40;
+const ENGINE_VERSION = 41;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -165,6 +165,38 @@ const MAX_BELOW = 5;   // default: never select a target more than this far unde
 // look; the surface seen from inside a cave is a different journey, and one the caller must
 // decide on deliberately rather than discover by timeout.
 const MAX_ABOVE = 10;
+// --- movement DETECTION layer (#53) ---
+// A new best distance-to-goal is what "progress" means; anything less is thrashing.
+const PROGRESS_EPS = 0.5;
+// how far past a goal's own range still counts as arrived. Generous on purpose: this is a
+// backstop against "resolved 40 blocks away", not a second opinion on the goal's geometry.
+const ARRIVE_SLACK = 2.5;
+// Generous enough for a real detour, tight enough to be worth having. Calibration: the
+// observed wedges ran ~21s and a goto timeout is 20-30s, so a 20s window would fire barely
+// before the timeout and buy nothing. At 15s the recovery ladder gets a real window to act
+// in. Against that, a legitimate detour has to go 15s — roughly 60 blocks of sprinting —
+// without ONCE coming 0.5m closer than its previous best, which a path around a structure
+// essentially never does.
+const NO_PROGRESS_MS = 15000;
+// Where is this goal, in blocks? mineflayer's goal types are plain objects with x/y/z on
+// most variants, so read defensively and return null when there is nothing to measure —
+// a watchdog that invents a position would be worse than one that abstains.
+function goalPos(goal) {
+  try {
+    if (!goal || typeof goal.x !== 'number' || typeof goal.z !== 'number') return null;
+    // GoalXZ / GoalNearXZ have no y; measure in the plane the goal actually cares about by
+    // borrowing the bot's own y, so a legitimately-high bot is not scored as "far".
+    const y = typeof goal.y === 'number' ? goal.y : null;
+    return { x: goal.x, y, z: goal.z };
+  } catch (_) { return null; }
+}
+// distance from a position to a goal, in the GOAL'S OWN metric (ignore y when the goal does)
+function goalDistance(pos, gp) {
+  const dx = pos.x - gp.x, dz = pos.z - gp.z;
+  if (gp.y == null) return Math.sqrt(dx * dx + dz * dz);
+  const dy = pos.y - gp.y;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
 const SAPLING = (sp) => (sp === 'mangrove' ? 'mangrove_propagule' : sp + '_sapling');
 // mcData .drops is unreliable (most leaves report []) — hard-coded drop table:
 const DROPS = {
@@ -450,8 +482,21 @@ function makeCtx(bot, task) {
       const t0 = Date.now();
       const gotoP = bot.pathfinder.goto(goal);
       const settled = gotoP.then(() => ({ done: true }), (err) => ({ err }));
+      // PROGRESS watchdog (#53), not a MOVEMENT watchdog. The old rule reset its timer
+      // whenever the bot displaced 0.4 blocks, which a bot thrashing in place does
+      // continuously — so it only ever caught FROZEN bots, never oscillating ones. The
+      // field signature it missed is on record: `pf:{partial:416}` with zero successes,
+      // ~17 blocks moved, going nowhere, ten times in a row. That bot was moving the whole
+      // time. So the question is not "am I moving" but "am I getting closer", and the
+      // answer is a new BEST distance to the goal: a thrashing bot never sets one, and
+      // neither does a frozen one, so one rule catches both.
+      // Falls back to raw displacement only when the goal exposes no position to measure
+      // against (some goal types do not), which is strictly the old behaviour.
       let lastPos = bot.entity.position.clone();
       let lastMove = Date.now();
+      let lastProgress = Date.now();
+      let dBest = Infinity;
+      const gp = goalPos(goal);
       let unsticks = 0;
       try {
         while (true) {
@@ -470,10 +515,24 @@ function makeCtx(bot, task) {
             let arrived = true;
             try {
               if (typeof goal.isEnd === 'function') arrived = Boolean(goal.isEnd(p) || goal.isEnd(p.offset(0, 1, 0)));
-            } catch (_) { arrived = true; } // goal type we can't introspect — don't break it
+            } catch (_) { arrived = true; } // unreadable goal — the distance check below decides
+            // Second, independent check on the same claim: how far are we actually from
+            // the goal, in the goal's own metric? isEnd is the goal's DEFINITION of arrival
+            // and stays primary — but it is introspected from a library object, and when it
+            // cannot be read at all the old code defaulted to "arrived", i.e. it trusted a
+            // bare promise resolve. That is the false-success shape this codebase keeps
+            // finding one layer at a time. So when isEnd is unreadable, distance decides;
+            // and when both are readable, a wildly-off distance overrides an isEnd yes.
+            let dEnd = null;
+            if (gp) dEnd = Math.round(goalDistance(bot.entity.position, gp) * 100) / 100;
+            const tol = (typeof goal.range === 'number' ? goal.range
+              : (typeof goal.rangeSq === 'number' ? Math.sqrt(goal.rangeSq) : 1)) + ARRIVE_SLACK;
+            if (dEnd != null && dEnd > tol) arrived = false;
             if (!arrived) {
               _res = 'no_path'; _afail = true;    // the empty-path false success, caught
-              const e = new Error('goto resolved without reaching the goal (empty-path noPath)');
+              const e = new Error(dEnd == null
+                ? 'goto resolved without reaching the goal (empty-path noPath)'
+                : `goto resolved ${dEnd} from the goal (tolerance ${Math.round(tol * 100) / 100})`);
               e.code = 'no_path';
               throw e;
             }
@@ -489,19 +548,41 @@ function makeCtx(bot, task) {
             e.code = 'path_timeout';
             throw e;
           }
+          // TWO independent timers, because there are two failure modes with different
+          // honest thresholds — collapsing them into one is how you either miss thrashing
+          // or false-alarm on a detour.
+          //   FROZEN    — not displacing at all. 6s is plenty; nothing legitimate stands
+          //               still that long mid-path.
+          //   NO PROGRESS — displacing but never getting closer. This one needs a GENEROUS
+          //               window, because routing around a wall or down a spiral staircase
+          //               legitimately increases goal distance for a while. 20s is longer
+          //               than any real detour here and still well inside the goto timeout,
+          //               and it comfortably catches the observed wedge (~21s, going nowhere).
           const p = bot.entity.position;
-          if (p.distanceTo(lastPos) > 0.4) { lastPos = p.clone(); lastMove = Date.now(); }
-          else if (Date.now() - lastMove > 6000) {
+          const nowMs = Date.now();
+          if (p.distanceTo(lastPos) > 0.4) { lastPos = p.clone(); lastMove = nowMs; }
+          if (gp) {
+            const d = goalDistance(p, gp);
+            if (d < dBest - PROGRESS_EPS) { dBest = d; lastProgress = nowMs; }
+          } else { lastProgress = lastMove; }   // no measurable goal: displacement is all we have
+          const frozenMs = nowMs - lastMove;
+          const noProgressMs = nowMs - lastProgress;
+          if (frozenMs > 6000 || noProgressMs > NO_PROGRESS_MS) {
             if (unsticks >= 3) {
               try { bot.pathfinder.setGoal(null); } catch (_) {}
               _res = 'stuck';
-              const e = new Error('stuck: no movement despite an active path');
+              // self-describing: "no progress" and "no movement" are different worlds and
+              // the recovery ladder (#54) will want to tell them apart.
+              const moved = Math.round(bot.entity.position.distanceTo(lastPos) * 10) / 10;
+              const e = new Error(frozenMs > 6000
+                ? `stuck: no movement for ${Math.round(frozenMs / 1000)}s despite an active path`
+                : `stuck: moving but no closer to goal for ${Math.round(noProgressMs / 1000)}s (best ${Math.round(dBest * 10) / 10}, moved ${moved} meanwhile)`);
               e.code = 'stuck';
               throw e;
             }
             unsticks++;
             await ctx._unstick();
-            lastMove = Date.now();
+            lastMove = Date.now(); lastProgress = Date.now();
           }
         }
       } finally {
@@ -514,7 +595,7 @@ function makeCtx(bot, task) {
     // Physics-wedge recovery: dig no-collision nuisance blocks overlapping the
     // bot's AABB (leaf_litter is the live-confirmed offender) and hop backwards.
     async _unstick() {
-      pushLog('info', 'movement stalled — unsticking (nuisance dig + hop)');
+      pushLog('info', 'movement stalled — unsticking (clear the AABB + hop)');
       try { const m = MET(); if (m && m.unstick) m.unstick('nuisance'); } catch (_) {}
       const base = bot.entity.position;
       const cols = new Set();
@@ -525,7 +606,17 @@ function makeCtx(bot, task) {
         const [x, y, z] = k.split(',').map(Number);
         for (const dy of [0, 1]) {
           const b = bot.blockAt(new Vec3(x, y + dy, z));
-          if (b && NUISANCE.has(b.name) && b.diggable) {
+          // ANY diggable no-collision block, not a hardcoded nuisance list (#53). The list
+          // was written from one specimen (leaf_litter) and every new offender needed a code
+          // change to be recognised — cobwebs, snow layers, fire, sculk vein, powder snow,
+          // whatever 1.22 adds next. The property that actually matters is the one that
+          // makes a block able to wedge you: it occupies your AABB while not being solid
+          // enough to stand on. boundingBox === 'empty' IS that property, so test it
+          // directly instead of enumerating its instances.
+          // Deliberately NOT digging solid blocks: this fires on a stall, and a stall is not
+          // a licence to tunnel through terrain. digguard still vetoes protected positions.
+          if (b && b.diggable && b.boundingBox === 'empty' && b.name !== 'air'
+              && b.name !== 'cave_air' && b.name !== 'void_air' && !ctx.isProtected(b.position, b.name)) {
             try { await ctx.equipBestTool(b); } catch (_) {}
             try {
               const dp = bot.dig(b, true);
@@ -1151,6 +1242,44 @@ for (const k of ['buildWall', 'buildFloor', 'frameStructure', 'buildSchematic'])
 // ledger uses. Two independent notions of "done" would drift, and the whole point of the
 // ASSERTS table is that success is graded by something other than the code being graded.
 S.assertTask = (task, b) => runAssert(task, b || S._lastBot);
+
+// Test hooks for the movement DETECTION layer (#53). Pure functions over plain objects, so
+// the wedge cases can be replayed against synthetic goals and positions instead of staging a
+// genuinely stuck bot — which is the only reason the previous watchdog's blind spot survived
+// so long: it could only be exercised by reproducing a wedge in the world.
+S.moveDetect = {
+  goalPos, goalDistance, PROGRESS_EPS, ARRIVE_SLACK, NO_PROGRESS_MS,
+  // would the watchdog call this a stall? Replays a position series against a goal and
+  // returns the moment progress stopped, exactly as ctx.goto scores it.
+  progress(goal, samples) {
+    const gp = goalPos(goal);
+    let dBest = Infinity, lastMove = 0, lastProgress = 0, lastPos = null, moved = 0;
+    for (const smp of samples) {
+      const p = { x: smp.x, y: smp.y, z: smp.z };
+      const step = lastPos ? Math.hypot(p.x - lastPos.x, p.y - lastPos.y, p.z - lastPos.z) : 0;
+      if (step > 0.4) lastMove = smp.t;
+      if (gp) {
+        const d = goalDistance(p, gp);
+        if (d < dBest - PROGRESS_EPS) { dBest = d; lastProgress = smp.t; }
+      } else { lastProgress = lastMove; }
+      moved += step;
+      lastPos = p;
+    }
+    const last = samples.length ? samples[samples.length - 1].t : 0;
+    const frozenMs = last - lastMove, noProgressMs = last - lastProgress;
+    return { measuredBy: gp ? 'goal-distance' : 'displacement',
+      dBest: dBest === Infinity ? null : Math.round(dBest * 100) / 100,
+      frozenMs, noProgressMs, stalledMs: Math.max(frozenMs, noProgressMs),
+      totalMoved: Math.round(moved * 10) / 10,
+      reason: frozenMs > 6000 ? 'frozen' : (noProgressMs > NO_PROGRESS_MS ? 'no_progress' : null),
+      stalled: frozenMs > 6000 || noProgressMs > NO_PROGRESS_MS };
+  },
+  // would _unstick dig this block? The property test, without a world.
+  wouldClear(block) {
+    return Boolean(block && block.diggable && block.boundingBox === 'empty'
+      && block.name !== 'air' && block.name !== 'cave_air' && block.name !== 'void_air');
+  },
+};
 
 // The kit tier table, exported so the AGENDA can aim its maintenance rungs at the SAME
 // requirement the departure gate enforces. Without this the ladder's idea of "I have a
