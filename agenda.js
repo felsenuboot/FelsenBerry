@@ -42,6 +42,22 @@ const PREEMPT_DEBOUNCE = 2;        // ticks a non-safety rung must hold to preem
 const POSTURE_DWELL_MS = 3000;
 const RESTOCK_BUFFER = 1.5;        // resupply target as a multiple of the floor (the hysteresis gap)
 const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never mine a 1-block gap
+// WITHDRAW -> PRODUCE -> STAND DOWN. A bot that can only acquire by withdrawing is not
+// self-sufficient, which is the phase-1 bar itself: on a fresh world torches cannot be
+// withdrawn (no depot), cannot be mined, and `restock` does not craft — so the kit gate
+// refuses every departure forever. These are the restock items the bot can MAKE instead,
+// mapped to the batch to make (never the bare gap: producing the exact shortfall is the same
+// no-buffer mistake as topping up to the floor, with a whole mining trip as its cost).
+// Anything absent here — bread/food today — has no produce path and must stand down.
+const PRODUCEABLE = {
+  torch: (gap) => Math.min(Math.max(8, Math.ceil(gap / 4) * 4), 32),   // craft yields 4 per batch
+  cobblestone: (gap) => Math.max(RESTOCK_MINE_BATCH, Math.min(gap, 24)),
+};
+const PRODUCE_ORDER = ['torch', 'cobblestone'];   // fixed order: deterministic, light first
+const PRODUCE_COOLDOWN_MS = 120000;   // after a produce that made NOTHING, stop asking that resource
+// How long "the depot could not supply this" stays believed. It must expire: another bot may
+// restock the depot, and a permanent latch would mean never withdrawing again.
+const DEPOT_SHORT_TTL_MS = 600000;
 // A single act() that never settles freezes the WHOLE ladder: tick() returns early on
 // A.busy, so one hung await silently ends autonomy. Found live — a TOOL act stalled and the
 // brain sat at busy:true with zero ticks for minutes, owner null, timer alive, looking
@@ -51,11 +67,15 @@ const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 6, enabled: true,
+  version: 7, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
   standDown: {}, standDownCount: {}, unproductive: {},
+  // the produce-fallback's memory: what the depot could not supply (item names — the COUNTS
+  // are deliberately not trusted, they go stale the moment anything is consumed), when that
+  // was learned, and which resources produce has just failed to make.
+  _restockShort: null, _restockShortAt: 0, _restockNeeds: null, _produceCooldown: {},
   metrics: { ticks: 0, transitions: 0, acts: 0, errors: 0, byRung: {} },
   log: [],
 };
@@ -363,26 +383,44 @@ const RUNGS = [
       if (f.filler) needs.cobblestone = up(f.filler);
       if (!Object.keys(needs).length) return 'none';
 
-      // PRODUCE what the depot cannot supply. A bot that can only acquire by withdrawing is
-      // not self-sufficient — which is the phase-1 bar itself — and on a fresh world with no
-      // depot the filler floor is simply unmeetable, so the project's kit gate refuses
-      // forever. If the last restock came back short on filler and we hold a pickaxe, go mine
-      // it instead of asking an empty chest again.
-      const shortFiller = A._restockShort && A._restockShort.cobblestone;
-      const havePick = (bot.inventory.items() || []).some((i) => /_pickaxe$/.test(i.name));
-      if (shortFiller && havePick) {
-        A._restockShort = null;
-        // force: mineLane's own kit tier wants 16 filler, which is exactly what we are here
-        // to obtain — the one sanctioned exception, same shape as ensureTool's bootstrap
-        // wood digs. Gathering stone at the surface is not the deep excursion that gate
-        // exists to protect.
-        note(`depot short ${shortFiller} filler — mining it instead`);
-        // Mine a BATCH, never the bare gap. Mining the exact shortfall (often 1) is the same
-        // no-buffer mistake as topping to the floor, with a whole mining trip as its cost.
-        const batch = Math.max(RESTOCK_MINE_BATCH, Math.min(shortFiller, 24));
-        const rm = runSkill('mineLane', { target: 'stone', count: batch, maxDist: 24, force: true }, 'RESTOCK/mine');
-        return rm.ok ? 'started' : (rm._transient ? 'busy' : 'refused');
+      // STEP 2 — PRODUCE what the depot could not supply. Reached only after a withdraw has
+      // actually come back short (or errored), so the depot stays the cheap first answer and
+      // producing is the fallback, not the habit.
+      const shortAge = s.now - (A._restockShortAt || 0);
+      const depotShort = (A._restockShort && shortAge < DEPOT_SHORT_TTL_MS) ? A._restockShort : null;
+      if (depotShort) {
+        // Recompute the gap from the inventory NOW. The recorded shortfall is a signal ("the
+        // depot is out of these"), never a quantity — reusing its counts would be the same
+        // unit-mismatch class of bug as grading a block distance against an entity position.
+        const held = (n) => (bot.inventory.items() || []).filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+        let pick = null;
+        for (const r of PRODUCE_ORDER) {
+          if (!(r in depotShort) || !needs[r]) continue;
+          if ((A._produceCooldown[r] || 0) > s.now) continue;
+          const gap = needs[r] - held(r);
+          if (gap > 0) { pick = { resource: r, count: PRODUCEABLE[r](gap), gap }; break; }
+        }
+        if (pick) {
+          note(`depot short on ${pick.resource} (gap ${pick.gap}) — making ${pick.count} instead`);
+          const rp = runSkill('produce', { resource: pick.resource, count: pick.count }, 'RESTOCK/produce');
+          if (rp.ok) { A._producing = pick.resource; return 'started'; }
+          if (rp._transient) return 'busy';
+          // no produce skill installed (producer.js missing) is a real refusal, not a silent
+          // fall-through to the withdraw that just failed.
+          return 'refused';
+        }
+        // STEP 3 — STAND DOWN. Everything still short is either unproduceable (food: no farm
+        // or cook path is wired to this rung yet) or in produce cooldown. Re-running the
+        // withdraw that just came back empty would be the churn this rung already fixed once,
+        // so report no progress and let the backoff give the lower rungs the body. The TTL
+        // above brings the withdraw probe back on its own.
+        const stuck = Object.keys(depotShort).filter((n) => needs[n]).join(', ');
+        if (stuck) { note(`still short ${stuck} and nothing left to try — standing down`); return 'refused'; }
       }
+
+      // STEP 1 — WITHDRAW. Remember what we asked for: if the task ERRORS there is no
+      // result.short to read, and the ask is what was not delivered.
+      A._restockNeeds = needs;
       const rr = runSkill('restock', { needs }, 'RESTOCK');
       return rr.ok ? 'started' : (rr._transient ? 'busy' : 'refused');
     } },
@@ -532,7 +570,35 @@ const tick = () => {
     // remember what the depot could not supply, so RESTOCK can switch to producing it
     try {
       const raw = s.task._raw;
-      if (raw && raw.name === 'restock' && raw.result && raw.result.short) A._restockShort = raw.result.short;
+      if (raw && raw.name === 'restock') {
+        const short = (raw.result && raw.result.short) || null;
+        if (short && Object.keys(short).length) { A._restockShort = short; A._restockShortAt = s.now; }
+        else if (raw.error) {
+          // A restock that ERRORED withdrew nothing, and it carries no result to read. Judging
+          // the depot only by result.short missed exactly the case the produce-fallback exists
+          // for: on a world with no depot configured, restock throws not_found every time,
+          // _restockShort stayed null forever, and the fallback was unreachable — the ladder
+          // standing down on a need it was holding the fix for. The ask is the shortfall.
+          A._restockShort = Object.assign({}, A._restockNeeds || {}); A._restockShortAt = s.now;
+          note(`restock failed (${raw.error.code}) — treating the whole ask as depot-short`);
+        } else { A._restockShort = null; A._restockShortAt = 0; }   // stocked: forget the signal
+      }
+      if (raw && raw.name === 'produce') {
+        const res = (raw.args && raw.args.resource) || A._producing;
+        const made = (raw.result && raw.result.made) || 0;
+        if (res && made <= 0) {
+          A._produceCooldown[res] = s.now + PRODUCE_COOLDOWN_MS;
+          note(`produce ${res} made nothing (${(raw.result && raw.result.reason) || (raw.error && raw.error.code) || '?'}) — not asking again for ${Math.round(PRODUCE_COOLDOWN_MS / 1000)}s`);
+        } else if (res) {
+          delete A._produceCooldown[res];
+          // The unproductive detector below judges a rung by whether its own fire() is still
+          // true after the task ends — but a produce that made 6 of 24 torches DID move the
+          // world, and standing RESTOCK down for real progress would strand a bot mid-resupply.
+          // Progress, not completion, is the right predicate here.
+          A.unproductive.RESTOCK = 0;
+        }
+        A._producing = null;
+      }
     } catch (e) {}
 
     // GENERAL "completed but did not achieve" detector. A rung whose skill finishes cleanly
@@ -640,11 +706,11 @@ try {
 } catch (e) {}
 
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.agenda = { version: 6, boundAt: now(), stale: false };
+REG.agenda = { version: A.version, boundAt: now(), stale: false };
 bot.once('end', () => { try { REG.agenda.stale = true; A.enabled = false; if (A.timer) clearInterval(A.timer); } catch (e) {} });
 
 A.timer = setInterval(tick, TICK_MS);
 
-return { installed: true, version: 6, rungs: RUNGS.length, tickMs: TICK_MS,
+return { installed: true, version: A.version, rungs: RUNGS.length, tickMs: TICK_MS,
   subsumedIdleguard: subsumed, role: A.role, home: HOME,
   api: ['setProject', 'step', 'sense', 'rung', 'snapshot', 'stop'] };

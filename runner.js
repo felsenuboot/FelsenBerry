@@ -252,8 +252,11 @@ async function applyPayloadStack(bot) {
   // harvestGrass, spawnProof/structureAudit) into __skills via S.define, so they MUST come after
   // skills.js (which creates __skills). A reconnect re-runs skills.js (resetting the registry)
   // then the packs (re-registering). basekeeping.structureAudit reads __digguard.regions, so it
-  // sits after digguard too.
-  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js', 'farmskills.js', 'basekeeping.js']) {
+  // sits after digguard too. producer.js is the same shape: it attaches __skills.produce and
+  // registers the `produce` skill, and its mining consults __digguard for protected regions —
+  // so it too must come after both. The agenda's RESTOCK rung calls it as its produce-fallback,
+  // which is the difference between a bot that can only withdraw and a self-sufficient one.
+  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js', 'farmskills.js', 'basekeeping.js', 'producer.js']) {
     const r = await injectPayload(bot, f);
     report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
   }
