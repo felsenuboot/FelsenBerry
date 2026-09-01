@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 42;
+const ENGINE_VERSION = 43;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -3002,6 +3002,80 @@ S.define('chopTrees', {
     const haul = Object.entries(t.collected).map(([k, v]) => `${v} ${k}`).join(', ');
     return `Chopped ${t.result.treesFelled} tree(s), ${t.result.logsDug} logs. Haul: ${haul || 'nothing?!'}`;
   },
+});
+
+// ---------- relocateToWork (#67b) ----------
+// A base whose immediate ground is worked out or protected leaves a role bot no-opping in
+// place: chopTrees throws not_found once every plaza tree is protected or felled, safeDescend
+// cannot cut the protected base floor, harvestGrass finds paved ground. The agenda's IDLE rung
+// detects that barren no-op and calls this to WALK the bot to fresh terrain, so the next
+// role-work run scans new ground instead of the same empty patch.
+//
+// It is a DIRECTED WALK, not a wider scan: the work skills already sweep 64 blocks, so if they
+// found nothing the resource is not in view and a bigger scan finds the same nothing — the fix
+// is to load new chunks by moving. Headings rotate across calls so repeated barren cycles fan
+// OUT instead of pacing one dead direction. No kit gate on purpose: a stripped bot must still
+// be able to relocate, and walking needs nothing in the bag.
+S.define('relocateToWork', {
+  description: 'Walk to fresh, unprotected terrain when the local area is worked out, so role-default work has something to do. The agenda IDLE rung calls this on a barren no-op.',
+  params: { skill: 'the role-work skill that no-opped (chopTrees|harvestGrass|mineLane|safeDescend)', role: 'fallback resource hint if skill is absent', hops: 'blocks to travel (default 40)' },
+  fn: async (ctx) => {
+    const { bot, args } = ctx;
+    const skill = args.skill || null, role = args.role || null;
+    // Resource class the destination must offer (wood/ground) or simply be clear to dig (dig).
+    const kind = (skill === 'chopTrees' || role === 'lumberjack') ? 'wood'
+      : (skill === 'mineLane' || skill === 'safeDescend' || role === 'miner') ? 'dig'
+        : 'ground';
+    const hop = Math.max(16, Math.min(64, args.hops || 40));
+    const cfg = readCfg();
+    const HOME = Array.isArray(cfg.home) ? new Vec3(cfg.home[0], cfg.home[1], cfg.home[2]) : null;
+    const here = bot.entity.position.clone();
+
+    // First standable landing at (x,z): scan down from a ceiling for solid floor with two air
+    // cells above, skipping fluids. Returns the feet cell, or null if nothing loaded/standable.
+    const standableAt = (x, z, topY) => {
+      for (let y = topY; y >= topY - 24; y--) {
+        const floor = bot.blockAt(new Vec3(x, y, z));
+        const feet = bot.blockAt(new Vec3(x, y + 1, z));
+        const head = bot.blockAt(new Vec3(x, y + 2, z));
+        if (!floor || !feet || !head) continue;
+        if (floor.boundingBox !== 'block' || /water|lava/.test(floor.name)) continue;
+        if (feet.boundingBox !== 'empty' || head.boundingBox !== 'empty') continue;
+        return new Vec3(x, y + 1, z);
+      }
+      return null;
+    };
+
+    // Fan the heading out across calls so consecutive barren cycles explore different ground.
+    const HEADINGS = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [-1, -1], [1, -1]];
+    const n = (S._relocateN = (S._relocateN || 0) + 1);
+    ctx.setPhase('relocating', `Local ${kind === 'wood' ? 'trees' : kind === 'dig' ? 'dig ground' : 'ground'} worked out — moving to fresh terrain.`);
+
+    let moved = null, tried = 0;
+    for (let i = 0; i < 4 && !moved; i++) {
+      ctx.step();
+      const h = HEADINGS[(n + i) % HEADINGS.length];
+      const tx = Math.floor(here.x + h[0] * hop), tz = Math.floor(here.z + h[1] * hop);
+      const topY = Math.floor(Math.max(here.y, HOME ? HOME.y : here.y)) + 4;
+      const dest = standableAt(tx, tz, topY) || new Vec3(tx, Math.floor(here.y), tz);
+      tried++;
+      // Never relocate INTO protected base infrastructure — that is the ground we are leaving.
+      if (ctx.isProtected(dest)) continue;
+      // For wood, do not settle inside the plaza aesthetic exclusion: walk OUT of it, not around.
+      if (kind === 'wood' && !ctx.harvestAllowed(dest, 'chopTrees')) continue;
+      try { await ctx.gotoNear(dest, 2, 30000); moved = dest; }
+      catch (e) { ctx.log(`relocate heading ${h} failed (${e.code || e.message}) — trying next`); }
+    }
+
+    if (!moved) return { relocated: false, reason: 'no_reachable_spot', kind, tried };
+    try { await ctx.collectDrops(8, 6000); } catch (_) {}
+    const dist = Math.round(Math.sqrt((moved.x - here.x) ** 2 + (moved.z - here.z) ** 2));
+    return { relocated: true, kind, to: { x: moved.x, y: moved.y, z: moved.z }, dist };
+  },
+  // #67a: a relocate that found nowhere new to go is not news — stay silent.
+  doneMsg: (t) => (t.result && t.result.relocated
+    ? `Moved ${t.result.dist}m to fresh ${t.result.kind === 'wood' ? 'woods' : t.result.kind === 'dig' ? 'ground to mine' : 'ground'}.`
+    : null),
 });
 
 // ---------- mineLane ----------

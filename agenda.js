@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 16, enabled: true,
+  version: 17, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -356,6 +356,59 @@ const torchInline = async () => {
   } catch (e) { return false; }
 };
 
+// ---------------- #67b: base-barren detection + relocate trigger ----------------
+// IDLE role-work can no-op: at a worked-out or protected base, chopTrees/mineLane throw
+// not_found and safeDescend/harvestGrass return a zero-yield result. Standing there re-running
+// the same empty scan is the "five bots frozen" bug one level up. So we GRADE each finished
+// IDLE work run, count consecutive barren outcomes, and once the ground is proven empty walk the
+// bot to fresh terrain (the relocateToWork skill) before letting it try its trade again.
+const RELOCATABLE = new Set(['chopTrees', 'harvestGrass', 'mineLane', 'safeDescend']);
+const BARREN_ERRS = new Set(['not_found', 'no_target', 'none']);   // "nothing of the kind here"
+// worked | barren | other. 'other' (kit_missing, no_tool, busy) is NOT barren — RESTOCK/TOOL own
+// it — so it must never trip a relocate. Unknown skills default to 'worked' so a bot making
+// progress we cannot read is never marched off its work.
+const idleWorkOutcome = (skill, result, error) => {
+  if (error) return BARREN_ERRS.has(error.code) ? 'barren' : 'other';
+  const r = result || {};
+  const did = ({
+    chopTrees:      () => (r.treesFelled || 0) > 0,
+    harvestGrass:   () => (r.cut || 0) > 0,
+    mineLane:       () => (r.dug || 0) > 0,
+    safeDescend:    () => (r.endY != null && r.startY != null) ? r.endY < r.startY : true,
+    relocateToWork: () => Boolean(r.relocated),
+  }[skill] || (() => true))();
+  return did ? 'worked' : 'barren';
+};
+A._idleWorkOutcome = idleWorkOutcome;   // exposed for bench/fixtures/agenda-idlework.js
+const RELOCATE_BACKOFF_MS = 5 * 60000;
+const RELOCATE_WANDER_CAP = 5;          // hops without finding work before we settle and sweep
+// Grade the IDLE work run we last started, exactly once, the tick it is found finished.
+// S.currentTask persists after done until the next start, so the terminal result/error is on the
+// snapshot; injected test snapshots that omit _raw simply skip, as deterministic replay wants.
+const gradeIdleWork = (s) => {
+  const lw = A._lastIdleWork;
+  if (!lw || !s.task || s.task.id !== lw.id || s.task.running) return;
+  A._lastIdleWork = null;                              // terminal — grade at most once
+  if (s.task._raw && s.task._raw.cancelled) return;    // preempted, not barren
+  if (!s.task._raw && !s.task.error) return;           // minimal injected snapshot: nothing to read
+  const out = idleWorkOutcome(lw.skill, s.task._raw && s.task._raw.result, s.task.error);
+  if (lw.skill === 'relocateToWork') {
+    // A relocate that MOVED gives fresh ground next cycle; one that found nowhere backs off so
+    // the bot stops pacing. Too many hops without work also settles it, rather than marching off.
+    if (out === 'worked') {
+      A._barren = 0;
+      if ((A._wander = (A._wander || 0) + 1) >= RELOCATE_WANDER_CAP) {
+        A._relocateBackoff = s.now + RELOCATE_BACKOFF_MS; A._wander = 0;
+        note('relocated far without finding work — settling for a bit');
+      }
+    } else { A._relocateBackoff = s.now + RELOCATE_BACKOFF_MS; note('relocate found nowhere new — backing off'); }
+    return;
+  }
+  if (out === 'worked') { if (A._barren) note(`${lw.skill} progressed — area not barren after all`); A._barren = 0; A._wander = 0; }
+  else if (out === 'barren') { A._barren = (A._barren || 0) + 1; note(`${lw.skill} no-op — area looks barren (${A._barren})`); }
+  // 'other' (kit/transient) leaves the barren count untouched; the maintenance rungs own it.
+};
+
 // ---------------- the ten rungs ----------------
 const RUNGS = [
   { id: 'REFLEX', prio: 0, safety: true,
@@ -604,6 +657,7 @@ const RUNGS = [
     clear: () => false,                                 // never clears; only preemption moves us
     act: async (s) => {
       if (oursRunning(s)) return 'running';
+      gradeIdleWork(s);                                          // #67b: score the finished run first
       if (s.now - (A._idleAt || 0) < 30000) return 'cooldown';   // don't spam
       A._idleAt = s.now;
       // ROLE-DEFAULT WORK FIRST. The floor of the ladder is "do something useful", not "look
@@ -612,9 +666,19 @@ const RUNGS = [
       // drops as they go, so the sweep is the FALLBACK rather than the default.
       const w = ROLE_WORK[s.role];
       const work = typeof w === 'function' ? w(s) : w;
+      // #67b BASE-BARREN: local role-work keeps no-opping — the resource is not here. Walk to
+      // fresh terrain before re-running the same empty scan. Backoff-gated so a bot that finds
+      // nowhere new does not pace forever; keyed on the WORK SKILL so builder-gathering-wood
+      // relocates but builder-lighting-the-base (an inherently local job) does not.
+      if (work && (A._barren || 0) >= 1 && RELOCATABLE.has(work.skill) && s.now >= (A._relocateBackoff || 0)) {
+        const rr = runSkill('relocateToWork', { skill: work.skill, role: s.role }, 'IDLE/relocate');
+        if (rr.ok) { A._lastIdleWork = { id: rr.taskId, skill: 'relocateToWork' }; return 'relocating'; }
+        if (rr._transient) return 'busy';
+        // relocateToWork unavailable (older engine) — fall through to the normal work/sweep
+      }
       if (work) {
         const rw = runSkill(work.skill, work.args, 'IDLE/work');
-        if (rw.ok) return 'working';
+        if (rw.ok) { A._lastIdleWork = { id: rw.taskId, skill: work.skill }; return 'working'; }
         if (rw._transient) return 'busy';
         // Refused — usually a kit gate. That is not a dead end: RESTOCK and TOOL sit ABOVE
         // this rung and aim at exactly those floors (role floors apply when no project is
@@ -623,6 +687,7 @@ const RUNGS = [
         note(`idle work ${work.skill} refused (${rw.error && rw.error.code}) — sweeping instead`);
       }
       const ri = runSkill('collectDrops', { radius: 16, timeoutMs: 15000 }, 'IDLE');
+      if (ri.ok) A._lastIdleWork = null;                          // a sweep is not role-work to grade
       return ri.ok ? 'sweeping' : (ri._transient ? 'busy' : 'refused');
     } },
 ];
