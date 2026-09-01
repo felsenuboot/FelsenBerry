@@ -40,6 +40,26 @@ auditing a new layer means checking BOTH "does this grade itself" (the original
 question) AND "is what reaches the grader actually the thing that did the work"
 (this one).
 
+**Measurement isolation — the same invariant applied to the act of measuring
+itself (engine-dev-2, 2026-09-01):** "one thing drives the body" isn't only a
+runtime rule; it governs verification too, and violating it can MANUFACTURE a
+phantom defect rather than just miss a real one. Incident: measuring
+`ensureTool`'s material use by running it by hand while the agenda's `TOOL` rung
+was ALSO running its own acquisition — two things driving one body — produced an
+alarming number (46 cobblestone apparently vanishing), one step from a reported
+item-loss bug that does not exist. Root cause: `A.busy=true` is NOT isolation —
+it stops the ladder from starting NEW acts, not one already running underneath
+the measurement. `__agenda.stop()` is real isolation. Re-run from a known
+inventory with the ladder actually stopped: clean. **To measure or verify a
+skill's behavior on a live bot, stop the ladder first (`__agenda.stop()`), never
+just set a busy flag** — a second driver on the same body contaminates the
+numbers before any conclusion is drawn, exactly like the wedge cluster taught
+one layer down (group by cause before concluding), just applied to the
+measurer's own setup instead of the engine's runtime. This guards the person
+verifying from fooling themselves, which the false-success root and the
+verifier-pointed-at-the-wrong-task corollary above don't cover on their own —
+together the three make up the verification-hygiene set.
+
 ---
 
 ## 0. The five laws (everything else derives from these)
