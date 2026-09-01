@@ -48,6 +48,14 @@ try {
   T('food 15 -> EAT', { food: 15 }, 'EAT');
   T('pickaxe at 10% durability -> TOOL', { tools: { pickaxe: { name: 'iron_pickaxe', dur: 10 } } }, 'TOOL');
   T('only ONE pickaxe but kit wants 2 -> TOOL (spare)', { toolCounts: { pickaxe: 1, sword: 1 } }, 'TOOL');
+  // ...and the same must hold when NOTHING resolves the project to a tool class. This case is
+  // the one engine-dev-3's sustained-loop verify caught and this fixture missed: the base
+  // snapshot's role is `miner`, which maps to pickaxe, so activeClass was never null here and
+  // the case above passed for the wrong reason. A `builder` role maps to no tool at all, and
+  // TOOL used to reach the pick requirement only through activeClass — so fire() went false,
+  // clear() went TRUE, and the gate's `picks: 2` was aimed at by nothing.
+  T('1 pickaxe, kit wants 2, and NO tool class resolves -> TOOL still fires',
+    { role: 'builder', toolCounts: { pickaxe: 1, sword: 1 } }, 'TOOL');
   // the kit's WEAPON requirement had no rung aiming at it until v11: a bot could provision
   // its entire kit and then stall forever on "weapon (any sword)"
   T('kit wants a weapon, none held -> TOOL',

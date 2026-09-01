@@ -84,7 +84,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 11, enabled: true,
+  version: 12, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -213,6 +213,18 @@ const weaponMissing = (s) => {
   if (!k || !k.weapon) return false;
   const t = s.tools || {};
   return !(t.sword || t.axe);
+};
+// Is the gate short of PICKAXES? This has to be asked independently of the project's own tool
+// class, which is the bug engine-dev-3's sustained-loop verify caught. TOOL used to reach the
+// pick requirement only through activeClass, so a project with no explicit `tool` on a bot
+// whose role maps to no tool (builder -> null, or a role-less bot) left `picks: 2` aimed at by
+// nothing at all: fire() false, clear() TRUE, kitCheck still saying "pickaxes 1/2", mineLane
+// refused forever. Exactly the same shape as the weapon gap, one requirement over — a kit
+// demand is a demand whether or not the project happens to name that tool.
+const kitPickShort = (s) => {
+  const k = projectKit(s);
+  if (!k || !k.picks) return false;
+  return ((s.toolCounts || {}).pickaxe || 0) < k.picks;
 };
 // Floors come from the KIT GATE when a project is set, because that gate is what will
 // actually refuse the departure. Using the role default instead let a project sit blocked on
@@ -356,37 +368,28 @@ const RUNGS = [
       // `weapon (any sword)`, with fire() false on every rung and the project refused with
       // kit_missing on each attempt. That is the permanent-refusal shape, on a requirement
       // that predates all of this. An axe satisfies the gate too (see kitCheck).
+      // Both of these are the GATE's requirements, so they are asked before the project's own
+      // tool class — they hold even when that class is null.
       if (weaponMissing(s)) return true;
+      if (kitPickShort(s)) return true;
       const c = activeClass(s);
       if (!c) return false;
       const b = s.tools[c];
       if (!b || b.dur <= 15) return true;
-      // the departure gate may want a BACKUP (underground wants 2 pickaxes). Holding one
-      // good pickaxe satisfied this rung while the gate kept refusing — a shortfall nobody
-      // was fixing. Ask the gate directly, but read the COUNT from the snapshot (see
-      // s.toolCounts) so this predicate stays replayable.
-      const k = projectKit(s);
-      if (k && k.picks && c === 'pickaxe') {
-        if (((s.toolCounts || {}).pickaxe || 0) < k.picks) return true;
-      }
       return false;
     },
     clear: (s) => {
       if (weaponMissing(s)) return false;
+      if (kitPickShort(s)) return false;
       const c = activeClass(s);
       if (!c) return true;
       const b = s.tools[c];
       if (!(b && b.dur > 25)) return false;
-      const k = projectKit(s);
-      if (k && k.picks && c === 'pickaxe') {
-        if (((s.toolCounts || {}).pickaxe || 0) < k.picks) return false;
-      }
       return true;
     },
     act: async (s) => {
       if (oursRunning(s)) return 'running';
       const c = activeClass(s);
-      if (!c) return 'none';
       // Run acquisition as a TASK, not an awaited method: a chain that gathers wood, crafts
       // planks, places a table and crafts the tool can outrun the 180s act cap, and when it
       // does the ladder force-releases while the acquisition keeps going unowned. As a task
@@ -394,22 +397,28 @@ const RUNGS = [
       // it is a clean step-boundary stop.
       // If we already hold a working tool and the gate wants a BACKUP, ask for a spare —
       // otherwise ensureTool answers "you have one" and the rung can never clear.
-      const k = projectKit(s);
+      // Priority within the rung: the project's own tool if it is broken or missing (that is
+      // what the work needs), then the gate's requirements — spare pickaxes, then a weapon.
+      // The gate's two are reachable even when the project names no tool class at all, which
+      // is the case that used to leave `picks` unaimed.
       const held = (s.toolCounts || {}).pickaxe || 0;
-      const wantSpare = Boolean(k && k.picks && c === 'pickaxe' && held >= 1 && held < k.picks);
-      // The project's own tool comes first — it is what the work needs — and the gate's
-      // weapon is picked up once that is satisfied. Both are this rung's business; nothing
-      // else was ever going to acquire the weapon.
-      const classDeficient = !s.tools[c] || s.tools[c].dur <= 15 || wantSpare;
-      const target = classDeficient ? c : (weaponMissing(s) ? 'sword' : c);
-      const r = runSkill('ensureTool', { tool: target, spare: target === c && wantSpare }, 'TOOL');
+      const classBroken = Boolean(c) && (!s.tools[c] || s.tools[c].dur <= 15);
+      let target = null, spare = false;
+      if (classBroken) target = c;
+      else if (kitPickShort(s)) { target = 'pickaxe'; spare = held >= 1; }
+      else if (weaponMissing(s)) target = 'sword';
+      else if (c) target = c;
+      if (!target) return 'none';
+      // spare: without it ensureTool answers "you already have one" and the rung can never
+      // clear a requirement for a SECOND.
+      const r = runSkill('ensureTool', { tool: target, spare }, 'TOOL');
       if (r.ok) return 'started';
       if (r._transient) return 'busy';
       // A genuine refusal is the handback point: the ladder cannot advance a tool-gated
       // intent. clear() stays false, so the unproductive detector and stand-down handle the
       // retry cadence rather than a bespoke loop here.
-      A.blocked = { why: 'no_tool', cls: c, at: now() };
-      note(`tool_unavailable (${c}) — dropping to a rung that needs no tool`);
+      A.blocked = { why: 'no_tool', cls: target, at: now() };
+      note(`tool_unavailable (${target}) — dropping to a rung that needs no tool`);
       return 'blocked';
     } },
 
