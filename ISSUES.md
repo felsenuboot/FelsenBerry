@@ -120,11 +120,20 @@ needed)
    named call sites.
 3. **#13 tillFarmland** — exact interaction call pattern, settle/verify
    discipline, protected-crop guard, hydration check.
+4. **#26 item 1 (digguard/ashDig bypass, safety)** — smallest fix on file:
+   `goto2.patch.js:554-579`'s `guardAshDig` is a working reference
+   implementation; port it into `digguard.js` as a third wrap level reusing
+   `g.hit()` (digguard's own region lookup) instead of duplicating a second
+   box-matching mechanism. Effort XS.
+5. **#4 spawnProof + BASE-vs-reality diff** — builds on the already-spec'd
+   `lightSweep` primitive (`research/survival-doctrine.md` §6, full
+   pseudocode) pointed at BASE.md's registered structures; the diff half
+   reuses `protected.json`'s existing `match` regexes as the verification
+   spec, no new schema needed. Effort S + XS.
 
-Next candidates for a brief: **#26** (digguard/ashDig bypass — safety, small
-scope, exact fix already known: move the ashDig wrapper from `goto2.patch.js`
-into `digguard.js` permanently) and **#4** (spawnProof — safety, no
-dependencies, two sub-skills already scoped in the FEEDBACK entry).
+Next candidates once these land: #12 (collectDrops/huntAnimals hazard
+awareness — small, reuses idleguard v4's `surfaceOk`-style filter) and #14
+(autoTorch consumption visibility).
 
 ## Alliance watch
 
