@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 15, enabled: true,
+  version: 16, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -599,7 +599,7 @@ const RUNGS = [
       return 'started';
     } },
 
-  { id: 'IDLE', prio: 9,
+  { id: 'IDLE', prio: 9, floor: true,
     fire: () => true,                                   // the floor
     clear: () => false,                                 // never clears; only preemption moves us
     act: async (s) => {
@@ -646,6 +646,8 @@ function projectDone(s) {
 const STAND_DOWN_MS = [30000, 60000, 120000, 300000];
 const NO_PROGRESS = new Set(['unimplemented', 'blocked', 'refused', 'no_spot', 'none', 'error']);
 const standDown = (id) => {
+  // never park the floor — there is nothing below it to hand the body to
+  if (RUNG_BY_ID[id] && RUNG_BY_ID[id].floor) { note(`${id} made no progress, but it is the floor — not standing it down`); return; }
   const n = A.standDownCount[id] = (A.standDownCount[id] || 0) + 1;
   const ms = STAND_DOWN_MS[Math.min(n - 1, STAND_DOWN_MS.length - 1)];
   A.standDown[id] = now() + ms;
@@ -807,7 +809,13 @@ const tick = () => {
     // starting a restock every cycle on a world with no depot and never standing down,
     // because "task completed" is not the same as "need met". Same shape as the project
     // false-success, one layer down: judge by the need, not by the task's own verdict.
-    if (A.owner && !A.owner.safety && safeFire(A.owner, s)) {
+    // The FLOOR is exempt. Its fire() is unconditionally true by design, so "completed while
+    // its own fire() is still true" is not evidence of anything — the premise the detector
+    // rests on cannot fail for it. Worse, standing the floor down means NOTHING runs: there is
+    // no rung beneath it. That is how a bot doing its idle work correctly ends up frozen,
+    // which is the very symptom this rung was just rewritten to cure. Seen live on MettMarcel
+    // two minutes after v15 shipped.
+    if (A.owner && !A.owner.safety && !A.owner.floor && safeFire(A.owner, s)) {
       const id = A.owner.id;
       A.unproductive[id] = (A.unproductive[id] || 0) + 1;
       if (A.unproductive[id] >= 2) {
