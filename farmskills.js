@@ -434,7 +434,7 @@ S.define('harvestGrass', {
     const cap = args.count || 32;
     ctx.setPhase('scanning', 'Looking for grass to cut.');
     const ids = [...GRASS].map((n) => (bot.registry.blocksByName[n] || {}).id).filter((x) => x != null);
-    let cut = 0, i = 0;
+    let cut = 0, i = 0, probes = 0;
     while (cut < cap) {
       ctx.step();
       // findBlocks' maxDistance is a 3D SPHERE, so without a vertical gate this can select
@@ -443,7 +443,8 @@ S.define('harvestGrass', {
       // skills.js). Grass is a surface feature — never chase it downward.
       const floorY = Math.floor(bot.entity.position.y) - 5;
       const found = bot.findBlocks({ matching: ids, maxDistance: radius, count: 24 });
-      const targets = found.filter((p) => !ctx.isProtected(p) && p.y >= floorY);
+      const targets = found.filter((p) => !ctx.isProtected(p) && p.y >= floorY)
+        .sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position));  // nearest first
       if (!targets.length) break;
       let progressed = false;
       for (const p of targets) {
@@ -451,10 +452,18 @@ S.define('harvestGrass', {
         if (cut >= cap) break;
         const b = bot.blockAt(p);
         if (!b || !GRASS.has(b.name)) continue;             // changed since the scan
+        // #70b: grass OUT OF REACH needs a goto — don't commit one to grass we have no route to
+        // (MettMarcel's 8/8 no_path was harvestGrass reaching across the camp barrier). In-reach
+        // grass digs in place, no probe. Bound the getPathTo probes so we never search a whole scan.
+        if (p.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.6, 0)) > 4.4) {
+          if (probes >= 8) break;                           // probed the nearest handful — stop
+          probes++;
+          if (!ctx.reachable(p, 2)) continue;               // unreachable: skip, no wasted goto
+        }
         const r = await ctx.digBlock(p);
         if (r.ok && !r.already) { cut++; progressed = true; ctx.progress(cut, cap, 'grass'); }
       }
-      if (!progressed && ++i > 2) break;                    // nothing reachable this scan — stop
+      if (!progressed && ++i > 2) break;                    // nothing reachable this scan — stop (cut:0 -> barren)
     }
     ctx.setPhase('collecting', 'Gathering seeds.');
     await ctx.collectDrops(radius, 15000, ['wheat_seeds', 'beetroot_seeds', 'short_grass', 'tall_grass']);
@@ -466,12 +475,12 @@ S.define('harvestGrass', {
 // ---- registry + staleness bookkeeping (mirror the other payloads) ----
 const NAMES = ['tillFarmland', 'farmCycle', 'harvestGrass'];
 const fg = globalThis.__farmskills = {
-  version: 1, skills: NAMES,
+  version: 2, skills: NAMES,
   tillCell, plantCell,   // exposed so future skills reuse ONE implementation
   restore() { for (const n of NAMES) { try { delete S.registry[n]; } catch (_) {} } },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.farmskills = { version: 1, boundAt: Date.now(), stale: false };
+REG.farmskills = { version: 2, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.farmskills.stale = true; } catch (_) {} }); } catch (_) {}
 
 return { installed: true, version: 1, skills: NAMES };

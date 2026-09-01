@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 44;
+const ENGINE_VERSION = 45;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -749,6 +749,25 @@ function makeCtx(bot, task) {
     // NEVER goals.GoalBreakBlock — broken in pathfinder 2.4.5 (bad ctor args + isEnd).
     async gotoSee(p, timeoutMs = 20000) {
       return ctx.goto(new goals.GoalLookAtBlock(new Vec3(p.x, p.y, p.z), bot.world, { reach: 4.0 }), timeoutMs);
+    },
+    // #70b: is `p` actually pathable-to RIGHT NOW? A getPathTo probe — a path SEARCH, no movement —
+    // so a skill can DROP an unreachable work-target before committing a real goto to it. That is
+    // the no_path churn #70 killed for relocate candidates (relocateToWork), applied at the skills'
+    // own target selection: MettMarcel's harvestGrass and BuddelBernd's mineLane were gotoNear-ing
+    // grass/ore across a barrier they had no route to. getPathTo IS a real search, so callers MUST
+    // bound how many they probe (nearest-few, sorted by distance — never the whole scan). `minPartial`
+    // accepts a best-effort partial that carries the bot at least that far (relocate wants ~12; a
+    // WORK-target wants a full route, minPartial 0 — a partial that dead-ends short can't work it).
+    reachable(p, range = 2, minPartial = 0, timeoutMs = 2000) {
+      try {
+        const r = bot.pathfinder.getPathTo(bot.pathfinder.movements, new goals.GoalNear(p.x, p.y, p.z, range), timeoutMs);
+        if (r.status === 'success') return true;
+        if (minPartial > 0 && r.status === 'partial' && r.path && r.path.length) {
+          const e = r.path[r.path.length - 1], hp = bot.entity.position;
+          if (e && e.x != null) return Math.sqrt((e.x - hp.x) ** 2 + (e.z - hp.z) ** 2) >= minPartial;
+        }
+        return false;
+      } catch (_) { return false; }
     },
 
     // House rule: best tool before every dig. Returns harvestability (Boolean —
@@ -3056,20 +3075,10 @@ S.define('relocateToWork', {
     // So probe each candidate with getPathTo BEFORE committing a goto: skip no_path/timeout
     // targets, and WIDEN the ring when the local fan is all-unreachable rather than re-picking the
     // same doomed set. A genuinely boxed bot then stands down cheaply instead of churning gotos.
-    const routable = (dest) => {
-      try {
-        const r = bot.pathfinder.getPathTo(bot.pathfinder.movements, new goals.GoalNear(dest.x, dest.y, dest.z, 2), 2500);
-        if (r.status === 'success') return true;
-        // A 'partial' route still walks us toward fresh ground — fine for a relocate — BUT only if
-        // it actually carries us somewhere. A boxed/island bot gets a partial that dead-ends at the
-        // wall or platform edge a few blocks away; that isn't progress, so require a real distance.
-        if (r.status === 'partial' && r.path && r.path.length) {
-          const e = r.path[r.path.length - 1];
-          if (e && e.x != null) return Math.sqrt((e.x - here.x) ** 2 + (e.z - here.z) ** 2) >= 12;
-        }
-        return false;
-      } catch (_) { return false; }
-    };
+    // A relocate candidate is worth a goto if a route exists, or a partial that carries us ≥12
+    // blocks to genuinely fresh ground (a boxed/island bot's partial dead-ends at the wall a few
+    // blocks off — not progress). Same getPathTo gate the work-skills now use, via ctx.reachable.
+    const routable = (dest) => ctx.reachable(dest, 2, 12);
     const candidateAt = (h, ring) => {
       const tx = Math.floor(here.x + h[0] * ring), tz = Math.floor(here.z + h[1] * ring);
       const topY = Math.floor(Math.max(here.y, HOME ? HOME.y : here.y)) + 4;
@@ -3137,7 +3146,7 @@ S.define('mineLane', {
     const blacklist = new Set();
     const visited = new Set();
     const wantStart = countItems(bot, want);
-    let banked = 0, dug = 0, lost = 0, rescans = 0, torches = 0, saidTorch = false;
+    let banked = 0, dug = 0, lost = 0, rescans = 0, torches = 0, saidTorch = false, probes = 0;
     const torchState = {};
     let stoppedBecause = 'complete';
     ctx.progress(0, count, want[0] || target);
@@ -3194,13 +3203,21 @@ S.define('mineLane', {
       }
       if (unsafe) { blacklist.add(key(pos)); ctx.log(`lava next to ${key(pos)} — skipped`); continue; }
 
+      // #70b: ore OUT OF REACH needs a goto — don't commit one to ore we have no route to
+      // (BuddelBernd's 34/56 no_path was mineLane reaching for unreachable ore). In-reach ore digs
+      // in place. Bound the getPathTo probes: 12 far-ore checks with no dig between = boxed, stop.
+      if (pos.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.6, 0)) > 4.4) {
+        if (probes >= 12) { stoppedBecause = 'exhausted'; break; }
+        probes++;
+        if (!ctx.reachable(pos, 2)) { blacklist.add(key(pos)); continue; }
+      }
       const r = await ctx.digBlock(pos);
       if (!r.ok) {
         if (r.reason === 'no_tool') throw fatal('no_tool', `tool cannot harvest ${r.block} anymore`, 'tool broke? craft/fetch a replacement and restart');
         blacklist.add(key(pos));
         continue;
       }
-      if (!r.already) dug++;
+      if (!r.already) { dug++; probes = 0; }   // real progress — reset the unreachable-probe streak
 
       // torch discipline (2b): every ~7 dug blocks, or sooner if light is low —
       // covers working faces and vein junctions since this fires on every dig.
