@@ -37,7 +37,8 @@ every ./spawn.sh, same as before, until you restart the process:
 DISCOVER
   ./task.sh <port> list   # come, collectDrops, chopTrees, mineLane, huntAnimals, depositToChest,
                           # safeDescend, buildSchematic, buildWall, buildFloor, frameStructure,
-                          # buildStaircase, farmCycle, tillFarmland, harvestGrass
+                          # buildStaircase, farmCycle, tillFarmland, harvestGrass,
+                          # spawnProof, structureAudit
                           # (v7: buildSchematic/buildWall/frameStructure are live-verified;
                           #  buildFloor shares the same engine; buildStaircase is still the one
                           #  build skill never live-run — see ENGINE_NOTES.md before trusting it)
@@ -476,6 +477,37 @@ reads `1` on a current bot). They reuse the engine's ctx primitives, so every ho
   wheat seeds; only ever breaks grass/fern blocks, never terrain or structure.
 
 All three are idempotent-friendly (already-tilled/planted cells are skipped) and queueable.
+
+## Base-keeping skills (basekeeping.js v1) — stop discovering damage by accident
+
+Two skills in `basekeeping.js` (auto-injected after digguard) for the self-maintenance rung:
+keeping the base lit and re-verifying it against the registry.
+
+- **`spawnProof`** — light dark, mob-spawnable pockets so creepers/mobs stop re-damaging the
+  base. Anchor on a point (`at:{x,y,z}`) or a registered structure (`near:"main_hall_1"`, a
+  protected.json region id; default = nearest region within 96, else the bot).
+  ```sh
+  ./task.sh <port> start spawnProof '{"near":"main_hall_1","radius":8}'
+  ```
+  Coverage is torch-DISTANCE, not a light readback — this map's lighting engine is broken
+  (#17: skyLight reads 15 inside a sealed room), so a light-loop would over-torch or never
+  converge; a cell counts "dark" via block light + a geometric roof check. Idempotent: a
+  re-run finds existing torches as coverage and places 0, so it's safe as a periodic sweep.
+  Reports `remainingDark`/`unplaceable` (walled-off cells) instead of looping. Needs torches
+  in inventory (restock from depot chest B). `cover` defaults to 12 (block light >=1, the real
+  1.18+ spawn threshold); pass a smaller `cover` for light>=8 everywhere.
+- **`structureAudit`** — re-verify registered structures against the world and REPORT drift:
+  ```sh
+  ./task.sh <port> start structureAudit '{}'          # audits every region within maxDist (80)
+  ./task.sh <port> start structureAudit '{"ids":["torch_posts_1"]}'
+  ```
+  Precise for `columns` regions (every post cell must hold a matching block — the torch-post
+  case): a missing block is reported as damage with exact coords. Box/sphere regions get a
+  present/air census (informational — no stored baseline layout). On damage it emits a
+  `structure_damaged <id>(-N)` line to chat (`!`-tier) AND status.log, plus `anyDamage`/
+  `missing[]` in the result — so a Monitor or the agenda ladder can react instead of a driver
+  stumbling on the damage later. Only audits regions near the bot (stale-chunk rule); far ones
+  are listed as `skipped`. Good as a periodic queue item paired with spawnProof.
 
 GITHUB ISSUES (open to every teammate, drivers included — user law, 2026-09-01)
 The repo (`felsenuboot/felcrew-mcp`, `gh` CLI already authenticated machine-wide) has an
