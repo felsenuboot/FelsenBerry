@@ -39,6 +39,24 @@
     ]
   },
   "depotNote": "Chest coords for __skills.ensureTool's acquisition chain (mirrors DEPOT.md). minerals=chest B (cobble/coal/ingots), wood=chest A, food=chest C. Absent or unreachable -> ensureTool falls through to the craft chain.",
+  "harvestExclusion": [
+    {
+      "id": "plaza_treescape",
+      "kind": "cylinder",
+      "center": [
+        -3,
+        111,
+        4
+      ],
+      "radius": 25,
+      "appliesTo": [
+        "chopTrees",
+        "idleWork"
+      ],
+      "reason": "Keep the base's immediate treescape intact. AESTHETIC buffer only - the safety half (never fell a structure's logs) is handled by the protected regions above via ctx.isProtected. Horizontal distance only, so mining under the base is unaffected."
+    }
+  ],
+  "harvestExclusionNote": "Engine gate replacing the behavioural 'harvest >=25 blocks from plaza' law (DRIVER_GUIDE). Consumed by __skills.harvestAllowed(pos, kind) at TARGET SELECTION in chopTrees and idleguard's mineNearest. kind: cylinder (center+radius, XZ distance) or box (min/max). appliesTo scopes it - deliberate driver-issued tasks like mineLane are NOT gated, since quarry_lane_1 is at the base on purpose.",
   "neverProtect": [
     "air",
     "cave_air",

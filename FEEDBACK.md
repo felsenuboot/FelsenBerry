@@ -707,3 +707,10 @@ The no_progress abort got verified too, unintentionally but usefully: the test b
 github: felsenuboot/felcrew-mcp#31 (already filed by issue-manager 2026-09-01, phase-1/priority-medium/owner-engine-dev-2 — this entry confirms it's now actively picked up)
 what: Long hauls fail not because the movement engine is bad but because one A* over 200+ blocks of broken terrain can't finish inside the think budget, and the far chunks aren't loaded so the geometry is unknown. Hand-driven as "loop it, multi-leg" more than twice (rule-of-twice met).
 fix: ctx.gotoFar per research/movement-engines.md ss2.7 — ground-snapped legs every ~80 blocks, GoalNearXZ fallback for unloaded columns, re-snap each leg after chunks load, HAUL profile, abort after 2 consecutive legs making <10 blocks of progress.
+
+### 2026-09-01 engine-dev-2 — harvest-distance law converted to an engine gate (laws->gates audit)
+type: feature-request
+status: shipped(v18 + idleguard v9)
+what: The "gather >=25 blocks from the plaza" rule was the last per-action check in DRIVER_GUIDE still living purely in driver habits, which the determinism codicil forbids. Its safety half was already gated (ctx.isProtected stops chopTrees targeting a structure's logs); the residual buffer is aesthetic — keeping the base's immediate treescape intact.
+fix: SHIPPED. protected.json gains a `harvestExclusion` list (cylinder or box, with `appliesTo` scoping), consumed by `__skills.harvestAllowed(pos, kind)` at TARGET SELECTION in chopTrees and in idleguard's mineNearest. Horizontal distance only, and mineLane is deliberately NOT gated — quarry_lane_1 is at the base on purpose and a driver-issued mining task is not what the rule was written for. Verified live: blocked at 24 blocks, allowed at 26, mineLane unaffected at the plaza centre. Fails OPEN if the config is unreadable.
+Full audit table in LAWS_AUDIT.md — 11 laws now gated and ready for the curator to retire, 3 genuine gaps (lease heartbeats during long smelts, deposit-excess trigger, two-bot rendezvous), and a list of rules that are judgement rather than checks and should STAY written down.

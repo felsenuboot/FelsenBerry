@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 17;
+const ENGINE_VERSION = 18;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -632,6 +632,9 @@ function makeCtx(bot, task) {
       } catch (_) { return false; }
     },
 
+    // Is harvesting allowed at this position? (aesthetic geofence, protected.json)
+    harvestAllowed(pos, kind = 'chopTrees') { return S.harvestAllowed(pos, kind); },
+
     // Acquire the right tool before working: equip -> depot -> craft. Skills call this up
     // front so a task never starts wrong-handed; toolguard enforces the same rule at the
     // dig itself for anything that bypasses a skill.
@@ -1057,6 +1060,36 @@ async function gotoT(bot, x, y, z, range = 2, ms = 20000) {
     return false;
   } finally { clearTimeout(timer); }
 }
+
+// ---- harvest geofence (laws -> gates) ----
+// Replaces the behavioural "gather >= 25 blocks from the plaza" rule with an engine gate,
+// per the determinism codicil: a per-action check must never live in a driver's habits.
+// Purely AESTHETIC — keeping the base's treescape intact. The safety half (never fell a
+// structure's logs) is ctx.isProtected's job and is unrelated. Horizontal distance only,
+// so mining under the base is unaffected, and appliesTo scopes it so a deliberate
+// driver-issued mineLane at quarry_lane_1 is not gated.
+let _hxCache = { at: 0, zones: [] };
+function harvestZones() {
+  if (Date.now() - _hxCache.at < 10000) return _hxCache.zones;      // cheap: config, not world
+  const cfg = readCfg();
+  _hxCache = { at: Date.now(), zones: Array.isArray(cfg.harvestExclusion) ? cfg.harvestExclusion : [] };
+  return _hxCache.zones;
+}
+S.harvestAllowed = function (pos, kind = 'chopTrees') {
+  try {
+    for (const z of harvestZones()) {
+      if (Array.isArray(z.appliesTo) && !z.appliesTo.includes(kind)) continue;
+      if (z.kind === 'cylinder') {
+        const dx = pos.x - z.center[0], dz = pos.z - z.center[2];
+        if (dx * dx + dz * dz <= z.radius * z.radius) return false;
+      } else if (z.kind === 'box') {
+        if (pos.x >= z.min[0] && pos.x <= z.max[0] && pos.y >= z.min[1]
+          && pos.y <= z.max[1] && pos.z >= z.min[2] && pos.z <= z.max[2]) return false;
+      }
+    }
+  } catch (_) {}
+  return true;                                                       // fail OPEN
+};
 
 // ensureTool(bot, spec) -> {ok, how, item, steps[], error}
 // spec: a block name ('stone'), a tool class ('axe'), or {cls, required[]}.
@@ -2260,6 +2293,8 @@ S.define('chopTrees', {
         .filter((p) => !ctx.isProtected(p))
         // trees are surface features: a "tree" well below our feet is down a ravine
         .filter((p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW)
+        // aesthetic geofence: don't crater the view right next to base
+        .filter((p) => ctx.harvestAllowed(p, 'chopTrees'))
         .filter((p) => { const below = bot.blockAt(p.offset(0, -1, 0)); return below && !logIdSet.has(below.type); })
         .sort((a, b2) => a.distanceTo(bot.entity.position) - b2.distanceTo(bot.entity.position));
       if (!hits.length) {

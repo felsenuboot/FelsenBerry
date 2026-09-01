@@ -1,11 +1,11 @@
-// Idle-guard v8 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
+// Idle-guard v9 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
 // v2 fixes the yield bug found by BuddelBernd's driver: v1 treated "no pathfinder goal"
 // as idle and hijacked the bot between driver commands. v2 wraps setGoal/goto/dig to
 // timestamp EXTERNAL activity (anything issued while the guard isn't working), engages
 // only after 60s of driver silence, and aborts its own work the moment a driver acts.
 // Idempotent: re-injection restores originals then replaces. Disable: __idleguard.stop()
 if (globalThis.__idleguard) { try { globalThis.__idleguard.stop(); } catch (e) {} }
-const g = { version: 8, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
+const g = { version: 9, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
             runs: 0, errors: 0, lastExternal: Date.now(), workStarted: 0, patched: [], pausedUntil: 0 };
 globalThis.__idleguard = g;
 // pause(ms): drivers call __idleguard.pause(120000) at the start of long monitoring
@@ -89,10 +89,16 @@ const digWithTool = async (block) => {
 // (research/cavecrew-delta-2.md ss3.2)
 const MAX_BELOW = 5;
 const notBelow = (p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW;
+// v9: aesthetic harvest geofence, engine-gated in protected.json rather than left to
+// driver habit. Unsupervised idle work is exactly what the rule was written for.
+const harvestOk = (p) => {
+  try { const S = globalThis.__skills; return !S || !S.harvestAllowed ? true : S.harvestAllowed(p, "idleWork"); }
+  catch (e) { return true; }
+};
 const mineNearest = async (names, maxDist, maxN, label) => {
   const ids = names.map(n => bot.registry.blocksByName[n] && bot.registry.blocksByName[n].id).filter(Boolean);
   if (!ids.length) return 0;
-  const found = bot.findBlocks({ matching: ids, maxDistance: maxDist, count: maxN * 3 }).filter(surfaceOk).filter(notBelow);
+  const found = bot.findBlocks({ matching: ids, maxDistance: maxDist, count: maxN * 3 }).filter(surfaceOk).filter(notBelow).filter(harvestOk);
   if (!found.length) return 0;
   say("(idle-guard) " + label);
   let n = 0;
@@ -159,4 +165,4 @@ g.timer = setInterval(() => {
     try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
   })().catch(() => {});
 }, 5000);
-return { installed: true, version: 8, role: g.role };
+return { installed: true, version: 9, role: g.role };
