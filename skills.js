@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 36;
+const ENGINE_VERSION = 37;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -137,8 +137,14 @@ const KIT_TIERS = {
   // (#43 item 1, promoted to phase-1). They are only meaningful where wood is not reachable,
   // so the surface `excursion` tier does not ask for them. The spare pickaxe stays: these
   // ADD a recovery path, they do not buy out a safety requirement.
-  underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16, sticks: 2, table: 1 },
-  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 4, table: 1, armor: true, shield: true, water: true },
+  //
+  // 8 sticks, not 2, because sticks turn out to be the ONLY scarce input to torch production
+  // at depth — produce mines its own coal, but a stick needs wood, and there is none down
+  // there. The arithmetic is cheap enough to make the question uninteresting: 1 log is 4
+  // planks is 8 sticks is 32 torches, on top of the 2 a tool re-craft costs. Comfortable
+  // beats marginal over a multi-hour run, and RESTOCK produces them, so the floor self-heals.
+  underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16, sticks: 8, table: 1 },
+  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 8, table: 1, armor: true, shield: true, water: true },
 };
 const TOOL_LOW_PCT = 20; // preflight durability gate (status warns at 15% mid-task)
 // findBlocks' maxDistance is a 3D SPHERE, so an unconstrained scan happily selects ore
