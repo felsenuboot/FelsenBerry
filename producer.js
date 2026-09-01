@@ -181,6 +181,65 @@ async function ensureSticks(bot, wantSticks, steps, chk) {
   return inv(bot, 'stick') >= wantSticks;
 }
 
+// #71: smelt logs -> charcoal (torch fuel) when there's no coal. A bot with logs and a furnace
+// can always make torches, where MINING coal at a treeline base cannot — so this is what lets
+// RESTOCK close a torch shortfall instead of parking one torch short (FurzFriedrich: 7 torches,
+// 0 coal, 233 logs, furnace nearby, deadlocked forever). `want` is a TOTAL charcoal target.
+// Bounded (need*~12s smelt) and cancellable via chk().
+async function smeltCharcoal(bot, want, steps, chk) {
+  if (inv(bot, 'charcoal') >= want) return true;
+  const need = Math.max(1, want - inv(bot, 'charcoal'));
+  // logs for INPUT (1 log -> 1 charcoal) and FUEL (a log burns ~1.5 items)
+  const wantLogs = need + Math.ceil(need / 1.5) + 1;
+  if (invRe(bot, /_log$/) < wantLogs) await gatherLogs(bot, wantLogs, steps, chk);
+  if (invRe(bot, /_log$/) < 2) { steps.push('smelt:no_logs'); return false; }
+
+  // reuse a nearby furnace, else craft + place one from cobblestone
+  let fblk = bot.findBlock({ matching: idsOf(bot, ['furnace', 'blast_furnace']), maxDistance: 24 });
+  if (!fblk && inv(bot, 'cobblestone') >= 8) {
+    if ((await S.craftSafe(bot, 'furnace', 1)).made) {
+      try {
+        const spot = bot.entity.position.offset(1, 0, 0).floored();
+        const under = bot.blockAt(spot.offset(0, -1, 0));
+        const fitem = bot.inventory.items().find((i) => i.name === 'furnace');
+        if (under && under.boundingBox === 'block' && fitem) {
+          await bot.equip(fitem, 'hand');
+          await bot.lookAt(spot.offset(0.5, 0.5, 0.5), true);
+          await bot.placeBlock(under, new Vec3(0, 1, 0));
+        }
+      } catch (_) {}
+      fblk = bot.findBlock({ matching: idsOf(bot, ['furnace', 'blast_furnace']), maxDistance: 6 });
+    }
+  }
+  if (!fblk) { steps.push('smelt:no_furnace'); return false; }
+  if (!await gotoT(bot, fblk.position.x, fblk.position.y, fblk.position.z, 2, 20000)) { steps.push('smelt:unreachable'); return false; }
+
+  let furnace;
+  try { furnace = await bot.openFurnace(fblk); } catch (_) { steps.push('smelt:open_failed'); return false; }
+  try {
+    const logType = () => { const l = bot.inventory.items().find((i) => /_log$/.test(i.name)); return l ? l.type : null; };
+    if (!furnace.fuelItem()) { const ft = logType(); if (ft != null) await furnace.putFuel(ft, null, Math.max(1, Math.ceil(need / 1.5))); }
+    const it = logType();
+    if (it == null) return false;
+    await furnace.putInput(it, null, need);
+    const t0 = Date.now(), budget = need * 12000 + 15000;
+    while (Date.now() - t0 < budget) {
+      chk();
+      const out = furnace.outputItem();
+      if (out && out.count >= need) break;
+      if (!furnace.fuelItem() && (!out || out.count < need)) { const ft = logType(); if (ft != null) await furnace.putFuel(ft, null, 2); }
+      await sleep(1000);
+    }
+    if (furnace.outputItem()) await furnace.takeOutput();
+    if (furnace.inputItem()) { try { await furnace.takeInput(); } catch (_) {} }   // reclaim unsmelted logs
+    if (furnace.fuelItem()) { try { await furnace.takeFuel(); } catch (_) {} }      // reclaim leftover fuel
+  } catch (e) {
+    if (e && (e.cancelled || e.fatal)) throw e;   // task-control signals pass through
+  } finally { try { furnace.close(); } catch (_) {} }
+  steps.push('smelt:charcoal=' + inv(bot, 'charcoal'));
+  return inv(bot, 'charcoal') >= 1;
+}
+
 // ---- the public method ----
 S.produce = async function (bot, resource, wantCount, opts = {}) {
   const want = wantCount || 16;
@@ -214,16 +273,20 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
     if (R === 'torch') {
       const beforeT = inv(bot, 'torch');
       const batches = Math.ceil(want / 4);
-      if (inv(bot, 'coal') < batches) {
-        const cm = await mineProduct(bot, COAL_ORE, 'coal', batches - inv(bot, 'coal'), steps, chk);
-        if (inv(bot, 'coal') < 1) return { ok: false, made: 0, how: 'crafted', reason: cm.reason === 'no_space' ? 'no_space' : (cm.reason === 'no_pickaxe' ? 'no_pickaxe' : 'no_coal_nearby'), steps };
+      // #71: fuel is coal OR charcoal — both craft torches. Mine coal if a vein is near (cheap),
+      // then SMELT logs -> charcoal, which a treeline base can always do where coal-mining can't.
+      const fuel = () => inv(bot, 'coal') + inv(bot, 'charcoal');
+      if (fuel() < batches) {
+        if (inv(bot, 'coal') < batches) await mineProduct(bot, COAL_ORE, 'coal', batches - inv(bot, 'coal'), steps, chk);
+        if (fuel() < batches) await smeltCharcoal(bot, Math.max(1, batches - inv(bot, 'coal')), steps, chk);
+        if (fuel() < 1) return { ok: false, made: 0, how: 'crafted', reason: 'no_fuel', steps };
       }
       if (inv(bot, 'stick') < batches) {
         await ensureSticks(bot, batches, steps, chk);
         if (inv(bot, 'stick') < 1) return { ok: false, made: 0, how: 'crafted', reason: 'no_wood', steps };
       }
       let guard = 0;
-      while (guard++ < want + 4 && inv(bot, 'torch') - beforeT < want && inv(bot, 'coal') > 0 && inv(bot, 'stick') > 0) {
+      while (guard++ < want + 4 && inv(bot, 'torch') - beforeT < want && fuel() > 0 && inv(bot, 'stick') > 0) {
         chk();
         const r = await S.craftSafe(bot, 'torch', 1);
         if (!r.made) break;
@@ -297,15 +360,15 @@ S.define('produce', {
 
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 5,
+  version: 6,
   restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 5, boundAt: Date.now(), stale: false };
+REG.producer = { version: 6, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 5,
+return { installed: true, version: 6,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
   resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table'],
-  reasons: ['no_pickaxe', 'no_coal_nearby', 'no_ore_nearby', 'no_wood', 'no_space', 'partial', 'unproduceable'] };
+  reasons: ['no_pickaxe', 'no_coal_nearby', 'no_fuel', 'no_ore_nearby', 'no_wood', 'no_space', 'partial', 'unproduceable'] };
