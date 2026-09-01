@@ -19,7 +19,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const SCHEMA_V = 1;
+// v2 (2026-09-01): `assert` changed MEANING — it now carries the graded rule name whenever
+// assertTask graded the task at all (pass or fail), and null only when genuinely ungraded.
+// In v1 it held a rule name ONLY on failure, so "passed" and "never graded" were both null.
+// The envelope's own rule is that a field is never repurposed without a version bump, and
+// this is exactly that case: the ledger is append-only, so without this marker an aggregator
+// reading a mixed file cannot tell which meaning a given `assert: null` carries. Consumers
+// must branch on v before drawing conclusions from that field (metrics.mjs does).
+const SCHEMA_V = 2;
 const SAMPLE_MS = 500;                 // odometer / vitals sampler
 const GUARD_ROLLUP_MS = 60000;         // guard counters, only when something changed
 const DIG_BATCH = 64;

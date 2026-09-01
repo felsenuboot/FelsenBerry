@@ -104,6 +104,9 @@ function universal(ends) {
     DFR: { k: typed.length, n: fails.length },
     under_prod: { k: under.length, n: N.length },
     excluded_bad_input: ends.length - N.length,
+    // assertion coverage, computable only on v>=2 records (see the SCHEMA_V note)
+    gradableN: N.filter((e) => (e.v || 1) >= 2).length,
+    gradedN: N.filter((e) => (e.v || 1) >= 2 && e.assert).length,
     byOutcome: ends.reduce((o, e) => (o[e.outcome] = (o[e.outcome] || 0) + 1, o), {}),
   };
 }
@@ -120,6 +123,11 @@ function printUniversal(label, u) {
   console.log(`  under-produced  ${rate(u.under_prod.k, u.under_prod.n)}   <- ok but yield<1`);
   if (u.excluded_bad_input) console.log(`  excluded        ${u.excluded_bad_input} bad_input (operator error, never an engine rate)`);
   console.log(`  outcomes        ${Object.entries(u.byOutcome).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join('  ')}`);
+  if (u.gradedN != null) {
+    // Coverage is its own signal: a low graded share means FSR's 0 is thin rather than
+    // earned — nothing was checked, so nothing could fail.
+    console.log(`  assert coverage ${u.gradedN}/${u.gradableN} graded${u.gradableN && u.gradedN / u.gradableN < 0.5 ? '   <- thin: a 0% FSR here is mostly UNCHECKED, not verified' : ''}`);
+  }
 }
 
 // ---------- movement (2.2) ----------
@@ -186,6 +194,12 @@ if (has('json')) {
 }
 
 console.log(`metrics.mjs — ${recs.length} records, ${ends.length} task_end, ${gotos.length} goto spans`);
+const schemaVersions = [...new Set(recs.map((r) => r.v || 1))].sort();
+if (schemaVersions.length > 1) {
+  console.log(`  !! ledger mixes schema versions ${schemaVersions.join(' and ')} — \`assert\` means`);
+  console.log('     different things across them (v1: rule-on-failure-only, v2: tri-state).');
+  console.log('     Assertion coverage below is computed from v>=2 records only.');
+}
 if (gaps.length) {
   const lost = gaps.reduce((a, g) => a + g.lost, 0);
   console.log(`  !! ${lost} DROPPED WRITES across ${gaps.length} gap(s) — counts below are under-reported`);
@@ -267,7 +281,14 @@ if (gate && typeof gate === 'string') {
     n: u.n, SR: sr, FSR: fsr, naive_SR: u.naive_SR.k / (u.naive_SR.n || 1),
     trust_gap: u.trust_gap, DFR: u.DFR.n ? u.DFR.k / u.DFR.n : null,
     outcomes: u.byOutcome, movement: mv,
-    assertionSet: [...new Set(ends.map((e) => (e.assert || '').replace(/\(.*/, '')).filter(Boolean))].sort(),
+    // Only v>=2 records can populate this honestly: in v1 `assert` held a rule name ONLY
+    // on failure, so a set built from mixed records lists the rules that FAILED and silently
+    // omits every rule that only ever passed — a provenance record that flatters itself.
+    assertionSet: [...new Set(ends.filter((e) => (e.v || 1) >= 2)
+      .map((e) => (e.assert || '').replace(/\(.*/, '')).filter(Boolean))].sort(),
+    assertionSetFrom: ends.filter((e) => (e.v || 1) >= 2).length + '/' + ends.length + ' records (v>=2 only)',
+    graded: ends.filter((e) => (e.v || 1) >= 2 && e.assert).length,
+    ungraded: ends.filter((e) => (e.v || 1) >= 2 && !e.assert).length,
     droppedWrites: gaps.reduce((a, g) => a + g.lost, 0),
   };
   const out = path.join(DIR, 'bench', 'gates', `${gate}.json`);
