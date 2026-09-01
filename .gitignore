@@ -12,3 +12,9 @@ pids/
 # downloaded blueprints: creators' copyright — build freely on our server, NEVER publish
 blueprints/*.schem
 !blueprints/hut5.schem
+
+# local tooling config — not secrets, but not this repo's business either, and on a PUBLIC
+# repo with several agents committing concurrently an accidental `git add -A` should not be
+# able to publish someone's local hooks/permissions.
+.claude/
+.entire/
