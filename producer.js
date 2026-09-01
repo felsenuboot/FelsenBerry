@@ -34,7 +34,14 @@ const SPECIES = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cher
 const LOG_NAMES = SPECIES.map((s) => s + '_log');
 const COAL_ORE = ['coal_ore', 'deepslate_coal_ore'];
 const MAX_BELOW = 5;                 // wood is a surface feature — never chase it down a ravine
-const MINE_RADIUS = 24;
+const MINE_RADIUS = 20;
+// Ore/stone IS underground, so no surface filter — but an unbounded 3D findBlocks would let
+// produce chase a deep vein straight down a ravine to the stranded-and-mobbed death engine-dev-2
+// flagged for harvestGrass (CAVECREW's Grog, y89->y26). produce grabs what is NEARBY; genuinely
+// deep mining is a PROJECT (mineLane/safeDescend, which handle torches + hazards), not this. So
+// cap how far below the bot it will pursue ore — enough to dig down a few blocks for surface
+// stone, not enough to descend into a cave system.
+const MAX_MINE_BELOW = 10;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const inv = (bot, n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
@@ -86,7 +93,8 @@ async function mineProduct(bot, oreNames, product, want, steps) {
   let scans = 0, stagnant = 0;
   while (inv(bot, product) - start < want && scans++ < 60) {
     const before = inv(bot, product);
-    const found = bot.findBlocks({ matching: oreIds, maxDistance: MINE_RADIUS, count: 8 }).filter((p) => !isProt(bot, p));
+    const floorY = Math.floor(bot.entity.position.y) - MAX_MINE_BELOW;
+    const found = bot.findBlocks({ matching: oreIds, maxDistance: MINE_RADIUS, count: 8 }).filter((p) => !isProt(bot, p) && p.y >= floorY);
     if (!found.length) break;
     for (const p of found) {
       if (inv(bot, product) - start >= want) break;
