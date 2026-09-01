@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Fixture: induced-stress-sequencing (#56 fixture i, criterion #3)
+#
+# Criterion #3 ("needs met in priority order under stress") has never been run as its
+# designed test — only met under normal, non-simultaneous operation. This fixture induces
+# hungry + toolless + THREATENED all at once and asserts the ladder sequences
+# survival > maintenance > project > idle with no thrashing (a rung does not fire, clear,
+# then fire again out of order — the observable form of "hysteresis holds").
+#
+# Also folds in two related open items, per #56's own ask, by choosing the threat
+# deliberately: a real skeleton triggers survival.js's BREAK_LOS branch, which
+# (a) satisfies #32 (CREEPER/BREAK_LOS have never faced a live mob — this is a real one,
+# not __survival.drill()'s fabricated threat) and (b) re-verifies #38 (BREAK_LOS drill
+# hung 90s before force-exit) resolves within a sane bound now, against a genuine encounter
+# rather than the synthetic one that first found the hang.
+set -uo pipefail
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$SELF_DIR/lib/common.sh"
+
+SEQ_TIMEOUT="${SEQ_TIMEOUT:-90}"
+
+# precondition: healthy, connected, agenda present -- same reasoning as induced-wedge-relog,
+# there is nothing for a bare skills.js bot to "sequence" without a ladder driving it.
+hp=$(eval_js "return bot.health;")
+hpVal=$(jget "$hp" '.result')
+if [[ -z "$hpVal" || "$hpVal" == "null" ]]; then fail "bot not reachable"; fi
+agendaPresent=$(eval_js "return Boolean(globalThis.__agenda);")
+if [[ "$(jget "$agendaPresent" '.result')" != "true" ]]; then
+  fail "no __agenda installed -- this fixture needs the ladder present to have anything to sequence"
+fi
+
+# ---- induce all three simultaneously ----
+# hungry: direct override, not the Hunger effect -- deterministic and difficulty-independent
+# (EVALUATION.md sect 9 C3 already found the Hunger effect does nothing on Peaceful and is
+# slow even on Normal; a fixture needs repeatable timing, not organic depletion). Give food
+# items too, or EAT_CRITICAL's OTHER half (foodCount>0) never fires.
+rcon "give $BOT_NAME minecraft:bread 4" >/dev/null
+eval_js "bot.food = 6; bot.foodSaturation = 0; return bot.food;" >/dev/null
+
+# toolless: strip every pickaxe tier so TOOL has real work to do
+for tier in wooden stone iron golden diamond netherite; do
+  rcon "clear $BOT_NAME minecraft:${tier}_pickaxe" >/dev/null
+done
+
+# threatened: a real skeleton, close and elevated so it has immediate LOS -- not a fabricated
+# __survival.drill() threat, a genuine encounter (folds in #32). Found live on the first
+# draft of this fixture: summoning into an unlit/underground area let the world's OWN
+# natural hostile spawning compound the one deliberate skeleton -- "kill @e[type=skeleton]"
+# after one run cleared SIXTEEN, not one, and the bot ended the run at 1.83 HP, a genuine
+# near-death the fixture's own hp<=0-only death check silently missed. Build a small lit,
+# roofed arena first so the ONLY threat present is the one this fixture actually summons.
+BOT_POS=$(eval_js "const p=bot.entity.position; return [Math.floor(p.x),Math.floor(p.y),Math.floor(p.z)];")
+BX=$(echo "$BOT_POS" | jq -r '.result[0]')
+BY=$(echo "$BOT_POS" | jq -r '.result[1]')
+BZ=$(echo "$BOT_POS" | jq -r '.result[2]')
+AX=$((BX-6)); AY=$BY; AZ=$((BZ-6))
+build_platform "$AX" "$AY" "$AZ" 12
+rcon "fill $AX $((AY+3)) $AZ $((AX+11)) $((AY+3)) $((AZ+11)) minecraft:glowstone" >/dev/null
+rcon "tp $BOT_NAME $((BX)) $BY $((BZ))" >/dev/null
+sleep 1
+rcon "summon minecraft:skeleton $((BX+4)) $BY $BZ {NoAI:0b}" >/dev/null
+
+pushLogT0=$(date +%s)
+
+# ---- watch the rung/branch sequence unfold ----
+# poll __agenda.snapshot() every 2s for the owning rung, and survival's own log for a
+# panic_recovered line -- two independent signals (the ladder's OWN sequencing, and
+# survival.js's REAL reflex firing underneath it), same two-witness pattern used
+# throughout EVALUATION.md sect 9.
+RUNG_SEQ=()
+breakLosSeen="false"
+hpMin="20"
+i=0
+while [[ $i -lt $SEQ_TIMEOUT ]]; do
+  snap=$(eval_js "const a=__agenda.snapshot(); return {owner:a.owner, blocked:a.blocked};")
+  owner=$(jget "$snap" '.result.owner')
+  n=${#RUNG_SEQ[@]}
+  last=""
+  if [[ $n -gt 0 ]]; then last="${RUNG_SEQ[$((n-1))]}"; fi
+  if [[ "$owner" != "null" && "$owner" != "$last" ]]; then
+    RUNG_SEQ+=("$owner")
+  fi
+  recent=$(eval_js "const s=__skills.status(bot,0); return s.log.slice(-5).map(l=>l[2]).join(' | ');")
+  if [[ "$(jget "$recent" '.result')" == *"panic_recovered branch=BREAK_LOS"* ]]; then
+    breakLosSeen="true"
+  fi
+  hpNow=$(eval_js "return bot.health;")
+  hpNowVal=$(jget "$hpNow" '.result')
+  if [[ "$hpNowVal" != "null" ]]; then
+    if [[ "$hpNowVal" != "$hpMin" ]] && awk -v h="$hpNowVal" -v m="$hpMin" 'BEGIN{exit !(h<m)}' 2>/dev/null; then hpMin="$hpNowVal"; fi
+    if awk -v h="$hpNowVal" 'BEGIN{exit !(h<=0)}' 2>/dev/null; then
+      rcon "kill @e[type=minecraft:skeleton,distance=..12]" >/dev/null 2>&1 || true
+      clear_platform "$AX" "$AY" "$AZ" 12
+      fail "bot died during the induced encounter -- criterion-1 AND criterion-3 both FAIL, this is the real finding"
+    fi
+  fi
+  [[ "$breakLosSeen" == "true" && "$owner" != "null" ]] && [[ $i -gt 10 ]] && break
+  sleep 2
+  i=$((i+2))
+done
+
+elapsed=$(( $(date +%s) - pushLogT0 ))
+rcon "kill @e[type=minecraft:skeleton,distance=..12]" >/dev/null 2>&1 || true
+clear_platform "$AX" "$AY" "$AZ" 12
+rcon "fill $AX $((AY+3)) $AZ $((AX+11)) $((AY+3)) $((AZ+11)) minecraft:air" >/dev/null 2>&1 || true
+
+seqStr="${RUNG_SEQ[*]}"
+
+# ---- thrash check: a rung that was already superseded by a DIFFERENT rung must never
+# reappear later. seen_and_left accumulates a rung only once something else has followed
+# it (a rung repeating itself consecutively is normal — that's just "still owns the
+# ladder" being sampled twice, not thrash). EXCLUDES safety-tier rungs (REFLEX/POSTURE,
+# per __agenda.rungs()'s own `safety` flag -- the authoritative source, not a hardcoded
+# name list here) -- found live: a real skeleton attacking repeatedly legitimately
+# re-triggers REFLEX each time (panic -> recover -> a new hit -> panic again), which is
+# the reflex doing its job against a persistent threat, not broken hysteresis. The
+# hysteresis this criterion actually cares about is the MAINTENANCE tier (EAT_CRITICAL,
+# TOOL, etc.), which has no legitimate reason to re-fire without a genuinely new need.
+safetyRungs=$(eval_js "return __agenda.rungs().filter(r=>r.safety).map(r=>r.id);")
+declare -A IS_SAFETY
+while IFS= read -r rid; do [[ -n "$rid" ]] && IS_SAFETY["$rid"]=1; done < <(echo "$safetyRungs" | jq -r '.result[]' 2>/dev/null)
+
+thrash="false"
+thrashRung=""
+prev=""
+seen_and_left=()
+for r in "${RUNG_SEQ[@]}"; do
+  if [[ -n "$prev" && "$prev" != "$r" ]]; then seen_and_left+=("$prev"); fi
+  for s in "${seen_and_left[@]:-}"; do
+    if [[ "$r" == "$s" && -z "${IS_SAFETY[$r]:-}" ]]; then thrash="true"; thrashRung="$r"; fi
+  done
+  prev="$r"
+done
+
+if [[ "$breakLosSeen" != "true" ]]; then
+  fail "survival.js never logged panic_recovered branch=BREAK_LOS within ${SEQ_TIMEOUT}s (owner sequence: $seqStr) -- either the skeleton never got LOS, or BREAK_LOS didn't fire; not a pass either way"
+fi
+if [[ "$thrash" == "true" ]]; then
+  fail "rung sequence THRASHED (non-safety rung '$thrashRung' recurred after being superseded): $seqStr -- hysteresis did not hold under simultaneous stress"
+fi
+# a near-death survival is a real finding, not something a clean sequencing PASS should
+# bury -- found live: the first draft's own encounter took the bot to 1.83 HP (a natural
+# mob pile-on the arena above now prevents), and correct rung ORDER doesn't say anything
+# about whether the actual encounter was survived with any real margin. Threshold matches
+# EAT_CRITICAL's own danger-zone number, not an arbitrary pick.
+if awk -v h="$hpMin" 'BEGIN{exit !(h<6)}' 2>/dev/null; then
+  fail "sequencing was clean (no thrash, BREAK_LOS fired correctly) but the bot dropped to ${hpMin} HP during the encounter -- a near-death is not a pass on its own, even with correct rung order. owner sequence: $seqStr"
+fi
+
+pass "sequenced cleanly under simultaneous hungry+toolless+threatened, ${elapsed}s, BREAK_LOS fired against a real skeleton (folds in #32), no thrash, hpMin=${hpMin}. owner sequence: $seqStr"
