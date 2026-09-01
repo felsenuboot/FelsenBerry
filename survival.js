@@ -215,7 +215,15 @@ const envHazard = () => {
     const feet = bot.blockAt(p), head = bot.blockAt(p.offset(0, 1, 0));
     if (feet && HAZARD.has(feet.name)) return feet.name;
     if (head && HAZARD.has(head.name)) return head.name;
-    if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel <= 5) return 'drowning';
+    // #65: bot.oxygenLevel is not a reliable "am I actually drowning" signal on its own —
+    // live-traced it reading 15 (not the max 20) while bot.entity.isInWater was false and
+    // the bot was standing on dry ground. envHazard() is checked FIRST in pick(), ahead of
+    // every combat branch, so a stale/untracked oxygen value spuriously took over from a
+    // real skeleton attack: the bot tried to "surface" (swim up 6 blocks) through a solid
+    // ceiling while the actual threat kept hitting it, unaddressed, for the seconds that
+    // wasted. Require actual submersion before trusting the number.
+    if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel <= 5
+        && (bot.entity.isInWater || (head && head.name === 'water'))) return 'drowning';
     return null;
   } catch (e) { return null; }
 };
@@ -312,22 +320,56 @@ const branchBreakLOS = async (t) => {
       const perAttempt = Math.max(600, Math.min(1500, searchDeadline - Date.now()));
       const r = await ownedGoto(new goals.GoalBlock(cell.x, cell.y, cell.z), perAttempt);
       if (r === 'arrived') {
-        return { branch: 'BREAK_LOS', how: 'corner', cell: [cell.x, cell.y, cell.z] };
+        // #65 (eng-2 + team-lead's lead): this used to return success the instant the
+        // goto landed, on the strength of a LOS check done against `tEye` -- the
+        // THREAT'S POSITION AT FUNCTION ENTRY, before any of the travel time above. A
+        // real skeleton repositions to hold a sightline; by the time a ~1s move lands,
+        // the prediction that got it picked can simply be wrong. BREAK_LOS's entire job
+        // is captured in its name, so "arrived at the cell that was predicted to work"
+        // is not the same claim as "line of sight is actually broken" -- re-read the
+        // world instead of trusting the plan. Same shape as the false-success-root
+        // doctrine elsewhere in this codebase: a verifier (here, the branch's own return
+        // value) that checks the manoeuvre happened instead of the outcome it exists to
+        // produce.
+        const liveT = entOf(t);
+        const stillBlocked = !liveT || !liveT.position
+          || losBlocked(bot.entity.position.offset(0, 1.62, 0), liveT.position.offset(0, 1.4, 0));
+        if (stillBlocked) {
+          return { branch: 'BREAK_LOS', how: 'corner', cell: [cell.x, cell.y, cell.z] };
+        }
+        break; // prediction was wrong and the bot has now moved -- the rest of `offs` is
+               // relative to a stale origin, so stop guessing and fall through to (b)/(c)
+               // against the bot's REAL current position instead of compounding the error.
       }
     }
   }
 
-  // (b) arrow shadow: a 1x2 filler pillar on the cell between bot and threat
+  // (b) arrow shadow: a 1x2 filler pillar on the cell between bot and threat. Re-reads
+  // the bot's position fresh rather than reusing `p`/`feet` from function entry -- #65:
+  // those are stale the moment phase (a) has moved the bot at all (including a failed
+  // attempt above), and building "between bot and threat" from the WRONG bot position
+  // places the wall somewhere that doesn't correspond to where the bot actually is.
+  const p2 = bot.entity.position;
+  const feet2 = new Vec3(Math.floor(p2.x), Math.floor(p2.y), Math.floor(p2.z));
   let placed = 0;
   if (ent && ent.position) {
-    const dx = ent.position.x - p.x, dz = ent.position.z - p.z;
+    const dx = ent.position.x - p2.x, dz = ent.position.z - p2.z;
     const step = Math.abs(dx) >= Math.abs(dz) ? [Math.sign(dx), 0] : [0, Math.sign(dz)];
     for (const dy of [0, 1]) {
-      const r = await placeAt(feet.offset(step[0], dy, step[1]));
+      const r = await placeAt(feet2.offset(step[0], dy, step[1]));
       if (r === 'placed') placed++;
     }
   }
   if (placed) say('Cobble wall up - that is my arrow shadow.');
+  // Same false-success risk as phase (a): blocks landing does not by itself mean the
+  // sightline is actually interrupted (wrong side, threat already stepped around it,
+  // or only one of the two cells took). Verify before reporting a bare "wall" success.
+  if (placed) {
+    const liveT2 = entOf(t);
+    const wallBlocksLOS = !liveT2 || !liveT2.position
+      || losBlocked(bot.entity.position.offset(0, 1.62, 0), liveT2.position.offset(0, 1.4, 0));
+    if (!wallBlocksLOS) pushLog('warn', 'break_los: arrow-shadow placed but LOS still open — threat likely repositioned');
+  }
 
   // (c) counter-attack — ONLY if the threat is ALREADY at melee reach right now. This used
   // to gate on nothing but HP + sword + `placed`, which let it chase a kiting skeleton
@@ -479,36 +521,43 @@ const branchWallOff = async (t) => {
   const t0 = Date.now();
   await eatUp();
   let lastHp = bot.health;
-  let lastResort = false;
+  let resealed = false;
+  let lastFoodCheck = 0;
   while (Date.now() - t0 < 60000) {
     if (bot.health >= g.cfg.regenHp && bot.food >= g.cfg.regenFood) break;
+    if (bot.health <= 0) break;
     // #65: this used to wait passively for up to 60s on the assumption a "sealed" coffin
-    // stops incoming damage entirely. Live-traced a bot going HP-flat-then-declining to
-    // death DURING this exact wait -- the coffin was leaking damage through an open face
-    // and nothing here ever re-checked or reacted, right up until death. Critical HP that
-    // is STILL falling (not just slow to rise) means the seal isn't holding: try one
-    // re-seal pass on whatever cells are still open (cheap — most already have a
-    // reference by now from their neighbours going up), and if a threat is still adjacent
-    // and armed, one desperate swing beats standing still doing nothing while it dies.
-    if (bot.health > 0 && bot.health < CRIT && bot.health <= lastHp && !lastResort) {
-      lastResort = true;
-      const stillOpen = cells.filter((c) => !isSolid(bot.blockAt(c)));
-      for (const c of stillOpen) { const r = await placeAt(c); if (r === 'placed') placed++; }
-      open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;
+    // stops incoming damage entirely, checking only once per 1000ms. Live-traced a bot
+    // holding stable for 33s then dropping 5.5 -> 0.8 HP in ~4s during this exact wait —
+    // faster than a 1s poll could react to, let alone a re-seal attempt (which itself
+    // costs real time) before checking again. Now polls every 250ms and, on critical AND
+    // still-falling HP, swings FIRST if a threat is adjacent and armed -- stopping the
+    // damage source directly is faster than rebuilding a wall around it -- and re-seals
+    // (once per bail episode, not every poll) only as a secondary measure.
+    if (bot.health > 0 && bot.health < CRIT && bot.health <= lastHp) {
       const lt = entOf(t);
       const ld = lt && lt.position ? dist(bot.entity.position, lt.position) : Infinity;
       const sw = bestSword();
-      if (open && ld <= 2 && sw && lt && t.name !== 'creeper') {
+      if (ld <= 2 && sw && lt && t.name !== 'creeper') {
         try {
           await bot.equip(sw, 'hand');
           bot.pvp.attack(lt);
-          await sleep(1500);
+          await sleep(400);
         } catch (e) {} finally { try { bot.pvp.stop(); } catch (e) {} }
+      }
+      if (!resealed) {
+        resealed = true;
+        const stillOpen = cells.filter((c) => !isSolid(bot.blockAt(c)));
+        for (const c of stillOpen) { const r = await placeAt(c); if (r === 'placed') placed++; }
+        open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;
       }
     }
     lastHp = bot.health;
-    await sleep(1000);
-    if (bot.food < g.cfg.regenFood) await eatUp();
+    await sleep(250);
+    if (Date.now() - lastFoodCheck > 1000) {
+      lastFoodCheck = Date.now();
+      if (bot.food < g.cfg.regenFood) await eatUp();
+    }
   }
   open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;   // final re-read, not the pre-wait tally
   if (shielded) shieldDown();
