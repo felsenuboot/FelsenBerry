@@ -8,7 +8,7 @@ verified against actual commits/source before acting.
 
 ## Tracker health
 
-**felsenuboot/felcrew-mcp**: 27 open, 18 closed (45 total). Phase-1's
+**felsenuboot/felcrew-mcp**: 28 open, 18 closed (46 total). Phase-1's
 self-sufficiency spine is now largely proven live: TOOLGUARD/ensureTool
 (#30), the agenda ladder (#28, still open pending the acceptance test),
 and now produce-by-acquisition for consumables (#37, closed) all confirmed
@@ -79,6 +79,7 @@ deferred past the acceptance soak: #43).
 | 29 | Kevin MCP reconnect visibility | 1 | low | engine-dev | |
 | 40 | Bench bot underground damage, unclear if #20 | 1 | low | engine-dev | watch-for-recurrence |
 | 43 | Toolless/resourceless at DEPTH | **1.5** | low | engine-dev-3 | FILE-ONLY, do not build — v31's tool-acquisition fixes made the reactive path faster (2.2s vs 36.6s) but did NOT build this issue's deferred capability |
+| 46 | mineLane ignores ore it exposes | **1.5** | low | engine-dev-2 | new this cycle — Felix field finding, north-star human-likeness, not a soak blocker; the hook is free (vein-follow already scans neighbours), 5 constraints documented; same excursion shape as #43 |
 | 6 | FLEET/1 protocol | 2 | low | engine-dev-2 | deprioritized, spec-ready |
 | 8 | CLAIM interop | 2 | low | engine-dev-2 | deprioritized, spec-ready |
 | 1 | Alliance direct line | 2 | low | kevin-driver/team-lead | standing channel |
@@ -88,7 +89,7 @@ a direct owner ping.
 
 ## Owner load
 
-engine-dev-2: 7 active (#28 top-priority). Shipped the full self-sufficiency
+engine-dev-2: 8 active (#28 top-priority, #46 new/no-urgency). Shipped the full self-sufficiency
 spine this session: agenda v1-v7, telemetry E1-E5+fixes, queue-loop,
 goto-logging, RESTOCK produce-wiring (#37, closed).
 engine-dev-3: 9 active (#19 the only active priority-high; #43 explicitly
