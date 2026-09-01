@@ -635,6 +635,27 @@ keeping the base lit and re-verifying it against the registry.
   stumbling on the damage later. Only audits regions near the bot (stale-chunk rule); far ones
   are listed as `skipped`. Good as a periodic queue item paired with spawnProof.
 
+## Producing — acquire by MAKING, not just withdrawing (producer.js v1)
+
+`__skills.produce(bot, resource, count, opts)` is the produce-side of self-sufficiency: on a
+fresh/depot-less world it MAKES a consumable from raw materials the bot can mine and craft,
+so a driverless bot isn't stuck when the depot can't supply. It's the fallback the agenda's
+RESTOCK rung calls after a failed withdraw. An S-level METHOD (like `ensureTool`/`craftSafe`),
+not a queued skill — call and await it directly:
+
+```sh
+./task.sh <port> eval "return __skills.produce(bot, 'torch', 16)"
+# -> {ok:true, made:16, how:'crafted', steps:[...]}   (mines coal + chops wood->planks->sticks, then crafts)
+```
+
+`resource` is an ITEM NAME, not a category: `'torch'` (mine coal + wood chain → craft, no table
+needed), `'cobblestone'`/`'filler'` (mine stone), `'coal'` (mine ore), `'stick'` / `'*_planks'`
+(chop → craft). Returns `{ok, made, how:'mined'|'crafted'|'gathered', reason}`. It is ONE-SHOT
+and returns PARTIAL success (`made` may be < `count`) rather than throwing — a typed `reason`
+(`no_pickaxe`, `no_coal_nearby`, `no_wood`, `partial`, `unproduceable`) tells you why it stopped.
+It self-bootstraps the pickaxe (crafts a wooden one from gathered wood if none) and never chases
+wood down a ravine. Does NOT produce FOOD — bread is farmCycle's/cooking's domain.
+
 GITHUB ISSUES (open to every teammate, drivers included — user law, 2026-09-01)
 The repo (`felsenuboot/felcrew-mcp`, `gh` CLI already authenticated machine-wide) has an
 issue tracker anyone can read and file into — a significant finding deserves an issue, not
