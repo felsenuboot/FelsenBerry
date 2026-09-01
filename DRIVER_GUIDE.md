@@ -58,7 +58,7 @@ DISCOVER
   ./task.sh <port> list   # come, collectDrops, chopTrees, mineLane, huntAnimals, depositToChest,
                           # safeDescend, buildSchematic, buildWall, buildFloor, frameStructure,
                           # buildStaircase, farmCycle, tillFarmland, harvestGrass,
-                          # spawnProof, structureAudit
+                          # spawnProof, structureAudit, stripLog
                           # (v7: buildSchematic/buildWall/frameStructure are live-verified;
                           #  buildFloor shares the same engine; buildStaircase is still the one
                           #  build skill never live-run — see ENGINE_NOTES.md before trusting it)
