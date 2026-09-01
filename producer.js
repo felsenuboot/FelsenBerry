@@ -165,7 +165,12 @@ async function ensurePlanks(bot, wantPlanks, steps, chk) {
 async function ensureSticks(bot, wantSticks, steps, chk) {
   if (inv(bot, 'stick') >= wantSticks) return true;
   const stickBatches = Math.ceil((wantSticks - inv(bot, 'stick')) / 4);
-  if (!await ensurePlanks(bot, stickBatches * 2, steps, chk)) return inv(bot, 'stick') >= wantSticks;
+  // Gather what wood we can, but craft from the planks ALREADY in the bag even if that falls
+  // short of the full target — a deep bot with 8 planks and no reachable tree must still make
+  // its 16 sticks rather than report no_wood and make zero. (ensurePlanks itself crafts the
+  // partial; only this caller used to bail on its false return.) The craft loop below stops
+  // on its own when planks run out, so entering it unconditionally is safe.
+  await ensurePlanks(bot, stickBatches * 2, steps, chk);
   let guard = 0;
   while (guard++ < 24 && inv(bot, 'stick') < wantSticks) {
     chk();
@@ -286,14 +291,14 @@ S.define('produce', {
 
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 3,
+  version: 4,
   restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 3, boundAt: Date.now(), stale: false };
+REG.producer = { version: 4, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 3,
+return { installed: true, version: 4,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
   resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table'],
