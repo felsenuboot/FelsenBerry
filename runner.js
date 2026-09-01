@@ -278,6 +278,25 @@ async function applyPayloadStack(bot) {
     report['agenda.js'] = 'skipped (pass --agenda to enable)';
   }
   log(`<payload-stack> ${JSON.stringify(report)}`);
+  // Version attribution for the ledger (#41). The `session` record cannot carry this: it is
+  // emitted at telemetry.install() time inside createBot, which runs BEFORE the first spawn —
+  // so globalThis.__skills does not exist yet and `engine` was unconditionally null. Emitting
+  // here instead, after the stack has actually landed, means every run in the ledger says
+  // exactly which payload versions produced it — and it re-emits on each spawn, so a
+  // reconnect that picks up edited payloads from disk is recorded rather than assumed.
+  try {
+    const m = globalThis.__metrics;
+    if (m && m.emit) {
+      const ver = (g) => (typeof g !== 'undefined' && g ? (g.version || null) : null);
+      m.emit('versions', {
+        skills: ver(globalThis.__skills), agenda: ver(globalThis.__agenda),
+        dangerscan: ver(globalThis.__danger), survival: ver(globalThis.__survival),
+        digguard: ver(globalThis.__digguard), toolguard: ver(globalThis.__toolguard),
+        idleguard: ver(globalThis.__idleguard), graychat: ver(globalThis.__graychat),
+        reachguard: ver(globalThis.__reachguard), role: ROLE,
+      });
+    }
+  } catch (_) {}
   return report;
 }
 

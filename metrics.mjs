@@ -194,6 +194,20 @@ if (has('json')) {
 }
 
 console.log(`metrics.mjs — ${recs.length} records, ${ends.length} task_end, ${gotos.length} goto spans`);
+// Version attribution per run (#41). Without this a row cannot say what produced it, and a
+// cross-version comparison is guesswork dressed as measurement.
+const versionsByRun = new Map();
+for (const r of recs) if (r.ev === 'versions') versionsByRun.set(r.run, r);
+if (versionsByRun.size) {
+  console.log('\n── versions by run ──');
+  for (const [run, v] of versionsByRun) {
+    const parts = ['skills', 'agenda', 'digguard', 'survival', 'toolguard', 'dangerscan', 'idleguard']
+      .filter((k) => v[k] != null).map((k) => `${k}:${v[k]}`);
+    console.log(`  ${run}  ${parts.join(' ')}${v.role ? '  role:' + v.role : ''}`);
+  }
+} else if (recs.length) {
+  console.log('  (no `versions` records — runs predate #41, so rows cannot be attributed to a payload set)');
+}
 const schemaVersions = [...new Set(recs.map((r) => r.v || 1))].sort();
 if (schemaVersions.length > 1) {
   console.log(`  !! ledger mixes schema versions ${schemaVersions.join(' and ')} — \`assert\` means`);

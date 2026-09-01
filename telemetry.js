@@ -429,10 +429,13 @@ function install(bot, opts = {}) {
   };
 
   globalThis.__metrics = M;
-  emit('session', {
-    engine: (globalThis.__skills && globalThis.__skills.version) || null,
-    role: opts.role || null, mcHost: opts.host || null, node: process.version,
-  });
+  // No `engine` field here on purpose. install() runs inside createBot, BEFORE the first
+  // spawn injects the payload stack, so globalThis.__skills does not exist yet and this
+  // could only ever have written null — a field that is structurally always empty looks
+  // like data and isn't. Version attribution is emitted as its own `versions` record by
+  // applyPayloadStack once the stack has actually landed, where it can be truthful, and
+  // re-emitted on every spawn so a reconnect picking up edited payloads is recorded.
+  emit('session', { role: opts.role || null, mcHost: opts.host || null, node: process.version });
   return M;
 }
 
