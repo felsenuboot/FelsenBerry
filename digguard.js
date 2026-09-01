@@ -129,12 +129,57 @@ bot.dig = guardedDig;
 // restoring, which removes the only documented trigger. If a self-heal is ever genuinely
 // needed, first make EVERY dig wrapper publish __wrappedTarget, then walk it.
 
+
+// ---- level 2: pathfinder planner ----
+// RESTORED after I sliced it out by accident while removing the self-heal (the removal's
+// text range ran from the level-1 wrap to g.reload and took this whole block with it).
+// Losing it silently killed BOTH the plaza-floor planner protection AND protected.json
+// hot-reload: runner.js's baseMovements() late-binds to g.exclusionBreak, so with the
+// function gone that hook just returned 0 and the planner was free to dig through
+// registered structure again. Caught by engine-dev-3 reading the file, not by any test.
+// Returned cost >= 100 makes mineflayer-pathfinder treat the block as unbreakable.
+g.exclusionBreak = (block) => {
+  try {
+    if (block && block.position && g.hit(block.position, block.name)) { g.plannerHits++; return 100; }
+  } catch (e) {}
+  return 0;
+};
+// runner.js's baseMovements() installs a late-binding hook tagged __digguardBound that
+// calls straight into us, so every profile it builds is covered from birth. Only wire
+// ourselves in when that hook is absent (an older runner.js, or a foreign Movements object).
+const alreadyBound = (arr) => Array.isArray(arr) && arr.some((f) => f && (f.__digguardBound || f === g.exclusionBreak));
+const wireMovements = () => {
+  try {
+    const mv = bot.pathfinder && bot.pathfinder.movements;
+    if (!mv) return false;
+    if (!Array.isArray(mv.exclusionAreasBreak)) mv.exclusionAreasBreak = [];
+    if (!alreadyBound(mv.exclusionAreasBreak)) mv.exclusionAreasBreak.push(g.exclusionBreak);
+    if (!Array.isArray(mv.exclusionAreasPlace)) mv.exclusionAreasPlace = [];
+    if (!alreadyBound(mv.exclusionAreasPlace)) mv.exclusionAreasPlace.push(g.exclusionBreak);
+    mv.scafoldingBlocks = [];
+    return true;
+  } catch (e) { return false; }
+};
+g.wired = wireMovements();
+
+// Re-wire periodically: a reconnect (or any setMovements call) installs a fresh Movements
+// object that has never heard of us. The same timer polls protected.json so an edit reaches
+// running bots within ~10s with no re-injection. NOTE: this timer must never re-wrap
+// bot.dig — see the no-self-heal note above.
+g.timer = setInterval(() => {
+  if (globalThis.__digguard !== g || !g.enabled) { clearInterval(g.timer); return; }
+  load(false);
+  wireMovements();
+}, RELOAD_MS);
+
 g.reload = () => { const changed = load(true); wireMovements(); return { changed, regions: g.regions.length, error: g.error }; };
 g.restore = () => {
   g.enabled = false;
   if (g.timer) clearInterval(g.timer);
   try { bot.dig = orig; } catch (e) {}
-  try { if (g.origAsh && bot.ashDig === guardedAshDig) bot.ashDig = g.origAsh; } catch (e) {}
+  // level-3 ashDig restore is owned by engine-dev-3 (#26); guarded so restore()
+  // cannot throw while that block is being (re)added.
+  try { if (g.origAsh && typeof g.restoreAsh === 'function') g.restoreAsh(); } catch (e) {}
   try {
     const mv = bot.pathfinder && bot.pathfinder.movements;
     if (mv) {
