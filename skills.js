@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 43;
+const ENGINE_VERSION = 44;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -3051,23 +3051,57 @@ S.define('relocateToWork', {
     const n = (S._relocateN = (S._relocateN || 0) + 1);
     ctx.setPhase('relocating', `Local ${kind === 'wood' ? 'trees' : kind === 'dig' ? 'dig ground' : 'ground'} worked out — moving to fresh terrain.`);
 
-    let moved = null, tried = 0;
-    for (let i = 0; i < 4 && !moved; i++) {
-      ctx.step();
-      const h = HEADINGS[(n + i) % HEADINGS.length];
-      const tx = Math.floor(here.x + h[0] * hop), tz = Math.floor(here.z + h[1] * hop);
+    // #70: reachability PRE-FILTER. MettMarcel flailed 12/12 relocate gotos on res:no_path —
+    // boxed inside a protected camp sphere, every candidate 40+ blocks out had NO route at all.
+    // So probe each candidate with getPathTo BEFORE committing a goto: skip no_path/timeout
+    // targets, and WIDEN the ring when the local fan is all-unreachable rather than re-picking the
+    // same doomed set. A genuinely boxed bot then stands down cheaply instead of churning gotos.
+    const routable = (dest) => {
+      try {
+        const r = bot.pathfinder.getPathTo(bot.pathfinder.movements, new goals.GoalNear(dest.x, dest.y, dest.z, 2), 2500);
+        if (r.status === 'success') return true;
+        // A 'partial' route still walks us toward fresh ground — fine for a relocate — BUT only if
+        // it actually carries us somewhere. A boxed/island bot gets a partial that dead-ends at the
+        // wall or platform edge a few blocks away; that isn't progress, so require a real distance.
+        if (r.status === 'partial' && r.path && r.path.length) {
+          const e = r.path[r.path.length - 1];
+          if (e && e.x != null) return Math.sqrt((e.x - here.x) ** 2 + (e.z - here.z) ** 2) >= 12;
+        }
+        return false;
+      } catch (_) { return false; }
+    };
+    const candidateAt = (h, ring) => {
+      const tx = Math.floor(here.x + h[0] * ring), tz = Math.floor(here.z + h[1] * ring);
       const topY = Math.floor(Math.max(here.y, HOME ? HOME.y : here.y)) + 4;
       const dest = standableAt(tx, tz, topY) || new Vec3(tx, Math.floor(here.y), tz);
-      tried++;
       // Never relocate INTO protected base infrastructure — that is the ground we are leaving.
-      if (ctx.isProtected(dest)) continue;
+      if (ctx.isProtected(dest)) return null;
       // For wood, do not settle inside the plaza aesthetic exclusion: walk OUT of it, not around.
-      if (kind === 'wood' && !ctx.harvestAllowed(dest, 'chopTrees')) continue;
-      try { await ctx.gotoNear(dest, 2, 30000); moved = dest; }
-      catch (e) { ctx.log(`relocate heading ${h} failed (${e.code || e.message}) — trying next`); }
+      if (kind === 'wood' && !ctx.harvestAllowed(dest, 'chopTrees')) return null;
+      return dest;
+    };
+
+    let moved = null, tried = 0, unroutable = 0, checks = 0;
+    for (const ring of [hop, hop + 20, hop + 40]) {   // widen the search ring if the local fan is boxed
+      if (moved) break;
+      for (let i = 0; i < HEADINGS.length && !moved && checks < 12; i++) {
+        ctx.step();
+        const h = HEADINGS[(n + i) % HEADINGS.length];
+        const dest = candidateAt(h, ring);
+        if (!dest) continue;
+        tried++; checks++;
+        if (!routable(dest)) { unroutable++; continue; }   // don't commit a goto to a no-path target
+        try { await ctx.gotoNear(dest, 2, 30000); moved = dest; }
+        catch (e) { ctx.log(`relocate to routable ${dest.x},${dest.z} still failed (${e.code || e.message}) — next`); }
+      }
     }
 
-    if (!moved) return { relocated: false, reason: 'no_reachable_spot', kind, tried };
+    if (!moved) {
+      // Every candidate unreachable = genuinely boxed in (protected sphere / walled terrain). A
+      // distinct reason so the read is honest; the agenda stands relocate down with backoff either way.
+      const boxed = tried > 0 && unroutable >= tried;
+      return { relocated: false, reason: boxed ? 'boxed_in' : 'no_reachable_spot', kind, tried, unroutable };
+    }
     try { await ctx.collectDrops(8, 6000); } catch (_) {}
     const dist = Math.round(Math.sqrt((moved.x - here.x) ** 2 + (moved.z - here.z) ** 2));
     return { relocated: true, kind, to: { x: moved.x, y: moved.y, z: moved.z }, dist };
