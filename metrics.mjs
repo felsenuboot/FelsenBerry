@@ -256,6 +256,28 @@ if (notes.length) {
   console.log('\n── ladder coverage ── (no `note` events — this ledger predates the agenda, or the bot never ran it)');
 }
 
+// ---------- interventions / tokensSpent=0 tripwire (#52/M1) ----------
+// Consumes runner.js's intervention events (POSTs to a decision-making control-plane
+// endpoint — /eval, /goto, /chat, etc.). Respects --bot/--since same as everything else
+// here, so `--since <window-start>` scores a specific acceptance window rather than the
+// process lifetime. A clean driverless run reads 0; this does NOT try to distinguish a
+// scorer's own known induction calls from a genuine surprise here — that interpretation
+// belongs at the reading, cross-referenced against the rubric's documented induction
+// timestamps (EVALUATION.md sect 9), not baked into the count itself.
+const interventions = recs.filter((r) => r.ev === 'intervention');
+console.log('\n── interventions (tokensSpent=0 tripwire — driver-facing control-plane hits) ──');
+if (!interventions.length) {
+  console.log('  0   <- clean; no decision-making endpoint was hit in this window');
+} else {
+  console.log(`  ${interventions.length}   *** nonzero — cross-check against the rubric's known induction timestamps before calling this a fail ***`);
+  const byRoute = {};
+  for (const r of interventions) byRoute[r.route] = (byRoute[r.route] || 0) + 1;
+  console.log(`  by route: ${Object.entries(byRoute).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join('  ')}`);
+  for (const r of interventions.slice(-10)) {
+    console.log(`    ${new Date(r.t).toISOString()}  ${r.route}  ${(r.preview || '').slice(0, 80)}`);
+  }
+}
+
 // ---------- repeat clusters ----------
 // A failure counter is a SYMPTOM counter. Ten wedges from one retrying rung look like a
 // broad movement problem pooled, and collapse to a single missing config line when grouped
