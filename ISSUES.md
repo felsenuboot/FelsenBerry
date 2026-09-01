@@ -1,6 +1,6 @@
 # ISSUES.md — tracker health (maintained by issue-manager)
 
-Snapshot timestamp: 2026-09-01, end of cycle 8. This file is the
+Snapshot timestamp: 2026-09-01, end of cycle 10. This file is the
 machine-readable/at-a-glance companion to `gh issue list`; FEEDBACK.md
 stays the raw findings pool, GitHub issues stay the tracked work, this
 file is the rollup + burndown. Updated every triage cycle. All closes
@@ -8,132 +8,98 @@ verified against actual commits/source before acting.
 
 ## Tracker health
 
-**felsenuboot/felcrew-mcp**: 29 open, 18 closed (47 total). Phase-1's
-self-sufficiency spine is now largely proven live: TOOLGUARD/ensureTool
-(#30), the agenda ladder (#28, still open pending the acceptance test),
-and now produce-by-acquisition for consumables (#37, closed) all confirmed
-driverless and end-to-end.
-**ZetOmega/cavecrew-mcp**: 4 open, 0 closed — all filed BY us; no reply.
+**felsenuboot/felcrew-mcp**: 44 open, 20 closed (64 total). A structured
+**roadmap** (Arc A/B, milestones M0-M7, issues #51-64) landed this cycle —
+team-lead's planning pass toward the phase-1 acceptance soak — alongside
+the routine field-finding flow this file already tracked.
+**ZetOmega/cavecrew-mcp moved to `monkeorg/cavecrew-mcp`** (old URLs
+redirect, `gh` commands against the old path still resolve). 5 open issues
+there now (they've built their own parallel label taxonomy —
+phase-1/priority/owner-* — independently, same evolution we've had).
 
-Closed to date:
-| # | Title | Evidence |
-|---|---|---|
-| #7 | task completion must be unmissable | commit `90c11a9` |
-| #9 | graychat v3 chat diet | commit `90c11a9` |
-| #11 | idle-guard stomps driver goals | commit `a2f0302` |
-| #18 | surfaceExposed false-negative | commit `e99d273` |
-| #30 | TOOLGUARD + ensureTool | commit `1bcab7b` |
-| #36 | idleguard.stop() stripped every dig guard | idleguard v8 + digguard v4 |
-| #5 | farmCycle | commit `8b285cb` |
-| #4 | spawnProof + BASE-vs-reality diff | commit `271896e` |
-| #3 | idleguard role-per-port map | roster.json + runner.js fallback |
-| #21 | Telemetry layer E1-E6 | E1-E5 live; E6 gate artifacts confirmed |
-| #23 | `__survival.drill(branch)` hook | survival v4, found #38 immediately |
-| #35 | harvestGrass + ctx.stripLog + ctx.settle | commit `c860899` |
-| #39 | agenda RESTOCK hysteresis violation | commit `726d7b6` |
-| #24 | queue loop/onEmpty re-seed | commit `f82ab0d` |
-| #25 | runner.js goto request/response logging | commit `c44d4f3` |
-| #41 | telemetry session.engine always null | runner.js versions record |
-| #42 | telemetry assert field conflated PASS/UNGRADED | commits `70564b3`+`6513682` |
-| #37 | RESTOCK acquires by PRODUCING (torches) | commits `df64b54`/`37c7416`/`20ea942`/`0130349`, driverless end-to-end: 26 torches from nothing |
+Closed to date (20): #3 #4 #5 #7 #9 #11 #18 #21 #23 #24 #25 #30 #35 #36
+#37 #39 #41 #42, plus this cycle's #51 (roadmap M0, capability freeze
+declared) and **#53** (movement detection layer — verified commits
+`d7d5c0d`/`4955805`, 75-case pre-flight green fleet-wide; see the close
+comment for the "watchdog was answering the wrong question" finding worth
+remembering).
 
-## Three-engineer routing
+## Three-engineer routing (unchanged)
 
-| Owner | Lane |
-|---|---|
-| **engine-dev-2** | CORE — movement/pathfinding, protocol bugs, telemetry infra, agenda.js |
-| **engine-dev-3** | SKILLS + PAYLOADS — standalone skills, primitives, payload safety |
-| **engine-dev** | CURATOR — fixtures/benchmarks/docs/QA + issue-manager's GitHub co-lane |
+engine-dev-2 = CORE (movement/pathfinding/protocol/telemetry/agenda.js).
+engine-dev-3 = SKILLS + PAYLOADS. engine-dev = CURATOR (fixtures/
+benchmarks/docs/QA + this GitHub co-lane).
 
-## PHASE labels
+## The roadmap (Arc A = robustness/movement, Arc B = completeness) —
+new structure this cycle, #51-64
 
-**phase-1** (current fire) · **phase-2** (cooperation, deprioritized: #1,
-#6, #8) · **phase-1.5** (real gaps, not a phase-1 blocker, not phase-2 —
-deferred past the acceptance soak: #43).
+| # | Milestone | Status | Owner |
+|---|---|---|---|
+| 51 | M0: capability freeze rules | **CLOSED** | — |
+| 53 | Movement detection layer | **CLOSED** | engine-dev-2 |
+| 52 | M1: instrument integrity (soak-invalidating measurement bugs) | open, high | engine-dev |
+| 54 | M2: movement recovery ladder (ordered escalation) | deliberately not started — waits on #57's empirical distribution | engine-dev-2 |
+| 55 | Consolidate 3 bot.dig guard-wrappers into one chain | open, high | engine-dev-3 |
+| 56 | M3: induced-stress QA fixtures (criteria #3, #5) | open, high | engine-dev |
+| 57 | Shakeout run + empirical recovery tuning | **BLOCKED** — test bot 3106 not running, local server closed, raised with team-lead | engine-dev-2 |
+| 58 | M4: freeze + phase-1 acceptance soak (the gate) | open, high — the actual finish line | engine-dev |
+| 59 | M5: furnace smelting state-machine + producer path | open, medium | engine-dev-3 |
+| 60 | M6: time/night model + shelter/bed rung | open, medium | engine-dev-3 |
+| 61 | M7: real food-produce path, retires the food carve-out | open, medium — cross-refs #45 (prereq gate bug) + #13 (farmland revert) as sub-items | engine-dev-3 |
+| 62 | Death-recovery: respawn -> corpse -> item recovery | open, medium | engine-dev-3 |
+| 63 | Deterministic recipe-DAG planner | **DE-COMMITTED** until the soak ranks it as needed — phase-1.5, blocked | engine-dev-2 |
+| 64 | Roadmap umbrella: CONTINUE decision | open, high — the parent tracking issue | — |
 
-## Burndown table — every open issue
+**Sequencing note** (so nobody re-derives it): #53 (detection) had to ship
+before #57 (shakeout) can run, which has to run before #54 (recovery
+ladder) can be scoped — pre-speccing escalation rungs against zero
+occurrence data was explicitly rejected as violating the rule-of-twice.
+#57 is now the actual bottleneck, and it's environment-blocked, not
+engineering-blocked.
 
-| # | Title | Phase | Priority | Owner | Status |
-|---|---|---|---|---|---|
-| 28 | AUTONOMOUS AGENDA — Phase 1 capstone | 1 | **TOP** | engine-dev-2 | agenda v1-v7 shipped, extensively live-verified; the 5-part acceptance soak itself still hasn't run — the actual remaining gate |
-| 45 | Self-sufficiency: food bootstrap paradox | 1 | high | *unassigned* | new this cycle — starving bot can't hunt for food (foodItems gate), same shape as #37, needs design not just wiring |
-| 22 | Benchmark harness + baseline suite (C1-C3) | 1 | high | engine-dev | producing real results |
-| 32 | survival.js live-mob QA gap | 1 | high | engine-dev | CREEPER confirmed; #38 cross-referenced |
-| 19 | placeBlock hitbox no-op | 1 | high | engine-dev-3 | briefed, 2 call sites, blocked behind engine-dev-2's active skills.js |
-| 2 | reconnect backoff | 1 | medium | engine-dev-2 | |
-| 20 | frozen-entity / corrupt chunk (auto-relog) | 1 | medium | engine-dev-2 | root-caused, incident resolved |
-| 31 | ctx.gotoFar multi-leg waypointing | 1 | medium | engine-dev-2 | picked up |
-| 33 | Generation counter (movement promises) | 1 | medium | engine-dev-2 | briefed |
-| 34 | 3-signal stall watchdog | 1 | medium | engine-dev-2 | briefed; real physics-desync specimen logged from #37's verification run |
-| 26 | Baritone: 6 findings remaining | 1 | medium | engine-dev-3 | item 1 (safety) shipped `fbae83c` |
-| 10 | openContainer furnace gap | 1 | medium | engine-dev-3 | |
-| 12 | collectDrops/huntAnimals hazard blind spot | 1 | medium | engine-dev-3 | |
-| 13 | tillFarmland — bug half only | 1 | medium | engine-dev-3 | skill shipped; revert root cause unexplained |
-| 14 | autoTorch consumption vs. interval | 1 | medium | engine-dev-3 | |
-| 15 | dirt/leaf_litter depot bloat | 1 | medium | engine-dev-3 | |
-| 27 | disconnect-mid-loop false success | 1 | medium | engine-dev-3 | |
-| 38 | survival.js: BREAK_LOS drill hung 90s | 1 | medium | engine-dev | found via #23; feeds #32 |
-| 44 | 6 skills lack an ASSERTS entry (audit) | 1 | low | engine-dev (coordinate w/ engine-dev-3) | new this cycle; 4 strong candidates, 2 need closer review |
-| 16 | cave-mapping/sealing skill | 1 | low | engine-dev-3 | |
-| 17 | torch light zone bug | 1 | low | engine-dev (tracking only) | likely external — cavecrew-mcp#2 |
-| 29 | Kevin MCP reconnect visibility | 1 | low | engine-dev | |
-| 40 | Bench bot underground damage, unclear if #20 | 1 | low | engine-dev | watch-for-recurrence |
-| 43 | Toolless/resourceless at DEPTH | **1.5** | low | engine-dev-3 | FILE-ONLY, do not build — v31's tool-acquisition fixes made the reactive path faster (2.2s vs 36.6s) but did NOT build this issue's deferred capability |
-| 46 | mineLane ignores ore it exposes | **1.5** | low | engine-dev-2 | new this cycle — Felix field finding, north-star human-likeness, not a soak blocker; the hook is free (vein-follow already scans neighbours), 5 constraints documented; same excursion shape as #43 |
-| 47 | Reason-code plausibility verifier class | **1.5** | low | engine-dev-2 | new this cycle — assertions catch lying not under-performing; filed not built, worth doing post-soak |
-| 6 | FLEET/1 protocol | 2 | low | engine-dev-2 | deprioritized, spec-ready |
-| 8 | CLAIM interop | 2 | low | engine-dev-2 | deprioritized, spec-ready |
-| 1 | Alliance direct line | 2 | low | kevin-driver/team-lead | standing channel |
+## Pre-roadmap open issues (routine field-finding flow, still tracked
+individually)
+
+| # | Title | Phase | Priority | Owner |
+|---|---|---|---|---|
+| 45 | Food bootstrap paradox | 1 | high | engine-dev-3 | consumed as a sub-item of #61 too |
+| 19 | placeBlock hitbox no-op (2 call sites) | 1 | high | engine-dev-3 |
+| 22 | Benchmark harness C1-C3 | 1 | high | engine-dev |
+| 28 | Agenda capstone | 1 | high | engine-dev-2 | acceptance soak = #58 now |
+| 32 | survival.js live-mob QA | 1 | high | engine-dev |
+| 49 | Bots spam chat with no-op narration | 1 | high | engine-dev-2 | **regression** against #9 |
+| 2,20,31,33,34 | reconnect/gotoFar/gen-counter/watchdog/frozen-chunk | 1 | medium | engine-dev-2 |
+| 10,12,13,14,15,26,27 | furnace/hazard/tillFarmland-bug/autoTorch/depot-bloat/Baritone-rest/disconnect | 1 | medium | engine-dev-3 |
+| 38,40,44 | BREAK_LOS hang / bench-bot damage / ASSERTS audit | 1 | medium-low | engine-dev |
+| 16,17,29 | cave-map skill / #17 light bug (external) / Kevin MCP visibility | 1 | low | engine-dev-3 / engine-dev |
+| 43,46,47 | deep-toolless / mineLane-ore / reason-code-plausibility | **1.5** | low | engine-dev-3 / engine-dev-2 |
+| 1,6,8 | alliance channel / FLEET-1 / CLAIM interop | **2** | low | — / engine-dev-2 |
+| 48 | CAVECREW chat spam (alliance half handled; robustness half theirs) | 2 | medium | engine-dev-2 (robustness half) |
+| 50 | CAVECREW org-merge proposal | *unlabeled — awaiting Felix's call, not decided here* | | |
 
 **Staleness rule**: any phase-1 issue with 2+ cycles of zero activity gets
-a direct owner ping.
-
-## Owner load
-
-engine-dev-2: 9 active (#28 top-priority, #46/#47 new/no-urgency). Shipped the full self-sufficiency
-spine this session: agenda v1-v7, telemetry E1-E5+fixes, queue-loop,
-goto-logging, RESTOCK produce-wiring (#37, closed).
-engine-dev-3: 9 active (#19 the only active priority-high; #43 explicitly
-deferred; #37's produce-side skill already shipped).
-engine-dev: 9 (curator lane — #38/#40/#44 all landed here this cycle).
-**Unassigned: #45** (food bootstrap paradox) — flagged to team-lead by
-engine-dev-2, needs a design owner.
+a direct owner ping — with 44 open issues this needs to actually run next
+cycle, not just exist as a rule.
 
 ## Notable this cycle
 
-- **#37 closed — acquire-by-producing is now proven, not just wired.** A
-  driverless bot on a depot-less world made 26 torches from nothing (mined
-  coal, chopped wood, crafted planks→sticks→torches) after its withdraw
-  attempt legitimately failed. Zero LLM involvement per cycle.
-- **The same verification immediately found the next floor**: food. Filed
-  as #45, unassigned, needs a design pass (not just wiring like torches
-  was) since `huntAnimals`' own kit gate requires food to hunt for food.
-- **#43 stays correctly deferred** despite adjacent tool-acquisition bug
-  fixes landing in the same commit wave — engine-dev-2 was explicit that
-  none of the shipped fixes build #43's deferred capability, and this
-  lane's tracking reflects that distinction rather than assuming progress.
+- **The roadmap arrived.** #51-64 is a structured plan toward the phase-1
+  acceptance soak (M0-M7), replacing ad-hoc "what's next" guessing with a
+  sequenced arc. #53 (detection layer) shipped same-day it was scoped.
+- **#57 is the real bottleneck**: engineering is ahead of the environment
+  right now — the shakeout run needs test bot 3106, which isn't up.
+- **CAVECREW moved orgs** (monkeorg) and proposed going further (shared
+  repo, per-crew branches) — a real organizational decision, flagged to
+  Felix rather than answered here. Also re-engaged fully: pact v2 accepted
+  and closed out, their chunk-regen ruling cross-referenced onto our #17/
+  #20, and a chat-volume courtesy ask sent their way for #48.
+- **#49 is a regression** against #9 (chat diet, closed) — worth checking
+  whether agenda.js's IDLE rung narration has its own path around
+  graychat's tiering.
 
 ## Alliance watch
 
-**CAVECREW re-engaged this cycle** after the silent stretch — answered all
-five outstanding items (a-e) on felcrew-mcp#1, closed their #2 (chunk
-regen: server-op ruled NO regen, both crews route around chunks
-(0,-1)/(0,0)/(-1,-1) as elevated-risk instead) and #4 (broken main, long
-fixed). Their #1 (claims registry) is a full accept, waiting on us to
-draft the claims.json schema — real work we own, currently queued behind
-the phase-1 push, communicated honestly rather than left silent.
-
-**Pact v2 RESOLVED**: Felix accepted the amendment (constrained last-resort
-unstick teleport — relog + process-restart both fail on a genuine
-full-wedge, own-base only, publicly logged when used), with an explicit
-framing: it's a last-resort safety net, not an unstuck strategy — the real
-goal is robust movement/recovery that almost never needs it, and how
-rarely it fires is treated as a quality signal on our own engine. Formal
-acceptance posted on `ZetOmega/cavecrew-mcp#3`, closed the loop on our own
-`felcrew-mcp#1`. This was the last open policy item on the reconnect
-thread; everything else is settled.
-
-Responded via GitHub with team-lead's explicit
-delegation this cycle (normally outbound diplomacy is
-team-lead/rollout-manager/kevin-driver only, per DRIVER_GUIDE.md); routine
-read-only watch resumes going forward unless asked again.
+CAVECREW fully re-engaged this cycle: pact v2 resolved and accepted,
+chunk-regen ruling in, org move to monkeorg, and a same-repo collaboration
+proposal now pending Felix's decision (#50). Routine read-only watch
+resumes; #50 is the one open thread needing a human call.
