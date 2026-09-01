@@ -58,6 +58,9 @@ const CONTROL_PORT = parseInt(args.port, 10);
 const MC_HOST = args.host || process.env.MC_HOST || '100.101.197.44';
 const MC_PORT = parseInt(args.mcport || process.env.MC_PORT || '25565', 10);
 const MC_VERSION = args.version || undefined; // let mineflayer auto-detect unless pinned
+// parseArgs consumes the NEXT token as a flag's value, so a valueless `--agenda` lands as
+// undefined — presence in the object is the correct test, not its value.
+const AGENDA = ('agenda' in args) || process.env.AGENDA === '1';
 const ROLE = args.role || null; // optional: 'lumberjack'|'miner'|'hunter'|'builder' — enables auto-injected role-templated idleguard on spawn
 
 if (!NAME || !CONTROL_PORT) {
@@ -230,7 +233,10 @@ async function applyPayloadStack(bot) {
   // subscribes to __danger's state changes — so skills -> dangerscan -> survival.
   // survival.js REPLACES panicguard.js (context-aware branches vs flee-home-only);
   // panicguard is no longer injected.
-  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js']) {
+  // farmskills.js is a skill PACK: it registers farmCycle/tillFarmland/harvestGrass into
+  // __skills via S.define, so it MUST come after skills.js (which creates __skills). A
+  // reconnect re-runs skills.js (resetting the registry) then farmskills.js (re-registering).
+  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js', 'farmskills.js']) {
     const r = await injectPayload(bot, f);
     report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
   }
@@ -240,6 +246,19 @@ async function applyPayloadStack(bot) {
     report['idleguard.js'] = r.ok ? `installed (role=${ROLE})` : `failed: ${r.reason}`;
   } else {
     report['idleguard.js'] = 'skipped (no --role given at spawn)';
+  }
+  // 5. agenda — the autonomous ladder. OPT-IN (--agenda) rather than default-on, deliberately:
+  // it SUBSUMES idleguard and starts tasks on its own, so switching it on fleet-wide before
+  // the phase-1 acceptance test has run would hand five driver-controlled bots a new brain
+  // at once. It yields to a driver's task correctly (the engine's task mutex makes S.start
+  // return `busy`, which the ladder treats as no-progress and stands down), but "correctly"
+  // is a claim the acceptance test should prove, not a claim to ship on. Flip the default
+  // once the soak passes.
+  if (AGENDA) {
+    const r = await injectPayload(bot, 'agenda.js');
+    report['agenda.js'] = r.ok ? 'installed' : `failed: ${r.reason}`;
+  } else {
+    report['agenda.js'] = 'skipped (pass --agenda to enable)';
   }
   log(`<payload-stack> ${JSON.stringify(report)}`);
   return report;
@@ -514,6 +533,7 @@ const server = http.createServer(async (req, res) => {
         survival: ver(globalThis.__survival),
         digguard: ver(globalThis.__digguard),
         toolguard: ver(globalThis.__toolguard),
+        agenda: ver(globalThis.__agenda),
         graychat: ver(globalThis.__graychat),
         idleguard: ver(globalThis.__idleguard),
         reachguard: ver(globalThis.__reachguard),
@@ -557,6 +577,14 @@ const server = http.createServer(async (req, res) => {
         food: connected && bot ? bot.food : null,
         dimension: connected && bot ? bot.game.dimension : null,
         task: currentTask,
+        agenda: (() => {
+          try {
+            const a = globalThis.__agenda;
+            if (!a) return null;
+            return { rung: a.owner ? a.owner.id : null, project: a.project ? a.project.skill : null,
+              blocked: a.blocked ? a.blocked.why : null, ticks: a.metrics.ticks, errors: a.metrics.errors };
+          } catch (_) { return null; }
+        })(),
         payloads,
         stalePayloads,
         movements,

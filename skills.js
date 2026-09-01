@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 19;
+const ENGINE_VERSION = 20;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1286,7 +1286,18 @@ async function craftToolChain(bot, want, cfg, steps) {
   const countPlanks = () => bot.inventory.items().filter((i) => /_planks$/.test(i.name)).reduce((a, i) => a + i.count, 0);
   const countLogs = () => bot.inventory.items().filter((i) => /_log$/.test(i.name)).reduce((a, i) => a + i.count, 0);
   const headPlanks = headMat === 'planks' ? 3 : 0;
-  const plankBill = () => headPlanks + (count('stick') >= 2 ? 0 : 2);
+  // A 3x3 tool recipe needs a crafting table, and if none is in reach we have to craft one —
+  // which costs 4 MORE planks. Found live by the agenda's TOOL rung: a bot holding 3 planks
+  // and 2 sticks could afford the pickaxe head OR the table but not both, gathered no wood
+  // because the bill said it had enough, and failed at the last step. Count the table.
+  const tableInReach = () => {
+    try {
+      if (bot.inventory.items().some((i) => i.name === 'crafting_table')) return true;
+      return Boolean(bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 }));
+    } catch (_) { return false; }
+  };
+  const tablePlanks = tableInReach() ? 0 : 4;
+  const plankBill = () => headPlanks + tablePlanks + (count('stick') >= 2 ? 0 : 2);
   const plankSupply = () => countPlanks() + countLogs() * 4;   // one log = four planks
 
   if (plankSupply() < plankBill()) {
@@ -1316,8 +1327,8 @@ async function craftToolChain(bot, want, cfg, steps) {
   }
   steps.push(`planks:${countPlanks()}`);
   if (count('stick') < 2) { await S.craftSafe(bot, 'stick', 1); steps.push(`sticks:${count('stick')}`); }
-  if (headMat === 'planks' && countPlanks() < 3) {
-    return { ok: false, reason: `short on planks (${countPlanks()}/3 after sticks) — need more logs` };
+  if (headMat === 'planks' && countPlanks() < 3 + tablePlanks) {
+    return { ok: false, reason: `short on planks (${countPlanks()}/${3 + tablePlanks} after sticks${tablePlanks ? ', incl. 4 for a crafting table' : ''}) — need more logs` };
   }
   // the tool itself is a 3x3 recipe: it needs a real crafting table in reach
   const tablePos = Array.isArray(cfg.craftingTable) ? cfg.craftingTable
