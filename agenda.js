@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 13, enabled: true,
+  version: 14, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -143,6 +143,25 @@ const FOODS = new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton
   'melon_slice', 'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp']);
 const FILLERS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite', 'granite']);
 const ROLE_TOOL = { miner: 'pickaxe', lumberjack: 'axe', hunter: 'sword', builder: null, farmer: 'hoe' };
+// What a bot DOES when nobody has given it a project. A good human player with no assignment
+// finds useful work — chops, mines, tidies — and never stands frozen; our IDLE rung was a null
+// idle that only swept for drops, so a bot with no explicit project simply stopped. Felix saw
+// five of them sitting at 2500+ ticks doing nothing. This is the "no idle" law and the
+// determinism codicil in the same place: the engine defaults to useful role work rather than
+// needing the LLM to hand-set every project.
+// Bounded counts on purpose — each run completes and repeats, so the ladder keeps its
+// interrupt points and nothing here becomes an un-preemptable marathon.
+const ROLE_WORK = {
+  miner: { skill: 'mineLane', args: { target: 'stone', count: 16, maxDist: 24 } },
+  lumberjack: { skill: 'chopTrees', args: { count: 2 } },
+  hunter: { skill: 'huntAnimals', args: { count: 2 } },
+  // farmCycle needs a registered field box, so it cannot be a zero-config default; harvesting
+  // grass for seeds is the honest farmer-with-no-field job and needs no configuration.
+  farmer: { skill: 'harvestGrass', args: {} },
+  // no build-project seam exists yet, so a builder gathers materials — defensible work rather
+  // than a speculative blueprint. Revisit when the roadmap places the build seam.
+  builder: { skill: 'chopTrees', args: { count: 2 } },
+};
 const ROLE_FLOOR = { miner: { torches: 16, food: 4, filler: 16 }, lumberjack: { torches: 8, food: 2 },
   hunter: { torches: 8, food: 4 }, builder: { torches: 8, food: 2 }, farmer: { food: 2 } };
 
@@ -572,8 +591,23 @@ const RUNGS = [
     clear: () => false,                                 // never clears; only preemption moves us
     act: async (s) => {
       if (oursRunning(s)) return 'running';
-      if (s.now - (A._idleAt || 0) < 30000) return 'cooldown';   // don't spam the sweep
+      if (s.now - (A._idleAt || 0) < 30000) return 'cooldown';   // don't spam
       A._idleAt = s.now;
+      // ROLE-DEFAULT WORK FIRST. The floor of the ladder is "do something useful", not "look
+      // busy": a bot with no project should behave like a player with no orders, which means
+      // working its trade rather than sweeping empty ground. The work skills collect their own
+      // drops as they go, so the sweep is the FALLBACK rather than the default.
+      const work = ROLE_WORK[s.role];
+      if (work) {
+        const rw = runSkill(work.skill, work.args, 'IDLE/work');
+        if (rw.ok) return 'working';
+        if (rw._transient) return 'busy';
+        // Refused — usually a kit gate. That is not a dead end: RESTOCK and TOOL sit ABOVE
+        // this rung and aim at exactly those floors (role floors apply when no project is
+        // set), so the next ticks provision the bot and this rung then succeeds. Falling
+        // through to the sweep keeps it doing something meanwhile rather than nothing.
+        note(`idle work ${work.skill} refused (${rw.error && rw.error.code}) — sweeping instead`);
+      }
       const ri = runSkill('collectDrops', { radius: 16, timeoutMs: 15000 }, 'IDLE');
       return ri.ok ? 'sweeping' : (ri._transient ? 'busy' : 'refused');
     } },
