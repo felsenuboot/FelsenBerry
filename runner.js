@@ -296,7 +296,10 @@ async function applyPayloadStack(bot) {
         dangerscan: ver(globalThis.__danger), survival: ver(globalThis.__survival),
         digguard: ver(globalThis.__digguard), toolguard: ver(globalThis.__toolguard),
         idleguard: ver(globalThis.__idleguard), graychat: ver(globalThis.__graychat),
-        reachguard: ver(globalThis.__reachguard), role: ROLE,
+        // producer, because acquire-by-producing runs through it and #41's whole point was
+        // that a run must be attributable to its WHOLE stack, not just skills. Omitting it
+        // would leave the one payload the self-sufficiency claim depends on unattributable.
+        reachguard: ver(globalThis.__reachguard), producer: ver(globalThis.__producer), role: ROLE,
       });
     }
   } catch (_) {}
