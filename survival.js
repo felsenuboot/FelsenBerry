@@ -312,22 +312,56 @@ const branchBreakLOS = async (t) => {
       const perAttempt = Math.max(600, Math.min(1500, searchDeadline - Date.now()));
       const r = await ownedGoto(new goals.GoalBlock(cell.x, cell.y, cell.z), perAttempt);
       if (r === 'arrived') {
-        return { branch: 'BREAK_LOS', how: 'corner', cell: [cell.x, cell.y, cell.z] };
+        // #65 (eng-2 + team-lead's lead): this used to return success the instant the
+        // goto landed, on the strength of a LOS check done against `tEye` -- the
+        // THREAT'S POSITION AT FUNCTION ENTRY, before any of the travel time above. A
+        // real skeleton repositions to hold a sightline; by the time a ~1s move lands,
+        // the prediction that got it picked can simply be wrong. BREAK_LOS's entire job
+        // is captured in its name, so "arrived at the cell that was predicted to work"
+        // is not the same claim as "line of sight is actually broken" -- re-read the
+        // world instead of trusting the plan. Same shape as the false-success-root
+        // doctrine elsewhere in this codebase: a verifier (here, the branch's own return
+        // value) that checks the manoeuvre happened instead of the outcome it exists to
+        // produce.
+        const liveT = entOf(t);
+        const stillBlocked = !liveT || !liveT.position
+          || losBlocked(bot.entity.position.offset(0, 1.62, 0), liveT.position.offset(0, 1.4, 0));
+        if (stillBlocked) {
+          return { branch: 'BREAK_LOS', how: 'corner', cell: [cell.x, cell.y, cell.z] };
+        }
+        break; // prediction was wrong and the bot has now moved -- the rest of `offs` is
+               // relative to a stale origin, so stop guessing and fall through to (b)/(c)
+               // against the bot's REAL current position instead of compounding the error.
       }
     }
   }
 
-  // (b) arrow shadow: a 1x2 filler pillar on the cell between bot and threat
+  // (b) arrow shadow: a 1x2 filler pillar on the cell between bot and threat. Re-reads
+  // the bot's position fresh rather than reusing `p`/`feet` from function entry -- #65:
+  // those are stale the moment phase (a) has moved the bot at all (including a failed
+  // attempt above), and building "between bot and threat" from the WRONG bot position
+  // places the wall somewhere that doesn't correspond to where the bot actually is.
+  const p2 = bot.entity.position;
+  const feet2 = new Vec3(Math.floor(p2.x), Math.floor(p2.y), Math.floor(p2.z));
   let placed = 0;
   if (ent && ent.position) {
-    const dx = ent.position.x - p.x, dz = ent.position.z - p.z;
+    const dx = ent.position.x - p2.x, dz = ent.position.z - p2.z;
     const step = Math.abs(dx) >= Math.abs(dz) ? [Math.sign(dx), 0] : [0, Math.sign(dz)];
     for (const dy of [0, 1]) {
-      const r = await placeAt(feet.offset(step[0], dy, step[1]));
+      const r = await placeAt(feet2.offset(step[0], dy, step[1]));
       if (r === 'placed') placed++;
     }
   }
   if (placed) say('Cobble wall up - that is my arrow shadow.');
+  // Same false-success risk as phase (a): blocks landing does not by itself mean the
+  // sightline is actually interrupted (wrong side, threat already stepped around it,
+  // or only one of the two cells took). Verify before reporting a bare "wall" success.
+  if (placed) {
+    const liveT2 = entOf(t);
+    const wallBlocksLOS = !liveT2 || !liveT2.position
+      || losBlocked(bot.entity.position.offset(0, 1.62, 0), liveT2.position.offset(0, 1.4, 0));
+    if (!wallBlocksLOS) pushLog('warn', 'break_los: arrow-shadow placed but LOS still open — threat likely repositioned');
+  }
 
   // (c) counter-attack — ONLY if the threat is ALREADY at melee reach right now. This used
   // to gate on nothing but HP + sword + `placed`, which let it chase a kiting skeleton
