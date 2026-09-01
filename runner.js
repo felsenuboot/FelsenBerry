@@ -330,6 +330,31 @@ function log(...parts) {
   console.log(`[${new Date().toISOString()}] [${NAME}]`, ...parts);
 }
 
+// ---------- intervention tripwire (M0/M1, felsenuboot/felcrew-mcp#52) ----------
+// tokensSpent=0 is a determinism proof: the engine has no LLM code path at all, so the
+// only way a "driverless" window sees any spend is a driver reaching in. That makes this
+// a TRIPWIRE, not a token meter — count every POST to a decision-making control-plane
+// endpoint (the ones below reach the bot; GET /state and friends are read-only and never
+// counted, structurally separate from this POST branch). A clean driverless window reads
+// interventions:0; any nonzero here IS the finding, whatever produced it.
+const INTERVENTION_ROUTES = new Set(['/chat', '/goto2', '/goto', '/eval', '/mine', '/follow', '/hunt', '/stop', '/autoeat', '/blueprint/load', '/blueprint/drop']);
+let interventionCount = 0;
+const interventionsRecent = []; // bounded ring, most-recent-last
+const INTERVENTIONS_MAX = 50;
+function noteIntervention(pathname, body) {
+  interventionCount++;
+  const preview = (() => {
+    try { return JSON.stringify(body).slice(0, 160); } catch (_) { return null; }
+  })();
+  const rec = { t: Date.now(), route: pathname, preview };
+  interventionsRecent.push(rec);
+  if (interventionsRecent.length > INTERVENTIONS_MAX) interventionsRecent.shift();
+  try {
+    const m = globalThis.__metrics;
+    if (m && m.emit) m.emit('intervention', { route: pathname, preview });
+  } catch (_) {}
+}
+
 // ---------- bot lifecycle with auto-reconnect ----------
 let bot = null;
 let connected = false;
@@ -655,6 +680,10 @@ const server = http.createServer(async (req, res) => {
         })(),
         payloads,
         stalePayloads,
+        // tripwire for the tokensSpent=0 determinism proof (#52) -- count since process
+        // start, not scoped to any window; a scorer filters `recent` by the window's own
+        // start/end timestamps. 0 for the process lifetime is the clean-run signature.
+        interventions: { count: interventionCount, recent: interventionsRecent },
         // 'load-after-spawn' means the plugin was attached too late and its executor is
         // null — the GOTCHA-0 failure, worth seeing in /state rather than as a run error.
         ash: (() => {
@@ -693,6 +722,8 @@ const server = http.createServer(async (req, res) => {
       if (!connected || !bot) {
         return send(res, 503, { ok: false, error: 'bot not connected' });
       }
+
+      if (INTERVENTION_ROUTES.has(url.pathname)) noteIntervention(url.pathname, body);
 
       if (url.pathname === '/chat') {
         if (typeof body.message !== 'string' || !body.message.length) {
