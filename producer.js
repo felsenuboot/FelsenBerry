@@ -82,39 +82,48 @@ async function digAt(bot, pos, force) {
   return { ok: true };
 }
 
-// mine ore/stone until `want` of `product` is in inventory or nothing reachable remains
-async function mineProduct(bot, oreNames, product, want, steps) {
+// mine ore/stone until `want` of `product` is in inventory or nothing reachable remains.
+// chk() is the cancellation hook (ctx.step when run as a skill) — it THROWS to stop cleanly.
+async function mineProduct(bot, oreNames, product, want, steps, chk) {
   const tr = await S.ensureTool(bot, 'pickaxe', {});
   steps.push('pick:' + tr.how);
   if (!tr.ok) return { ok: false, made: 0, how: 'mined', reason: 'no_pickaxe', steps };
+  if (bot.inventory.emptySlotCount() === 0) return { ok: false, made: 0, how: 'mined', reason: 'no_space', steps };
   const oreIds = idsOf(bot, oreNames);
   const start = inv(bot, product);
   const noun = product === 'coal' ? 'coal' : 'ore';
-  let scans = 0, stagnant = 0;
+  let scans = 0, stagnant = 0, spaceOut = false;
   while (inv(bot, product) - start < want && scans++ < 60) {
+    chk();
+    if (bot.inventory.emptySlotCount() === 0) { spaceOut = true; break; }
     const before = inv(bot, product);
     const floorY = Math.floor(bot.entity.position.y) - MAX_MINE_BELOW;
     const found = bot.findBlocks({ matching: oreIds, maxDistance: MINE_RADIUS, count: 8 }).filter((p) => !isProt(bot, p) && p.y >= floorY);
     if (!found.length) break;
     for (const p of found) {
+      chk();
       if (inv(bot, product) - start >= want) break;
+      if (bot.inventory.emptySlotCount() === 0) { spaceOut = true; break; }
       await digAt(bot, p, false);
     }
+    if (spaceOut) break;
     if (inv(bot, product) <= before) { if (++stagnant >= 2) break; } else stagnant = 0;
   }
   const made = inv(bot, product) - start;
-  return { ok: made > 0, made, how: 'mined', reason: made >= want ? undefined : (made > 0 ? 'partial' : 'no_' + noun + '_nearby'), steps };
+  const reason = made >= want ? undefined : (spaceOut ? 'no_space' : (made > 0 ? 'partial' : 'no_' + noun + '_nearby'));
+  return { ok: made > 0, made, how: 'mined', reason, steps };
 }
 
 // gather logs by hand (bootstrap: no axe yet is fine, logs drop bare-handed — the one
 // sanctioned force dig) until `wantLogs` are held or no reachable surface wood remains
-async function gatherLogs(bot, wantLogs, steps) {
+async function gatherLogs(bot, wantLogs, steps, chk) {
   if (invRe(bot, /_log$/) >= wantLogs) return true;
   const found = bot.findBlocks({ matching: idsOf(bot, LOG_NAMES), maxDistance: 48, count: 16 })
     .filter((p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW && !isProt(bot, p));
   if (found.length) {
     steps.push('gather:wood');
     for (const p of found) {
+      chk();
       if (invRe(bot, /_log$/) >= wantLogs) break;
       if (!await gotoT(bot, p.x, p.y, p.z, 2, 20000)) continue;
       const blk = bot.blockAt(p);
@@ -128,12 +137,13 @@ async function gatherLogs(bot, wantLogs, steps) {
 }
 
 // craft up to `wantPlanks` planks total (gather logs when the plank+log*4 supply can't cover it)
-async function ensurePlanks(bot, wantPlanks, steps) {
+async function ensurePlanks(bot, wantPlanks, steps, chk) {
   if (invRe(bot, /_planks$/) >= wantPlanks) return true;
   const needLogs = Math.ceil((wantPlanks - invRe(bot, /_planks$/)) / 4);
-  if (invRe(bot, /_log$/) < needLogs) await gatherLogs(bot, needLogs, steps);
+  if (invRe(bot, /_log$/) < needLogs) await gatherLogs(bot, needLogs, steps, chk);
   let guard = 0;
   while (guard++ < 24 && invRe(bot, /_planks$/) < wantPlanks) {
+    chk();
     const lg = bot.inventory.items().find((i) => /_log$/.test(i.name));
     if (!lg) break;
     const r = await S.craftSafe(bot, lg.name.replace(/_log$/, '_planks'), 1);
@@ -144,12 +154,13 @@ async function ensurePlanks(bot, wantPlanks, steps) {
 }
 
 // craft until `wantSticks` sticks are held (2 planks -> 4 sticks; gather+plank as needed)
-async function ensureSticks(bot, wantSticks, steps) {
+async function ensureSticks(bot, wantSticks, steps, chk) {
   if (inv(bot, 'stick') >= wantSticks) return true;
   const stickBatches = Math.ceil((wantSticks - inv(bot, 'stick')) / 4);
-  if (!await ensurePlanks(bot, stickBatches * 2, steps)) return inv(bot, 'stick') >= wantSticks;
+  if (!await ensurePlanks(bot, stickBatches * 2, steps, chk)) return inv(bot, 'stick') >= wantSticks;
   let guard = 0;
   while (guard++ < 24 && inv(bot, 'stick') < wantSticks) {
+    chk();
     const r = await S.craftSafe(bot, 'stick', 1);
     if (!r.made) break;
   }
@@ -162,21 +173,26 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
   const want = wantCount || 16;
   const steps = [];
   const R = String(resource);
+  // cancellation hook: when produce runs INSIDE the produce skill, opts.ctx.step() throws
+  // Cancelled the moment survival/POSTURE stops the task — so a long mine/chop yields the body
+  // at a step boundary instead of steering it while unowned. A bare method call passes no ctx
+  // and chk is a no-op. ctx.step also enforces the low-health guard as a fatal.
+  const chk = (opts && opts.ctx && typeof opts.ctx.step === 'function') ? () => opts.ctx.step() : () => {};
   try {
     // MINED consumables
-    if (R === 'cobblestone' || R === 'filler' || R === 'stone') return await mineProduct(bot, ['stone'], 'cobblestone', want, steps);
-    if (R === 'coal') return await mineProduct(bot, COAL_ORE, 'coal', want, steps);
+    if (R === 'cobblestone' || R === 'filler' || R === 'stone') return await mineProduct(bot, ['stone'], 'cobblestone', want, steps, chk);
+    if (R === 'coal') return await mineProduct(bot, COAL_ORE, 'coal', want, steps, chk);
 
     // CRAFTED wood chain
     if (R === 'oak_planks' || /_planks$/.test(R)) {
       const before = invRe(bot, /_planks$/);
-      const ok = await ensurePlanks(bot, before + want, steps);
+      const ok = await ensurePlanks(bot, before + want, steps, chk);
       const made = invRe(bot, /_planks$/) - before;
       return { ok: made > 0, made, how: made > 0 ? 'crafted' : null, reason: (ok || made >= want) ? undefined : (made > 0 ? 'partial' : 'no_wood'), steps };
     }
     if (R === 'stick') {
       const before = inv(bot, 'stick');
-      await ensureSticks(bot, before + want, steps);
+      await ensureSticks(bot, before + want, steps, chk);
       const made = inv(bot, 'stick') - before;
       return { ok: made > 0, made, how: made > 0 ? 'crafted' : null, reason: made >= want ? undefined : (made > 0 ? 'partial' : 'no_wood'), steps };
     }
@@ -186,15 +202,16 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
       const beforeT = inv(bot, 'torch');
       const batches = Math.ceil(want / 4);
       if (inv(bot, 'coal') < batches) {
-        await mineProduct(bot, COAL_ORE, 'coal', batches - inv(bot, 'coal'), steps);
-        if (inv(bot, 'coal') < 1) return { ok: false, made: 0, how: 'crafted', reason: 'no_coal_nearby', steps };
+        const cm = await mineProduct(bot, COAL_ORE, 'coal', batches - inv(bot, 'coal'), steps, chk);
+        if (inv(bot, 'coal') < 1) return { ok: false, made: 0, how: 'crafted', reason: cm.reason === 'no_space' ? 'no_space' : (cm.reason === 'no_pickaxe' ? 'no_pickaxe' : 'no_coal_nearby'), steps };
       }
       if (inv(bot, 'stick') < batches) {
-        await ensureSticks(bot, batches, steps);
+        await ensureSticks(bot, batches, steps, chk);
         if (inv(bot, 'stick') < 1) return { ok: false, made: 0, how: 'crafted', reason: 'no_wood', steps };
       }
       let guard = 0;
       while (guard++ < want + 4 && inv(bot, 'torch') - beforeT < want && inv(bot, 'coal') > 0 && inv(bot, 'stick') > 0) {
+        chk();
         const r = await S.craftSafe(bot, 'torch', 1);
         if (!r.made) break;
       }
@@ -204,18 +221,52 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
 
     return { ok: false, made: 0, how: null, reason: 'unproduceable', steps };
   } catch (e) {
-    // never throw — a produce failure is a stand-down signal, not a crash
+    // cancellation and fatal (low_health) are task-control signals, NOT produce failures —
+    // re-throw so the skill task cancels/aborts cleanly instead of reporting a swallowed 'error'.
+    if (e && (e.cancelled || e.fatal)) throw e;
+    // everything else: never throw — a produce failure is a stand-down signal, not a crash.
     return { ok: false, made: 0, how: null, reason: 'error', steps: [...steps, String(e.message || e).slice(0, 60)] };
   }
 };
 
+// ---- thin SKILL wrapper over the method (agenda RESTOCK calls runSkill('produce', {resource,count})) ----
+// engine-dev-2's contract, and the ACT_TIMEOUT reasoning inverts to require it: a blocking method
+// awaited inside an agenda act holds A.busy for the whole run, and a torch-from-scratch chain can
+// exceed the 180s cap — at which point the ladder force-releases busy and stands the rung down
+// WHILE the method keeps running unowned, two things steering the body (the /goto2 interference
+// class). A skill's act instead starts the task and returns immediately, reporting 'running' each
+// tick with no cap pressure. So the skill is the shape the agenda starts; the method stays the
+// implementation for calling from inside other skills where a ctx already exists. The skill also
+// gets the task mutex, telemetry (a task_start/end + an ASSERTS grade — produce is precisely the
+// thing that can 'finish' with made<count, a textbook yield), and clean preemption via ctx.step.
+S.define('produce', {
+  description: 'Acquire a consumable by MAKING it (mine/chop/craft) rather than withdrawing — the agenda RESTOCK produce-fallback. resource is an item name; result carries {ok, made, how, reason}.',
+  params: { resource: 'item name: torch | cobblestone | coal | stick | *_planks', count: 'how many (default 16)' },
+  tool: null,
+  validate: (a) => (a.resource && typeof a.resource === 'string') ? null : 'need resource (item name string)',
+  fn: async (ctx) => {
+    // pass ctx so the method's loops cancel at a step boundary. The result object — including
+    // ok:false + a typed reason on a partial/failure — becomes task.result and is NOT thrown, so
+    // a shortfall reads as an honest partial the ladder can grade, not a task error + stand-down.
+    return await S.produce(ctx.bot, ctx.args.resource, ctx.args.count || 16, { ctx });
+  },
+  doneMsg: (t) => {
+    const r = t.result || {};
+    return (r.made ? `Produced ${r.made} ${t.args.resource}${r.how ? ' (' + r.how + ')' : ''}` : `Produced 0 ${t.args.resource}`) + (r.reason ? ` — ${r.reason}` : '') + '.';
+  },
+});
+
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 1, restore() { try { delete S.produce; } catch (_) {} },
+  version: 2,
+  restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 1, boundAt: Date.now(), stale: false };
+REG.producer = { version: 2, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 1, method: '__skills.produce(bot, resource, count, opts)',
-  resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks'] };
+return { installed: true, version: 2,
+  method: '__skills.produce(bot, resource, count, opts)',
+  skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
+  resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks'],
+  reasons: ['no_pickaxe', 'no_coal_nearby', 'no_wood', 'no_space', 'partial', 'unproduceable'] };
