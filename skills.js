@@ -581,7 +581,7 @@ function makeCtx(bot, task) {
               throw e;
             }
             unsticks++;
-            await ctx._unstick();
+            await ctx._unstick(frozenMs > 6000 ? 'frozen' : 'no_progress');
             lastMove = Date.now(); lastProgress = Date.now();
           }
         }
@@ -594,9 +594,13 @@ function makeCtx(bot, task) {
 
     // Physics-wedge recovery: dig no-collision nuisance blocks overlapping the
     // bot's AABB (leaf_litter is the live-confirmed offender) and hop backwards.
-    async _unstick() {
-      pushLog('info', 'movement stalled — unsticking (clear the AABB + hop)');
-      try { const m = MET(); if (m && m.unstick) m.unstick('nuisance'); } catch (_) {}
+    // `why` is the CLASSIFICATION from the watchdog ('frozen' | 'no_progress'), passed to
+    // the ledger so the shakeout (#57) can rank the real distribution instead of counting
+    // undifferentiated wedges — which is precisely what the recovery ladder (#54) needs to
+    // be ordered by. Defaults kept for any caller that does not classify.
+    async _unstick(why = 'nuisance') {
+      pushLog('info', `movement stalled (${why}) — unsticking (clear the AABB + hop)`);
+      try { const m = MET(); if (m && m.unstick) m.unstick(why); } catch (_) {}
       const base = bot.entity.position;
       const cols = new Set();
       for (const ox of [-0.31, 0.31]) for (const oz of [-0.31, 0.31]) {
