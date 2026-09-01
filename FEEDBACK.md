@@ -355,7 +355,7 @@ the farm literally never sleeps. Uses existing tillFarmland request as a sub-ste
 
 ### 2026-09-01 team-lead (USER OBSERVATION) — task completion is invisible; idle-guard masks it
 type: bug
-status: open
+status: shipped(v15 + idleguard v7) — see the duplicate "user observation" entry near the bottom of this file for the verified fix; closes github felsenuboot/felcrew-mcp#7 (issue-manager sync, 2026-09-01, verified against skills.js:1047 TASK_DONE + idleguard.js:54 "previous task DONE", commit 90c11a9)
 what: User observed drivers not noticing their task finished — root cause: when a
 task completes, idle-guard takes over with its own work, so the bot LOOKS busy
 (moves, chats) and drivers watching movement/logs conclude the task is still
@@ -406,7 +406,7 @@ fix: lay the four SIDE cells at feet+2 first (each has the head-ring block direc
 
 ### 2026-09-01 team-lead (USER FEATURE) — chat diet: logs out of Minecraft chat
 type: feature-request
-status: open
+status: shipped(graychat v3 + graybridge Discord sink) — see the duplicate "THE CHAT DIET" entry near the bottom of this file for the verified fix; closes github felsenuboot/felcrew-mcp#9 (issue-manager sync, 2026-09-01, verified against graychat.js's four tiers, commit 90c11a9)
 what: User directive: routine LOG narration ("Heading to X", "Arrived", "Drop
 sweep done: 0", idle-guard chore lines) must STOP appearing in Minecraft chat —
 only INTERACTION (social messages to players/bots), PROTOCOL ledger lines, and
@@ -460,6 +460,7 @@ type: bug
 status: open
 what: BuddelBernd got completely stuck at (-11.063464664282362, 70, -2.3) mid-return-trip from the diamond run (8 diamonds banked in inventory, not at risk since server-side inventory persists). Symptoms: 'come'/goto fails with alternating "stuck: no movement despite an active path" and "path_GoalChanged"; bot.entity.position is BIT-FOR-BIT IDENTICAL across many seconds of raw `bot.setControlState('forward'/'jump', true)` calls — not just pathfinder failing to plan, the physics tick itself produces zero position delta, confirmed with jump (pure vertical, no obstruction — I'd already dug the ceiling clear) also producing zero y movement. onGround stays true, isCollidedHorizontally false, no effects/vehicle/nearby entities. Escalation attempted: (1) bot.quit()+auto-reconnect (worked ONCE earlier this session at a different stuck spot, documented in LEARNING_HANDOFF, but did NOT fix this occurrence — one hop succeeded then it re-froze at a nearby coord); (2) full process restart (./stop.sh + ./spawn.sh, ~20s gap for "server session cleanup") — bot reconnected with the EXACT SAME frozen position and is still stuck. Since a full process restart (brand new mineflayer Bot object, brand new TCP connection, brand new physics engine instance) reproduces the identical freeze at the identical coordinate, this cannot be a client-side bug — the SERVER's own entity/session state for this player is pinned at this position.
 fix: needs server-side investigation (this is beyond anything a driver or the mineflayer client stack can fix — no combination of relog/reconnect/process-restart touches server state). Possible causes worth checking server-side: a stuck/duplicate player session for BuddelBernd's UUID that the server thinks still owns movement authority (note: "duplicate_login" kicks were also observed on this bot during the same general timeframe, see the server-instability report — may be related, a session zombie holding the real movement channel while our reconnects get a read-only view), a chunk/region the server has stopped ticking, or an anti-cheat/movement-validation rule silently rejecting all packets from this session. Until fixed: bot is unable to leave (-11,70,-2) and the fleet's only miner is stranded ~150 blocks underground holding 8 diamonds. No client-side workaround found after extensive attempts (~10+ relog/hop cycles, manual bot.dig to clear obstructions, tried multiple target directions/distances).
+github: ZetOmega/cavecrew-mcp#2 (issue-manager sync, 2026-09-01 — filed cross-repo as an ops/chunk-regen request, since this reads as world/chunk state rather than an engine bug; groups with UngaBunga's suffocation death and the plaza lighting anomaly as one 3-chunk incident, chunks (0,-1)(0,0)(-1,-1))
 
 ### 2026-09-01 marcel-driver — surfaceExposed (v10 overhang fix) can also give a false negative
 type: quirk
@@ -494,6 +495,8 @@ what: Reported by marcel-driver against the v10 overhang fix: standing in the mi
 fix: SHIPPED. Light is now a hint and GEOMETRY is the authority. lightInfo() samples three points (feet, head, head+1) and takes the max; only when that still claims darkness does it settle the question by scanning the column for a real solid block (24 blocks, `boundingBox === 'block'`), returning true/false/null where null means "unloaded chunk, unknown" — never a guess. The scan runs ONLY in the disputed case, so the 4Hz cost is unchanged on the surface (skyLight > 0 short-circuits). The spawnable-dark danger bonus now also requires `surfaceExposed === false`, so a stale zero can no longer inflate the score. Status gains `skyViaColumn` so a driver can see which path answered.
 REPRODUCED AND VERIFIED live at (2.7,109,11.7) beside pond_1: raw head skyLight 0, light 0, zero solid blocks in the 20 above — v1 would have said surfaceExposed:false + 0.5 danger; v2 reports surfaceExposed:true, viaColumn:true, score 0.
 
+github: felsenuboot/felcrew-mcp#18 (issue-manager sync, 2026-09-01, closed)
+
 ### 2026-09-01 team-lead (from research/cavecrew-delta-2.md) — 3D-maxDistance fall-death + safeDescend zero-descent
 type: safety
 status: shipped(v14 + idleguard v6) — engine-dev-2 2026-09-01
@@ -504,7 +507,7 @@ fix: (1) default Δy gate at all three scan sites — skip targets more than ~5 
 
 ### 2026-09-01 team-lead (USER-CRITICAL) — right tool always; acquire before acting
 type: safety
-status: open
+status: picked-up(engine-dev-2) 2026-09-01
 what: User escalation: bots MUST use the correct tool for every job — and if the
 right tool is missing, ACQUIRE it first (depot withdrawal or craft chain), never
 proceed with fist/wrong-tier/wrong-type tools. Current coverage is partial
@@ -593,6 +596,7 @@ fix: Reuse the adapter's parsing; never trust name-only waypoint lookups.
 ### 2026-09-01 team-lead (user feature) — THE CHAT DIET + Discord sink
 type: feature-request
 status: shipped(graychat v3 + graybridge Discord sink) — engine-dev-2 2026-09-01
+github: felsenuboot/felcrew-mcp#9 (issue-manager sync, 2026-09-01, closed)
 what: User request — routine log narration should leave Minecraft chat entirely, and the LOG tier should feed a Discord activity feed rather than vanishing into files.
 fix: SHIPPED. graychat v3 sorts every bot.chat() by prefix: unprefixed = LOG (local log + Discord, NOT chat), "@" = INTERACTION (gray bridge chat, @ stripped), "!" = IMPORTANT (white chat, ! stripped), PROTOCOL regex and "/" unchanged. skills' ctx.say and idle-guard chatter became log-tier with zero skill changes, exactly as the design intended. graybridge gains POST /log {name,text}: buffers and flushes ONE combined markdown message per 5s (webhooks rate-limit ~30/min, so never one post per line), drop-oldest past 200 queued, 429 backoff, and the webhook URL read from bots/.discord (gitignored) with a ~5s mtime re-read so it can be dropped in without a restart. Until that file exists it runs in MOCK mode and logs the exact payload it would have posted.
 verified live: 4 separate POSTs flushed as a single batched message; on the test bot, 2 unprefixed lines went to the local log + bridge and NOT to chat, "@" reached gray chat, "!" reached white chat, counters matched exactly (sent 1 / logged 2 / passthrough 1).
@@ -600,5 +604,23 @@ verified live: 4 separate POSTs flushed as a single batched message; on the test
 ### 2026-09-01 team-lead (user observation) — task completion is invisible; idle-guard masks it
 type: bug
 status: shipped(v15 + idleguard v7) — engine-dev-2 2026-09-01
+github: felsenuboot/felcrew-mcp#7 (issue-manager sync, 2026-09-01, closed)
 what: Drivers kept waiting on tasks that had already ended, because idle-guard takes over the moment a task completes and the bot still LOOKS busy. The chat diet made this urgent rather than optional: an unprefixed completion message would now be log-tier and never reach chat at all.
 fix: SHIPPED. Completion emits a white in-game chat line via the "!" IMPORTANT tier plus a machine-greppable `TASK_DONE <name> <result>` log line; failures use the same tier (`!failed: <task> — <reason>`); idle-guard v7's takeover line opens with "previous task DONE" so movement after a task can't be mistaken for the task still running. Verified live: a collectDrops run produced importantTier +1 (white chat), logTier +1 (quiet narration), and the log line `TASK_DONE collectDrops {"picked":0,"unreachable":0}`.
+
+### 2026-09-01 research-synthesis — EVALUATION DOCTRINE adopted (EVALUATION.md + ALGO.md)
+type: feature-request
+status: open
+what: Four research tracks (literature, methodology, instrumentation, benchmarks)
+  synthesized into bots/EVALUATION.md — the binding eval doctrine: verifier-graded
+  16-value outcome enum (FSR/trust_gap, target 0), Tier-0 FEEDBACK-indexed fixture
+  suite FIRST, cluster-over-routes statistics (ABBA, A/A first, SPRT), the 4-tier
+  gate ladder with ROLLOUT BLOCKED semantics, telemetry.js JSONL ledger spec
+  (task_start BEFORE kit preflight; orphanedGoto companion fix mandatory), token
+  economy via transcript parsing (dedupe by message.id, never self-report), and
+  ALGO.md (seeded, bench-written, separate from SCOREBOARD.md).
+fix: engine-dev-2 owns the telemetry layer + metrics.mjs (EVALUATION.md §7 E1–E6);
+  curator owns bench facilities/harness/cadence + ALGO.md upkeep (C1–C5) and files
+  the 4 follow-up FEEDBACK entries listed there (__survival.drill hook, queue loop,
+  telemetry tracking entry, goto response logging). Every future shipped(vN) entry
+  gains a `test:` line naming its Tier-0 fixture, written by the OTHER engineer.
