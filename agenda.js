@@ -51,7 +51,7 @@ const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 5, enabled: true,
+  version: 6, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -299,30 +299,28 @@ const RUNGS = [
       return true;
     },
     act: async (s) => {
+      if (oursRunning(s)) return 'running';
       const c = activeClass(s);
       if (!c) return 'none';
+      // Run acquisition as a TASK, not an awaited method: a chain that gathers wood, crafts
+      // planks, places a table and crafts the tool can outrun the 180s act cap, and when it
+      // does the ladder force-releases while the acquisition keeps going unowned. As a task
+      // the act returns immediately, oursRunning() reports 'running' each tick, and stopping
+      // it is a clean step-boundary stop.
       // If we already hold a working tool and the gate wants a BACKUP, ask for a spare —
       // otherwise ensureTool answers "you have one" and the rung can never clear.
       const k = projectKit();
       const held = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
       const wantSpare = Boolean(k && k.picks && c === 'pickaxe' && held >= 1 && held < k.picks);
-      try {
-        const r = await globalThis.__skills.ensureTool(bot, c, wantSpare ? { spare: true } : {});
-        if (!r.ok) {
-          // genuine handback: the ladder cannot advance a tool-gated intent
-          A.blocked = { why: 'no_tool', cls: c, at: now(), steps: r.steps };
-          note(`tool_unavailable (${c}) — dropping to a rung that needs no tool`);
-          return 'blocked';
-        }
-        A.blocked = null;
-        // Success that did not move the needle is not progress: if the gate still wants more
-        // than we hold, say so and stand down rather than latch on a satisfied-looking rung.
-        if (wantSpare) {
-          const now2 = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
-          if (now2 <= held) { note(`spare ${c} not acquired (still ${now2}) — standing down`); return 'blocked'; }
-        }
-        return 'acquired:' + r.how;
-      } catch (e) { A.metrics.errors++; return 'error'; }
+      const r = runSkill('ensureTool', { tool: c, spare: wantSpare }, 'TOOL');
+      if (r.ok) return 'started';
+      if (r._transient) return 'busy';
+      // A genuine refusal is the handback point: the ladder cannot advance a tool-gated
+      // intent. clear() stays false, so the unproductive detector and stand-down handle the
+      // retry cadence rather than a bespoke loop here.
+      A.blocked = { why: 'no_tool', cls: c, at: now() };
+      note(`tool_unavailable (${c}) — dropping to a rung that needs no tool`);
+      return 'blocked';
     } },
 
   { id: 'RESTOCK', prio: 6,
@@ -642,11 +640,11 @@ try {
 } catch (e) {}
 
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.agenda = { version: 5, boundAt: now(), stale: false };
+REG.agenda = { version: 6, boundAt: now(), stale: false };
 bot.once('end', () => { try { REG.agenda.stale = true; A.enabled = false; if (A.timer) clearInterval(A.timer); } catch (e) {} });
 
 A.timer = setInterval(tick, TICK_MS);
 
-return { installed: true, version: 5, rungs: RUNGS.length, tickMs: TICK_MS,
+return { installed: true, version: 6, rungs: RUNGS.length, tickMs: TICK_MS,
   subsumedIdleguard: subsumed, role: A.role, home: HOME,
   api: ['setProject', 'step', 'sense', 'rung', 'snapshot', 'stop'] };

@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 26;
+const ENGINE_VERSION = 27;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -2776,6 +2776,32 @@ S.define('huntAnimals', {
     const haul = Object.entries(t.collected).map(([k, v]) => `${v} ${k}`).join(', ');
     return `Hunt over: ${t.result.killed}/${t.result.of} kills. Haul: ${haul || 'nothing'}`;
   },
+});
+
+// ---------- ensureTool (skill wrapper) ----------
+// S.ensureTool is a METHOD, which is the right shape for calling from inside another skill
+// where ctx already supplies step/cancellation. It is the WRONG shape for the agenda: a rung
+// act that awaits it holds the ladder's busy flag for the whole acquisition, and a chain that
+// has to gather wood, craft planks, place a table and craft the tool can outrun the agenda's
+// 180s act cap. When it does, the ladder force-releases and moves on while the acquisition
+// keeps running unowned — two things steering the bot with neither aware of the other.
+// As a SKILL it gets the task mutex, telemetry, and clean stop-at-a-step-boundary preemption,
+// and the agenda's act returns immediately.
+S.define('ensureTool', {
+  description: 'Acquire a tool of the given class: equip what is owned, else withdraw from the depot, else craft one. spare:true forces acquisition even when one is already held (backup-tool kit rules).',
+  params: { tool: "class name ('pickaxe'|'axe'|'shovel'|'sword'|'hoe') or a block name to resolve one from", spare: 'bool — acquire another even if one is held (default false)' },
+  validate: (a) => (a.tool ? null : 'need tool: a class name or a block name'),
+  fn: async (ctx) => {
+    const { bot, args } = ctx;
+    ctx.setPhase('acquiring', `Making sure I have a ${args.tool}${args.spare ? ' (spare)' : ''}.`);
+    const r = await S.ensureTool(bot, args.tool, { spare: Boolean(args.spare) });
+    if (!r.ok) {
+      throw fatal(r.error || 'acquisition_failed', `could not acquire ${args.tool}: ${(r.steps || []).join(' | ')}`,
+        'stock one in the depot, or give the bot materials to craft from');
+    }
+    return { tool: r.item, how: r.how, steps: r.steps || [] };
+  },
+  doneMsg: (t) => `Tool ready: ${t.result.tool} (${t.result.how}).`,
 });
 
 // ---------- restock ----------
