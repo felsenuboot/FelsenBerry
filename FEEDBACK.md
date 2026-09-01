@@ -944,7 +944,8 @@ github: felsenuboot/felcrew-mcp#44
 
 ### 2026-09-01 engine-dev-2 — RESTOCK now acquires by PRODUCING (#37 wired), and three defects the verification exposed
 type: bug + feature
-status: shipped(agenda v7 + runner auto-inject, df64b54) / shipped(skills v31, in-place tool craft) — live-verified on LokalLothar
+status: shipped(agenda v7 + runner auto-inject, df64b54) / shipped(skills v31, in-place tool craft) — live-verified on LokalLothar — #37 CLOSED
+github: felsenuboot/felcrew-mcp#37 (closed, issue-manager 2026-09-01); the food-bootstrap-paradox this entry surfaces (STILL OPEN below) filed as felsenuboot/felcrew-mcp#45
 what: RESTOCK could only WITHDRAW, so on a depot-less world the kit gate refused every departure forever (#37). It is now withdraw -> produce -> stand down, calling engine-dev-3's `produce` SKILL (not the method — a torch chain from scratch can outrun the 180s act cap, and a blocked act that outruns it gets force-released while the work keeps running unowned).
 Three things it had to get right, each a bug that would otherwise have shipped:
 - A restock that ERRORS carries no `result.short`. Reading only `result.short` meant that on a depot-less world — where restock throws `not_found` — the shortfall was never recorded and the produce fallback was literally unreachable. The ladder would have stood down forever on a need it was holding the fix for. The ASK is the shortfall when the task errors.
