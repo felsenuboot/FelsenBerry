@@ -3537,7 +3537,8 @@ S.define('safeDescend', {
     await ctx.collectDrops(8, 10000);
     return { startY, endY: Math.floor(bot.entity.position.y), steps, dug, torches, stoppedBecause };
   },
-  doneMsg: (t) => `Staircase done: y=${t.result.startY} -> y=${t.result.endY} in ${t.result.steps} steps (${t.result.stoppedBecause}).`,
+  doneMsg: (t) => (t.result && t.result.endY < t.result.startY   // #67: no net descent (base floor protected -> dig_failed, 0 steps) is a no-op — log-only
+    ? `Staircase done: y=${t.result.startY} -> y=${t.result.endY} in ${t.result.steps} steps (${t.result.stoppedBecause}).` : null),
 });
 
 // ---------- buildSchematic ----------

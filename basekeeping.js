@@ -203,8 +203,8 @@ S.define('spawnProof', {
   },
   doneMsg: (t) => {
     const r = t.result;
-    if (r && r.note === 'already lit') return `${r.anchor || 'Area'} already lit — no dark spots.`;
-    if (!r || !r.placed) return `No reachable dark spots to torch${r && r.remainingDark ? ` (${r.remainingDark} unreachable)` : ''}.`;
+    // #67: already-lit / no-reachable-dark placed nothing — a no-op, log-only, no chat.
+    if (!r || !r.placed) return null;
     return `Spawn-proofed ${r.anchor || 'the area'}: placed ${r.placed} torch${r.placed === 1 ? '' : 'es'}${r.remainingDark ? `, ${r.remainingDark} still dark (unreachable)` : ''}.`;
   },
 });

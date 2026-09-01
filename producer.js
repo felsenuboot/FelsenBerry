@@ -290,7 +290,8 @@ S.define('produce', {
   },
   doneMsg: (t) => {
     const r = t.result || {};
-    return (r.made ? `Produced ${r.made} ${t.args.resource}${r.how ? ' (' + r.how + ')' : ''}` : `Produced 0 ${t.args.resource}`) + (r.reason ? ` — ${r.reason}` : '') + '.';
+    if (!r.made) return null;   // #67: "Produced 0 X — no_coal_nearby" is a no-op — log-only, no chat
+    return `Produced ${r.made} ${t.args.resource}${r.how ? ' (' + r.how + ')' : ''}${r.reason ? ' — ' + r.reason : ''}.`;
   },
 });
 

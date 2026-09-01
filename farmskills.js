@@ -460,7 +460,7 @@ S.define('harvestGrass', {
     await ctx.collectDrops(radius, 15000, ['wheat_seeds', 'beetroot_seeds', 'short_grass', 'tall_grass']);
     return { cut };
   },
-  doneMsg: (t) => `Cut ${t.result.cut} grass.`,
+  doneMsg: (t) => (t.result && t.result.cut ? `Cut ${t.result.cut} grass.` : null),   // #67: "Cut 0 grass" is a no-op — log-only, no chat
 });
 
 // ---- registry + staleness bookkeeping (mirror the other payloads) ----
