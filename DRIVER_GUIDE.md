@@ -346,6 +346,15 @@ idleguard-reconnect and payload-staleness findings, one level further upstream �
 source rather than at runtime. When two engineers cross-verify each other's work, that
 means actually reading the other's diff, every time, not treating a green test run as
 sufficient.
+**Refinement, from a near-miss the same night**: a diff hunk truncated right above a
+variable's declaration made a `survival.js` addition LOOK like it referenced something
+undefined — a plausible safety-critical bug, from the diff alone. Reading the actual
+FILE showed the declaration was right there, one line above what the hunk happened to
+include; the code was correct. So: **read the diff to find what changed; read the file
+to judge whether it's correct.** The diff tells you where to look, not what's true — a
+diff view can truncate context in the caller's favor OR against it, and only the file
+settles which. The engineer who almost filed a false bug here checked the file before
+flagging, which is exactly the discipline this convention asks for either direction.
 
 **A payload timer MAY re-arm a subscription or re-assert a config/flag value; it MUST
 NEVER re-assign a bot method it also wraps.** The precise form of "no self-healing guard
