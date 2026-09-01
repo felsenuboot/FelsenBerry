@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 46;
+const ENGINE_VERSION = 47;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1133,10 +1133,22 @@ function makeCtx(bot, task) {
     async withdrawFromChest(chestPos, needs) {
       const wanted = Object.entries(needs || {}).filter(([, n]) => n > 0);
       if (!wanted.length) return { got: {}, short: {} };
-      const cp = new Vec3(Math.floor(chestPos.x), Math.floor(chestPos.y), Math.floor(chestPos.z));
+      let cp = new Vec3(Math.floor(chestPos.x), Math.floor(chestPos.y), Math.floor(chestPos.z));
       try { await ctx.gotoNear(cp, 2, 25000); }
       catch (_) { await ctx.retry('walk to supply chest', () => ctx.gotoSee(cp, 25000), 2); }
-      const chest = bot.blockAt(cp);
+      let chest = bot.blockAt(cp);
+      if (!chest || !CONTAINERS.has(chest.name)) {
+        // stale coord — Felix may have nudged the depot chest. Re-find nearby (deterministic
+        // scan), walk to it, and use that instead of throwing not_found. (#76)
+        const moved = resolveContainer(bot, cp, { types: CONTAINERS, reach: true });
+        if (moved && !moved.equals(cp)) {
+          ctx.log(`depot chest at ${cp.x},${cp.y},${cp.z} is stale — re-resolved to ${moved.x},${moved.y},${moved.z}`);
+          cp = moved;
+          try { await ctx.gotoNear(cp, 2, 25000); }
+          catch (_) { await ctx.retry('walk to moved supply chest', () => ctx.gotoSee(cp, 25000), 2); }
+          chest = bot.blockAt(cp);
+        }
+      }
       if (!chest || !CONTAINERS.has(chest.name)) {
         throw fatal('not_found', `no chest at ${cp.x},${cp.y},${cp.z} (found ${chest ? chest.name : 'unloaded'})`,
           'check the chest coordinates (BASE.md / DEPOT.md) and restart');
@@ -1634,17 +1646,112 @@ function readCfg() {
   } catch (_) { return {}; }
 }
 
+// ---------- moved-infra self-heal (#76 resolveContainer) ----------
+// Felix relocates base chests/tables/furnaces in-world; the coords registered in
+// protected.json (depot{}) and BASE.md then point at air or the wrong block. Crafting
+// tables/furnaces already self-heal via findBlock radius scans, but every depot-chest access
+// is an exact-cell bot.blockAt(coord) with no nearby search — so a nudged chest throws
+// not_found, ensureTool burns fresh wood (depot:none), and the deposit/restock rungs churn.
+// resolveContainer re-finds the nearest MATCHING container near a stale coord. Deterministic:
+// one bounded findBlocks + taxicab filter, no LLM on any path. The HIT path (the coord still
+// holds a matching block — the common case) costs zero scan: only the pre-existing blockAt.
+//
+// coord: [x,y,z] | Vec3 (the stale/registered coord). opts:
+//   types: Set of acceptable block names (default CONTAINERS)
+//   tol:   taxicab radius within which a moved block is accepted as "the same" (default 6).
+//          Small on purpose — refuses to auto-reassign a chest that moved across the base.
+//   reach: prefer a candidate the WORK planner can actually path to (checker == executor)
+// Returns a Vec3 (resolved cell) or null (MISSING — genuinely gone / chunk not loaded).
+const _infraCache = new Map();   // stale-key -> {pos:Vec3, at:ms}
+const _infraLogged = new Set();  // stale-key already reported (one suggested-update line per move)
+let _infraReachMoves = null;     // cached WORK Movements for the reach probe (rebuilt lazily)
+function _reachOf(bot, p) {
+  try {
+    if (!_infraReachMoves) {
+      _infraReachMoves = (G.__movementProfiles && typeof G.__movementProfiles.WORK === 'function')
+        ? G.__movementProfiles.WORK(bot) : bot.pathfinder.movements;
+    }
+    return bot.pathfinder.getPathTo(_infraReachMoves, new goals.GoalNear(p.x, p.y, p.z, 2), 2000).status === 'success';
+  } catch (_) { return false; }
+}
+function resolveContainer(bot, coord, opts = {}) {
+  if (!coord) return null;
+  const types = opts.types || CONTAINERS;
+  // Base-radius rescan (supervisor directive): Felix relocates the whole base cluster, not
+  // just a 1-block nudge, so tol is the tight base cluster (taxicab 8), NOT #76's anti-nudge
+  // 4. Beyond it we refuse (log !infra_ambiguous) rather than reassign onto a stranger's
+  // chest — CAVECREW's camp is ~60 blocks away, far outside any tol we use here.
+  const tol = opts.tol == null ? 8 : opts.tol;
+  const c = Array.isArray(coord) ? new Vec3(coord[0], coord[1], coord[2])
+    : new Vec3(Math.floor(coord.x), Math.floor(coord.y), Math.floor(coord.z));
+  // 1. HIT: the registered cell still holds a matching block — zero scan.
+  const at = bot.blockAt(c);
+  if (at && types.has(at.name)) return c;
+  const key = `${c.x},${c.y},${c.z}`;
+  // in-memory cache of a prior resolution (self-heal for the session; #77 write-back deferred)
+  const cached = _infraCache.get(key);
+  if (cached && Date.now() - cached.at < 30000) {
+    const cb = bot.blockAt(cached.pos);
+    if (cb && types.has(cb.name)) return cached.pos;
+    _infraCache.delete(key);
+  }
+  // 2. MOVED: bounded scan for the nearest matching block within tol (needs the chunk loaded).
+  let ids;
+  try { ids = [...types].map((n) => (bot.registry.blocksByName[n] || {}).id).filter((v) => v != null); }
+  catch (_) { return null; }
+  if (!ids.length) return null;
+  let found = [];
+  try { found = bot.findBlocks({ point: c, matching: ids, maxDistance: Math.max(tol + 2, 4), count: 32 }); }
+  catch (_) { return null; }
+  const taxi = (p) => Math.abs(p.x - c.x) + Math.abs(p.y - c.y) + Math.abs(p.z - c.z);
+  const all = found.map((p) => (p instanceof Vec3 ? p : new Vec3(p.x, p.y, p.z))).sort((a, b) => taxi(a) - taxi(b));
+  const cands = all.filter((p) => taxi(p) <= tol);
+  if (!cands.length) {
+    // MISSING or AMBIGUOUS: a matching block exists but only beyond tol — refuse to guess
+    // (it may be a stranger's / different-category chest). Caller keeps its own fallbacks.
+    if (all.length && !_infraLogged.has(key)) {
+      _infraLogged.add(key);
+      const n = all[0];
+      pushLog('warn', `[infra] !infra_ambiguous ${key}: nearest match ${n.x},${n.y},${n.z} is ${taxi(n)}b away (>${tol}) — not auto-reassigned; update protected.json/BASE.md.`);
+    }
+    return null;
+  }
+  // Prefer a candidate the executor can actually reach, so the checker matches the executor
+  // (WORK-profile getPathTo, exactly as ctx.reachable). Fail OPEN to nearest if no probe.
+  let pos = cands[0];
+  if (opts.reach && cands.length > 1) {
+    const ok = cands.find((p) => _reachOf(bot, p));
+    if (ok) pos = ok;
+  }
+  _infraCache.set(key, { pos, at: Date.now() });
+  if (!_infraLogged.has(key)) {
+    _infraLogged.add(key);
+    pushLog('warn', `[infra] container registered at ${key} is stale; re-resolved to ${pos.x},${pos.y},${pos.z} `
+      + `(moved <=${tol}b). Self-healed in-memory for this session — update protected.json/BASE.md to persist (#77).`);
+  }
+  return pos;
+}
+
 async function ctxlessWithdrawTool(bot, chestPos, need) {
-  const b = bot.blockAt(chestPos);
+  let cp = chestPos;
+  const b = bot.blockAt(cp);
   if (!b || !CONTAINERS.has(b.name)) {
-    if (!await gotoT(bot, chestPos.x, chestPos.y, chestPos.z, 2, 25000)) return null;
+    // the registered depot coord may be stale (Felix moved the chest) — re-find nearby first
+    const moved = resolveContainer(bot, cp, { types: CONTAINERS });
+    if (moved) cp = moved;
+    if (!await gotoT(bot, cp.x, cp.y, cp.z, 2, 25000)) return null;
+    // arriving loads the chunk — resolve once more in case the target read as air until then
+    if (!CONTAINERS.has((bot.blockAt(cp) || {}).name)) {
+      const m2 = resolveContainer(bot, cp, { types: CONTAINERS });
+      if (m2) cp = m2;
+    }
   }
-  const blk = bot.blockAt(chestPos);
+  const blk = bot.blockAt(cp);
   if (!blk || !CONTAINERS.has(blk.name)) return null;
-  if (chestPos.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.6, 0)) > 4.5) {
-    if (!await gotoT(bot, chestPos.x, chestPos.y, chestPos.z, 2, 25000)) return null;
+  if (cp.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.6, 0)) > 4.5) {
+    if (!await gotoT(bot, cp.x, cp.y, cp.z, 2, 25000)) return null;
   }
-  const win = await withTimeout(bot.openContainer(bot.blockAt(chestPos)), 8000, 'chest_open_timeout');
+  const win = await withTimeout(bot.openContainer(bot.blockAt(cp)), 8000, 'chest_open_timeout');
   try {
     const hit = win.containerItems()
       .filter((i) => satisfiesNeed(i.name, need))
@@ -1808,8 +1915,13 @@ async function craftToolChain(bot, want, cfg, steps) {
     table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
   }
   if (!table && tablePos) {
+    // the registered table coord may be stale (Felix moved the base cluster) — re-find the
+    // nearest real crafting table near it and travel there, before falling back to placing
+    // our own. Covers a table moved past findBlock's r6 (the >6m base-radius case). (#76)
+    const moved = resolveContainer(bot, tablePos, { types: new Set(['crafting_table']), reach: true });
+    const dest = moved || new Vec3(tablePos[0], tablePos[1], tablePos[2]);
     try {
-      await gotoT(bot, tablePos[0], tablePos[1], tablePos[2], 2, 25000);
+      await gotoT(bot, dest.x, dest.y, dest.z, 2, 25000);
       table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
     } catch (_) {}
   }
@@ -1864,8 +1976,29 @@ S.craftSafe = async function (bot, itemName, times = 1, opts = {}) {
   const countOf = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
 
   let table = null;
-  if (opts.table) table = bot.blockAt(new Vec3(opts.table.x, opts.table.y, opts.table.z));
-  else {
+  if (opts.table) {
+    const tp = new Vec3(opts.table.x, opts.table.y, opts.table.z);
+    table = bot.blockAt(tp);
+    // If the caller's table coord is stale (moved base table), re-find the nearest one. (#76)
+    if (!table || table.name !== 'crafting_table') {
+      const moved = resolveContainer(bot, tp, { types: new Set(['crafting_table']), reach: true });
+      if (moved) table = bot.blockAt(moved);
+    }
+    // CRITICAL: bot.craft fires bot.activateBlock(table) WITHOUT awaiting it
+    // (mineflayer craft.js:39). When the table is out of survival reach — e.g. a moved base
+    // table that findBlock(r6) still "found" at ~5.8m — the server drops the packet, reachguard
+    // rejects it as an UNHANDLED reach_violation, and `windowOpen` never fires so the craft
+    // yields nothing (the observed depot/table churn). So APPROACH the table until it is within
+    // the 4.5m block-interact reach before handing it to bot.craft.
+    if (table) {
+      const eye = () => bot.entity.position.offset(0, 1.6, 0);
+      if (table.position.offset(0.5, 0.5, 0.5).distanceTo(eye()) > 4.0) {
+        try { await gotoT(bot, table.position.x, table.position.y, table.position.z, 2, 15000); } catch (_) {}
+        const re = bot.blockAt(table.position);
+        if (re && re.name === 'crafting_table') table = re;
+      }
+    }
+  } else {
     const t = bot.registry.blocksByName.crafting_table;
     if (t) { const p = bot.findBlock({ matching: t.id, maxDistance: 4 }); if (p) table = p; }
   }
@@ -3499,7 +3632,14 @@ S.define('depositToChest', {
     const { bot, args } = ctx;
     let chest = null;
     if (args.pos) {
-      chest = bot.blockAt(new Vec3(args.pos.x, args.pos.y, args.pos.z));
+      const want = new Vec3(args.pos.x, args.pos.y, args.pos.z);
+      chest = bot.blockAt(want);
+      if (!chest || !CONTAINERS.has(chest.name)) {
+        // stale coord (moved depot chest) — re-find the nearest chest near the registered
+        // spot before refusing, so a nudged chest doesn't loop the DEPOSIT rung. (#76)
+        const moved = resolveContainer(bot, want, { types: CONTAINERS, reach: true });
+        if (moved) { chest = bot.blockAt(moved); if (chest) ctx.log(`deposit chest re-resolved to ${moved.x},${moved.y},${moved.z}`); }
+      }
       if (!chest || !CONTAINERS.has(chest.name)) {
         throw fatal('not_found', `no chest at ${args.pos.x},${args.pos.y},${args.pos.z} (found ${chest ? chest.name : 'unloaded'})`, 'check the coordinates (DEPOT.md) and restart');
       }
@@ -3987,7 +4127,9 @@ S.define('stripLog', {
   doneMsg: (t) => `Stripped ${t.result.stripped} log${t.result.stripped === 1 ? '' : 's'}${t.result.skipped ? ` (${t.result.skipped} skipped)` : ''}.`,
 });
 
+S.resolveContainer = (bot, coord, opts) => resolveContainer(bot, coord, opts);
 G.__skills = S;
+G.__infra = { resolveContainer, cache: _infraCache, CONTAINERS };
 return {
   ok: true, installed: `__skills v${ENGINE_VERSION}`, skills: Object.keys(S.registry),
   features: ['queue', 'fallback', 'blueprints'],
