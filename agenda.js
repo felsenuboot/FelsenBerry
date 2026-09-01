@@ -51,7 +51,7 @@ const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 4, enabled: true,
+  version: 5, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -244,7 +244,12 @@ const RUNGS = [
       return 'hold';
     } },
 
-  { id: 'EAT_CRITICAL', prio: 2,
+  // preemptNow: skip PREEMPT_DEBOUNCE when taking over a running task. The debounce exists
+  // to absorb SENSOR NOISE, and food is not a noisy signal — it is an integer that changes
+  // slowly and monotonically while starving. Waiting ~4s to start eating buys nothing and
+  // the rung latches to food>=19 anyway, so it cannot thrash. (engine-dev-3 flagged this as
+  // a judgement call; this is the judgement.)
+  { id: 'EAT_CRITICAL', prio: 2, preemptNow: true,
     fire: (s) => s.food <= 6 && s.foodCount > 0,
     clear: (s) => s.food >= 19,
     act: async () => { await eatInline(); return 'ate'; } },
@@ -555,7 +560,7 @@ const tick = () => {
   if (target !== owner) {
     // a higher rung taking over a RUNNING lower task: debounce non-safety preemption so
     // sensor noise cannot chop a task in half, then stop cleanly at a step boundary
-    if (owner && oursRunning(s) && target.prio < owner.prio && !target.safety) {
+    if (owner && oursRunning(s) && target.prio < owner.prio && !target.safety && !target.preemptNow) {
       A._preemptTicks = (A._preemptTicks || 0) + 1;
       if (A._preemptTicks < PREEMPT_DEBOUNCE) return;
       try { globalThis.__skills.stop('agenda:' + target.id); } catch (e) {}
@@ -574,7 +579,13 @@ const tick = () => {
   }
 
   A.busy = true; A.busySince = s.now;
-  const acted = Promise.resolve(target.act(s));
+  // Promise.resolve().then(...) rather than Promise.resolve(target.act(s)): the latter
+  // CALLS act synchronously, so a non-async act that threw before returning a promise would
+  // escape tick() entirely and leave A.busy stuck true — the frozen-ladder shape, recovered
+  // only by the busySince force-release ~210s later. Every act is async today, so this is
+  // latent rather than live; deferring the call turns any future sync throw into a rejection
+  // the existing .catch handles on the spot. Found by engine-dev-3's arbitration review.
+  const acted = Promise.resolve().then(() => target.act(s));
   Promise.race([acted, new Promise((res) => setTimeout(() => res('act_timeout'), ACT_TIMEOUT_MS))])
     .then((r) => {
       if (r && r !== 'running' && r !== 'cooldown' && r !== 'hold' && r !== 'busy') A.lastAction = { rung: target.id, r, at: now() };
@@ -631,11 +642,11 @@ try {
 } catch (e) {}
 
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.agenda = { version: 4, boundAt: now(), stale: false };
+REG.agenda = { version: 5, boundAt: now(), stale: false };
 bot.once('end', () => { try { REG.agenda.stale = true; A.enabled = false; if (A.timer) clearInterval(A.timer); } catch (e) {} });
 
 A.timer = setInterval(tick, TICK_MS);
 
-return { installed: true, version: 4, rungs: RUNGS.length, tickMs: TICK_MS,
+return { installed: true, version: 5, rungs: RUNGS.length, tickMs: TICK_MS,
   subsumedIdleguard: subsumed, role: A.role, home: HOME,
   api: ['setProject', 'step', 'sense', 'rung', 'snapshot', 'stop'] };
