@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 38;
+const ENGINE_VERSION = 39;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -138,13 +138,17 @@ const KIT_TIERS = {
   // so the surface `excursion` tier does not ask for them. The spare pickaxe stays: these
   // ADD a recovery path, they do not buy out a safety requirement.
   //
-  // 8 sticks, not 2, because sticks turn out to be the ONLY scarce input to torch production
-  // at depth — produce mines its own coal, but a stick needs wood, and there is none down
-  // there. The arithmetic is cheap enough to make the question uninteresting: 1 log is 4
-  // planks is 8 sticks is 32 torches, on top of the 2 a tool re-craft costs. Comfortable
-  // beats marginal over a multi-hour run, and RESTOCK produces them, so the floor self-heals.
-  underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16, sticks: 8, table: 1 },
-  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 8, table: 1, armor: true, shield: true, water: true },
+  // 16 sticks, because sticks are the ONLY scarce input to torch production at depth —
+  // produce mines its own coal, but a stick needs wood and there is none down there. The
+  // whole point is that a bounded deep-mine is self-sufficient from a CARRIED buffer rather
+  // than surface trips: a bot that walks up for wood mid-project is a bot that stops mining,
+  // which is precisely how the first sustained run rotted (y51 -> y106, chasing trees,
+  // never returning). 16 sticks is 64 torches, and the buffered restock target of 24 is 96,
+  // on top of the 2 a tool re-craft costs. It costs 8 planks — two logs — to carry, gathered
+  // once at the surface where wood is abundant. Since v38 the tool tier is stone-first, so
+  // re-crafts spend cobblestone rather than competing for this.
+  underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16, sticks: 16, table: 1 },
+  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 16, table: 1, armor: true, shield: true, water: true },
 };
 const TOOL_LOW_PCT = 20; // preflight durability gate (status warns at 15% mid-task)
 // findBlocks' maxDistance is a 3D SPHERE, so an unconstrained scan happily selects ore
@@ -1250,8 +1254,11 @@ function cheapestSatisfying(need) {
 // is, nothing changes and the old behaviour stands. Only wooden and stone are bootstrappable
 // (craftToolChain's own constraint), and the tiers stay in cheap-first order so a bot that
 // can afford both still spends the cheaper material.
-function payableTier(bot, need) {
-  const count = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+// Pure form: decides from an ITEM LIST, so the choice can be replayed against a synthetic
+// inventory instead of whatever the bot happens to be holding. This bug cost a soak run, and
+// a rule that cannot be tested without staging a live bot will not stay tested.
+function tierFrom(items, need, tableInReach) {
+  const count = (n) => items.filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
   // Planks of DIFFERENT WOODS do not combine into one tool head. Summing them across types
   // is how the soak deadlocked: a bot holding oak_planks:1 + acacia_planks:2 scored a plank
   // stock of 3, was told a wooden pickaxe was affordable, crafted ZERO, and never fell
@@ -1260,18 +1267,13 @@ function payableTier(bot, need) {
   // actually consume. Logs are counted per-species for the same reason.
   // (Found by engine-dev-3, from the run's terminal inventory.)
   const bySpecies = {};
-  for (const it of bot.inventory.items()) {
+  for (const it of items) {
     const p = /^(.*)_planks$/.exec(it.name);
     if (p) { bySpecies[p[1]] = (bySpecies[p[1]] || 0) + it.count; continue; }
     const l = /^(.*)_log$/.exec(it.name);
     if (l) bySpecies[l[1]] = (bySpecies[l[1]] || 0) + it.count * 4;
   }
   const plankStock = Object.values(bySpecies).reduce((m, n) => Math.max(m, n), 0);
-  let tableInReach = false;
-  try {
-    tableInReach = bot.inventory.items().some((i) => i.name === 'crafting_table')
-      || Boolean(bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 }));
-  } catch (_) {}
   // a 3x3 tool recipe needs a table; without one in reach it costs 4 more planks to make
   const tableCost = tableInReach ? 0 : 4;
   const stickCost = count('stick') >= 2 ? 0 : 2;          // 2 planks -> 4 sticks
@@ -1292,6 +1294,19 @@ function payableTier(bot, need) {
   }
   return affordable[0] || null;
 }
+function payableTier(bot, need) {
+  let inReach = false;
+  try {
+    inReach = bot.inventory.items().some((i) => i.name === 'crafting_table')
+      || Boolean(bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 }));
+  } catch (_) {}
+  return tierFrom(bot.inventory.items(), need, inReach);
+}
+// Test hook, mirroring the agenda's injectable-snapshot rule: every input the decision reads
+// comes in as an argument, so a fixture can hand it a synthetic inventory. Pure, no side
+// effects. `items` are {name, count} objects; `need` is {cls} or a spec string.
+S.tierFor = (need, items, tableInReach) =>
+  tierFrom(items || [], needSpec(S._lastBot, need) || { cls: String(need), required: null }, Boolean(tableInReach));
 // Every bootstrappable tier this bot could pay for right now, most durable first — so a
 // craft that yields nothing can fall through to the next one instead of giving up. Same
 // deadlock: the answer was in the bag the whole time, one tier down the list.
