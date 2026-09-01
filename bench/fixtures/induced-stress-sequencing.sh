@@ -67,9 +67,22 @@ pushLogT0=$(date +%s)
 # panic_recovered line -- two independent signals (the ladder's OWN sequencing, and
 # survival.js's REAL reflex firing underneath it), same two-witness pattern used
 # throughout EVALUATION.md sect 9.
+#
+# #65 (found LIVE, the hard way): the original exit condition was
+# `breakLosSeen && owner!=null && i>10` -- it fired the instant the FIRST panic_recovered
+# landed, ~12s in, no matter what happened after. Both live #65 trials reported exactly
+# "12s elapsed" and PASSED -- and trial 2's own telemetry ledger showed the bot took a
+# SECOND hit, dropped from 6 HP to 0, and respawned 15s AFTER the loop had already broken
+# and stopped watching. A verifier that stops the instant the thing it's grading first
+# succeeds, and never checks again, is worth nothing against a death that happens right
+# after -- exactly EVALUATION.md's "false-success root" doctrine, just found in a fixture
+# rather than the engine. Now it only exits once the skeleton is confirmed gone (not just
+# "a panic recovered once") AND that holds for 2 consecutive samples (4s) with no further
+# HP drop -- both witnesses, sustained, not a single snapshot.
 RUNG_SEQ=()
 breakLosSeen="false"
 hpMin="20"
+stableChecks=0
 i=0
 while [[ $i -lt $SEQ_TIMEOUT ]]; do
   snap=$(eval_js "const a=__agenda.snapshot(); return {owner:a.owner, blocked:a.blocked};")
@@ -84,6 +97,7 @@ while [[ $i -lt $SEQ_TIMEOUT ]]; do
   if [[ "$(jget "$recent" '.result')" == *"panic_recovered branch=BREAK_LOS"* ]]; then
     breakLosSeen="true"
   fi
+  hpPrev="$hpMin"
   hpNow=$(eval_js "return bot.health;")
   hpNowVal=$(jget "$hpNow" '.result')
   if [[ "$hpNowVal" != "null" ]]; then
@@ -94,7 +108,16 @@ while [[ $i -lt $SEQ_TIMEOUT ]]; do
       fail "bot died during the induced encounter -- criterion-1 AND criterion-3 both FAIL, this is the real finding"
     fi
   fi
-  [[ "$breakLosSeen" == "true" && "$owner" != "null" ]] && [[ $i -gt 10 ]] && break
+  skelAlive=$(eval_js "return Object.values(bot.entities).some(e=>e.name==='skeleton' && e.position && Math.hypot(e.position.x-($BX),e.position.z-($BZ))<16);")
+  skelAliveVal=$(jget "$skelAlive" '.result')
+  hpDropped="false"
+  if [[ "$hpNowVal" != "null" ]] && awk -v h="$hpNowVal" -v p="$hpPrev" 'BEGIN{exit !(h<p)}' 2>/dev/null; then hpDropped="true"; fi
+  if [[ "$breakLosSeen" == "true" && "$skelAliveVal" == "false" && "$hpDropped" == "false" && $i -gt 10 ]]; then
+    stableChecks=$((stableChecks+1))
+  else
+    stableChecks=0
+  fi
+  [[ $stableChecks -ge 2 ]] && break
   sleep 2
   i=$((i+2))
 done
@@ -116,9 +139,20 @@ seqStr="${RUNG_SEQ[*]}"
 # the reflex doing its job against a persistent threat, not broken hysteresis. The
 # hysteresis this criterion actually cares about is the MAINTENANCE tier (EAT_CRITICAL,
 # TOOL, etc.), which has no legitimate reason to re-fire without a genuinely new need.
+#
+# ALSO excludes the floor rung (id of the entry with the highest `prio` -- again read
+# from the engine, not hardcoded as "IDLE"): found live in #65 once the polling-loop fix
+# above let a fixture run watch a real multi-cycle encounter properly for the first time
+# -- the floor rung is BY DEFINITION superseded by anything and resumed the instant
+# nothing else needs the ladder, so it recurring between bursts of REFLEX/POSTURE (or a
+# one-off LIGHT firing as it got dark) is exactly as legitimate as safety re-firing, not
+# hysteresis breaking. A real thrash is a MAINTENANCE-tier rung cycling without new cause.
 safetyRungs=$(eval_js "return __agenda.rungs().filter(r=>r.safety).map(r=>r.id);")
+floorRung=$(eval_js "const rs=__agenda.rungs(); return rs.reduce((a,r)=>r.prio>a.prio?r:a, rs[0]).id;")
 declare -A IS_SAFETY
 while IFS= read -r rid; do [[ -n "$rid" ]] && IS_SAFETY["$rid"]=1; done < <(echo "$safetyRungs" | jq -r '.result[]' 2>/dev/null)
+floorRungId=$(jget "$floorRung" '.result')
+[[ -n "$floorRungId" && "$floorRungId" != "null" ]] && IS_SAFETY["$floorRungId"]=1
 
 thrash="false"
 thrashRung=""

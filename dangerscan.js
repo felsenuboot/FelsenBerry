@@ -1,4 +1,13 @@
-// dangerscan v3 payload (inject via POST /eval, idempotent).
+// dangerscan v4 payload (inject via POST /eval, idempotent).
+//
+// v4 (#65): the linear proximity falloff let a single close, clearly-seen hostile score
+// well under the panic(5) threshold at full HP (a skeleton at d=2 with full LOS scored
+// ~3.67) — survival.js's branches were then invoked only once the `health < 10` situational
+// multiplier or the raw hpPanic(8) backstop eventually caught up, by which point ~12 HP had
+// already been lost with zero defensive response. A close-range escalation in scan() now
+// pushes threats already inside near-melee range over threshold immediately instead of
+// waiting for the bot to already be hurt. See survival.js's own v5 changelog for the rest
+// of this issue's fixes.
 //
 // The 4Hz "wallhack" hostile scan from research/survival-doctrine.md section 3, plus the
 // status fields three FEEDBACK entries asked for. Pure read — it never moves the bot,
@@ -24,7 +33,7 @@
 if (globalThis.__danger && globalThis.__danger.restore) { try { globalThis.__danger.restore(); } catch (e) {} }
 
 const g = {
-  enabled: true, version: 3,
+  enabled: true, version: 4,
   score: 0, state: 'calm', threats: [], nearest: null,
   scans: 0, errors: 0, lastScan: 0, lastStateChange: 0,
   light: null, skyLight: null, surfaceExposed: null,
@@ -154,7 +163,17 @@ const scan = () => {
     let los;
     if (rays < g.thresholds.maxRaycasts) { los = hasLOS(eye, c.e) ? 1 : (ranged ? 0.3 : 0.6); rays++; }
     else los = ranged ? 0.3 : 0.6; // budget spent: assume no LOS rather than skipping the threat
-    const s = c.w * Math.max(0, (R - c.d) / R) * los;
+    let s = c.w * Math.max(0, (R - c.d) / R) * los;
+    // #65: the linear (R-d)/R falloff undersells a threat that is ALREADY close. A
+    // skeleton at d=2 with full LOS scored ~3.67 (weight 4) at full HP — below panic(5) —
+    // and the only thing that eventually crossed the threshold was the `health < 10`
+    // multiplier below, i.e. the bot had to already be hurt before detection caught up.
+    // Live-traced: a bot took ~12 HP of completely undefended damage (20 -> ~8) before
+    // survival.js's branches were ever invoked, against a threat standing right next to
+    // it from the first tick. `close`/`closer` thresholds are melee/near-melee range,
+    // not the general engagement radius above — this doesn't touch scoring for anything
+    // further out, only escalates what's already effectively on top of the bot.
+    if (los === 1 && c.d <= 4) s *= c.d <= 2 ? 2 : 1.5;
     out.score += s;
     out.threats.push({
       name: c.e.name, d: Math.round(c.d * 10) / 10, s: Math.round(s * 100) / 100,
@@ -302,7 +321,7 @@ g.restore = () => {
 // reports a comfortable "calm" forever — worse than not running. Stop on our bot's 'end'
 // and say so; re-injection (or P0.2 auto-inject-on-spawn) rebinds to the live bot.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.dangerscan = { version: 3, boundAt: Date.now(), stale: false };
+REG.dangerscan = { version: 4, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.dangerscan.stale = true;
@@ -315,7 +334,7 @@ g.timer = setInterval(tick, g.intervalMs);
 tick();
 
 return {
-  installed: true, version: 3, intervalMs: g.intervalMs,
+  installed: true, version: 4, intervalMs: g.intervalMs,
   statusWrapped: g.statusWrapped, skillsPresent: Boolean(S),
   weightsKnown: Object.keys(g.weights).length,
   first: g.snapshot(),

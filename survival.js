@@ -1,4 +1,24 @@
-// survival v4 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v5 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v5 (#65): four fixes from one live-testing session against real mobs, all in the
+// survival/don't-get-stuck path the acceptance soak depends on:
+//  1. BREAK_LOS's counter-attack sub-branch was chasing a kiting skeleton across open
+//     ground with the shield down for up to 15s, only breaking off after HP had already
+//     fallen 4 points below the gate. Restricted to "threat already at melee reach, no
+//     closing a gap in the open" (the FLEE_HOME "Bernd death" lesson, run in reverse).
+//  2. The corner-step search (BREAK_LOS phase a) gave every qualifying offset its own
+//     full 4000ms goto with NO overall budget -- fine in the open, but inside anything
+//     enclosed several of the 8 offsets can all break LOS off nearby walls, and the loop
+//     tried each in turn: up to 32s fully exposed with g.active blocking everything else.
+//     Reproduced live: stuck on 'deciding' for 22s while HP went 11.6 -> dead. Now has a
+//     hard overall search deadline and yields early on critical HP.
+//  3. The 10s re-entry lockout could gag the critical-HP backstop mid-encounter: a
+//     re-trigger landing inside the lockout window was silently dropped even at HP < 8,
+//     which is exactly the situation the backstop exists for. Critical HP now bypasses it.
+//  4. branchWallOff ran its ~12-cell placement sequence with zero shield and zero HP
+//     check -- live-traced a bot going 6 HP -> dead DURING construction. Now holds the
+//     shield throughout, prioritises the threat-facing side, and bails on non-essential
+//     cells once HP crosses a critical floor instead of marching the list to the end.
 //
 // The tick-speed survival reflex from research/survival-doctrine.md section 4. panicguard
 // had exactly one answer to everything ("run home"), which is why BuddelBernd died: it
@@ -39,7 +59,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 4,
+  enabled: true, version: 5,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -49,6 +69,7 @@ const g = {
     fleeHomeMax: 40,      // FLEE_HOME only inside this radius
     creeperClear: 10,     // open this much space from a creeper (fuse aborts at 7)
     rushHp: 12,           // BREAK_LOS may counter-attack at/above this HP
+    meleeReach: 4,        // ...and only if the threat is ALREADY this close (#65: no chasing)
     regenHp: 16,          // wall-off waits for this HP...
     regenFood: 18,        // ...and this food (natural regen needs >= 18)
     maxRunMs: 90000,      // hard cap on one panic run
@@ -265,16 +286,31 @@ const branchBreakLOS = async (t) => {
   const feet = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
   const tEye = ent && ent.position ? ent.position.offset(0, 1.4, 0) : null;
 
-  // (a) step to a neighbouring cell the threat cannot see into
+  // (a) step to a neighbouring cell the threat cannot see into. #65 (found live, the
+  // dangerous way): this used to give EVERY qualifying offset its own full 4000ms
+  // ownedGoto with no overall budget. That's fine in the open, where usually zero or one
+  // offset has a wall nearby to duck behind -- but inside anything enclosed (a room, a
+  // tunnel junction, the exact terrain WALL_OFF and corridors put the bot in), several of
+  // the 8 offsets can all legitimately break LOS off nearby walls, and the loop would try
+  // each one in turn: up to 8 x 4000ms = 32s, fully exposed, with `g.active` still true
+  // the entire time so NOTHING else -- not even the critical-HP backstop -- can step in.
+  // Reproduced live: __survival.branch stuck on 'deciding' for 22s solid while HP went
+  // 11.6 -> dead. A hard overall deadline plus a per-attempt HP check bounds the worst
+  // case and guarantees the search itself yields to phase (b)/(c) instead of silently
+  // consuming the whole encounter.
   if (tEye) {
     const offs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const searchDeadline = Date.now() + 3000;      // total budget for ALL attempts combined
     for (const o of offs) {
+      if (Date.now() > searchDeadline) break;
+      if (bot.health > 0 && bot.health < g.cfg.hpPanic) break;   // stop searching, go defend
       const cell = feet.offset(o[0], 0, o[1]);
       const at = bot.blockAt(cell), above = bot.blockAt(cell.offset(0, 1, 0)), below = bot.blockAt(cell.offset(0, -1, 0));
       if (!at || !above || !below) continue;
       if (isSolid(at) || isSolid(above) || !isSolid(below)) continue;  // leaf_litter is walkable
       if (!losBlocked(tEye, cell.offset(0.5, 1.6, 0.5))) continue;
-      const r = await ownedGoto(new goals.GoalBlock(cell.x, cell.y, cell.z), 4000);
+      const perAttempt = Math.max(600, Math.min(1500, searchDeadline - Date.now()));
+      const r = await ownedGoto(new goals.GoalBlock(cell.x, cell.y, cell.z), perAttempt);
       if (r === 'arrived') {
         return { branch: 'BREAK_LOS', how: 'corner', cell: [cell.x, cell.y, cell.z] };
       }
@@ -293,9 +329,21 @@ const branchBreakLOS = async (t) => {
   }
   if (placed) say('Cobble wall up - that is my arrow shadow.');
 
-  // (c) healthy and armed -> take it out around the wall; otherwise seal in
+  // (c) counter-attack — ONLY if the threat is ALREADY at melee reach right now. This used
+  // to gate on nothing but HP + sword + `placed`, which let it chase a kiting skeleton
+  // across open ground for up to 15s with the shield DOWN the entire time (shieldDown()
+  // ran unconditionally before the loop, and the break-off check only fired after health
+  // had already fallen 4 points below the gate). Real skeleton AI backs off to hold its
+  // preferred shooting range, so "closing the distance" on one in the open is the exact
+  // same mistake the header calls out for FLEE_HOME ("fleeing a ranged mob in the open is
+  // the Bernd death") run in reverse — and it's what actually put the bot at 0.67 HP twice
+  // in #65's live testing despite the branch reporting a clean recovery. Gating on live
+  // proximity means there is no gap to close: either it's already close enough that a swing
+  // costs no extra exposure, or we skip straight to the wall it already has half-built.
+  // (engine-dev, 2026-09-01, issue #65.)
   const sword = bestSword();
   const live = entOf(t);
+  const liveDist = live && live.position ? dist(bot.entity.position, live.position) : Infinity;
   // `t.name !== 'creeper'` is defence in depth, not redundancy. pick() dispatches creepers
   // to branchCreeper before BREAK_LOS can ever see one, so today this is unreachable — but
   // that safety lives entirely in a DIFFERENT function, and the failure mode here is a bot
@@ -303,22 +351,31 @@ const branchBreakLOS = async (t) => {
   // keeps the guarantee local to the code that would do the damage.
   // (engine-dev QA, 2026-09-01: verified no live path reaches this with a creeper, and
   // verified this line was missing — belt and suspenders on the safety-critical branch.)
-  if (placed >= 1 && bot.health >= g.cfg.rushHp && sword && live && t.name !== 'creeper') {
+  // point-blank (<=2) is allowed through even with placed===0: at that range the mob
+  // occupies the only cell a wall could go in, so "no wall built" isn't a sign the fight
+  // should be declined — it's a sign there was never room for one. Found live in #65: a
+  // skeleton at 0.5-1.7 blocks left BREAK_LOS reporting "how: none, placed: 0" and doing
+  // nothing whatsoever beyond holding a shield, which is strictly worse than fighting back
+  // when the threat was already standing next to the bot with nothing left to close.
+  if ((placed >= 1 || liveDist <= 2) && bot.health >= g.cfg.rushHp && sword && live && liveDist <= g.cfg.meleeReach && t.name !== 'creeper') {
     try {
       await bot.equip(sword, 'hand');
       shieldDown();
       say('Armed and steady - taking it out.');
       bot.pvp.attack(live);
       const t0 = Date.now();
-      while (Date.now() - t0 < 15000) {
-        await sleep(400);
-        const still = entOf(t);
-        if (!still || !still.isValid) break;
-        if (bot.health < g.cfg.rushHp - 4) break;              // losing the trade — stop
+      while (Date.now() - t0 < 5000) {                          // was 15000 — a fight this
+        await sleep(200);                                       // slow against a mob already
+        const still = entOf(t);                                 // in reach means it's kiting,
+        if (!still || !still.isValid) break;                    // not losing a close trade
+        if (bot.health < g.cfg.rushHp - 2) break;                // was -4 — stop sooner
       }
-    } catch (e) {} finally { try { bot.pvp.stop(); } catch (e) {} }
-    const gone = !entOf(t) || !entOf(t).isValid;
-    if (gone) return { branch: 'BREAK_LOS', how: 'wall+kill', placed };
+    } catch (e) {} finally {
+      try { bot.pvp.stop(); } catch (e) {}
+      await shieldUp(entOf(t));                                 // back up the instant combat
+    }                                                            // ends, win or break-off —
+    const gone = !entOf(t) || !entOf(t).isValid;                 // wall-off below never starts
+    if (gone) return { branch: 'BREAK_LOS', how: 'wall+kill', placed };  // from zero cover
   }
   if (placed || bot.health < g.cfg.rushHp) {
     const w = await branchWallOff(t);
@@ -362,7 +419,24 @@ const branchWallOff = async (t) => {
   try { bot.pathfinder.setGoal(null); } catch (e) {}
   const p = bot.entity.position;
   const feet = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
+  const liveThreat = entOf(t);
+  // Hold what cover we've got WHILE building — see #65: this loop used to run fully
+  // undefended, on the theory that WALL_OFF is only reached "far / low HP / mixed threats"
+  // (header table above) where a few seconds of construction is cheap. That's false the
+  // moment BREAK_LOS falls through to this as ITS fallback: the threat is then already
+  // adjacent, and a live trace caught the bot going 6 HP -> dead DURING construction,
+  // never reaching the coffin it was building. shieldDown() happens once at the very end.
+  const shielded = liveThreat ? await shieldUp(liveThreat) : false;
   const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  // face the threat's bearing FIRST — the highest-value block is the one between the bot
+  // and whatever is currently hitting it, not whichever side happens to be first in a
+  // fixed list. Also #65: an unordered list meant the mob-facing side could be the LAST
+  // of four feet-level blocks placed, i.e. dead last in coverage priority.
+  if (liveThreat && liveThreat.position) {
+    const bx = Math.sign(feet.x - liveThreat.position.x), bz = Math.sign(feet.z - liveThreat.position.z);
+    const toward = Math.abs(feet.x - liveThreat.position.x) >= Math.abs(feet.z - liveThreat.position.z) ? [-bx, 0] : [0, -bz];
+    sides.sort((a, b) => (a[0] === toward[0] && a[1] === toward[1] ? -1 : b[0] === toward[0] && b[1] === toward[1] ? 1 : 0));
+  }
   const cells = [];
   for (const dy of [0, 1]) for (const s of sides) cells.push(feet.offset(s[0], dy, s[1]));
   // The roof cell (feet+2) has NO orthogonal reference on open ground: below it is the
@@ -372,31 +446,72 @@ const branchWallOff = async (t) => {
   for (const s of sides) cells.push(feet.offset(s[0], 2, s[1]));
   cells.push(feet.offset(0, 2, 0));                            // cap: skeletons shoot down shafts
 
+  // #65: HP can crater faster than a fixed 12-cell placement sequence completes. A cell
+  // placed at 3 HP is worth less than the seconds it costs while still exposed — bail on
+  // NON-essential remaining cells and go straight to holding position (shield still up)
+  // once health crosses this floor, rather than marching the list to the end regardless.
+  const CRIT = 4;
+  let bailed = false;
+  const critical = () => bot.health > 0 && bot.health < CRIT;
+
   // Two passes: a cell with no solid neighbour to place against ('no_reference') often
   // gains one once its neighbours are up — pass 2 catches those. Bottom-up order matters,
   // so cells stays feet-ring -> head-ring -> roof.
   let placed = 0;
   const fails = [];
   for (const c of cells) {
+    if (critical()) { bailed = true; break; }
     const r = await placeAt(c);
     if (r === 'placed') placed++;
     else if (r !== 'occupied') fails.push(c);
   }
-  for (const c of fails.slice()) {
-    const r = await placeAt(c);
-    if (r === 'placed') { placed++; fails.splice(fails.indexOf(c), 1); }
+  if (!bailed) {
+    for (const c of fails.slice()) {
+      if (critical()) { bailed = true; break; }
+      const r = await placeAt(c);
+      if (r === 'placed') { placed++; fails.splice(fails.indexOf(c), 1); }
+    }
   }
   // seal = re-read the world, not a running tally. Never report sealed on faith.
-  const open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;
-  if (open) pushLog('warn', `wall_off: ${open} face(s) still open — coffin is not arrow-tight`);
+  let open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;
+  if (open) pushLog('warn', `wall_off: ${open} face(s) still open — coffin is not arrow-tight${bailed ? ' (bailed on low HP)' : ''}`);
 
   const t0 = Date.now();
   await eatUp();
+  let lastHp = bot.health;
+  let lastResort = false;
   while (Date.now() - t0 < 60000) {
     if (bot.health >= g.cfg.regenHp && bot.food >= g.cfg.regenFood) break;
+    // #65: this used to wait passively for up to 60s on the assumption a "sealed" coffin
+    // stops incoming damage entirely. Live-traced a bot going HP-flat-then-declining to
+    // death DURING this exact wait -- the coffin was leaking damage through an open face
+    // and nothing here ever re-checked or reacted, right up until death. Critical HP that
+    // is STILL falling (not just slow to rise) means the seal isn't holding: try one
+    // re-seal pass on whatever cells are still open (cheap — most already have a
+    // reference by now from their neighbours going up), and if a threat is still adjacent
+    // and armed, one desperate swing beats standing still doing nothing while it dies.
+    if (bot.health > 0 && bot.health < CRIT && bot.health <= lastHp && !lastResort) {
+      lastResort = true;
+      const stillOpen = cells.filter((c) => !isSolid(bot.blockAt(c)));
+      for (const c of stillOpen) { const r = await placeAt(c); if (r === 'placed') placed++; }
+      open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;
+      const lt = entOf(t);
+      const ld = lt && lt.position ? dist(bot.entity.position, lt.position) : Infinity;
+      const sw = bestSword();
+      if (open && ld <= 2 && sw && lt && t.name !== 'creeper') {
+        try {
+          await bot.equip(sw, 'hand');
+          bot.pvp.attack(lt);
+          await sleep(1500);
+        } catch (e) {} finally { try { bot.pvp.stop(); } catch (e) {} }
+      }
+    }
+    lastHp = bot.health;
     await sleep(1000);
     if (bot.food < g.cfg.regenFood) await eatUp();
   }
+  open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;   // final re-read, not the pre-wait tally
+  if (shielded) shieldDown();
 
   // exit away from the last known threat bearing (mobs do NOT despawn within 32 blocks)
   let dug = null;
@@ -409,7 +524,7 @@ const branchWallOff = async (t) => {
     const exit = bot.blockAt(feet.offset(away[0], 0, away[1]));
     if (isSolid(exit)) { await bot.dig(exit); dug = [exit.position.x, exit.position.y, exit.position.z]; }
   } catch (e) {}
-  return { branch: 'WALL_OFF', sealed: open === 0, placed, openFaces: open, hp: bot.health, food: bot.food, exit: dug };
+  return { branch: 'WALL_OFF', sealed: open === 0, placed, openFaces: open, bailed, hp: bot.health, food: bot.food, exit: dug };
 };
 
 // ================= ORCHESTRATION =================
@@ -436,7 +551,17 @@ const pick = async () => {
 
 const enter = async (why, pickOverride) => {
   if (!g.enabled || g.active) return;
-  if (!pickOverride && Date.now() - g.lastEnd < g.cfg.lockoutMs) return;
+  // lockoutMs exists to stop THRASHING on an already-resolved encounter — it must never
+  // gag the critical-HP backstop mid-encounter. Found live in #65: BREAK_LOS can end a run
+  // reporting "recovered" while the threat is still adjacent (a point-blank skeleton gives
+  // it no cell to corner-step into and no room for an arrow-shadow — "how: none"), and the
+  // very next re-trigger landed 184ms into the lockout window and was silently dropped —
+  // fires stayed at 1 for the whole encounter while HP free-fell from 15 to 7.33 with zero
+  // active response. Critical HP always breaks through, exactly like the backstop already
+  // claims to do "even with no dangerscan installed" (line ~15) — that promise was false
+  // whenever a prior panic had JUST ended, which is precisely when it matters most.
+  const critical = Boolean(bot.entity) && bot.health > 0 && bot.health < g.cfg.hpPanic;
+  if (!pickOverride && !critical && Date.now() - g.lastEnd < g.cfg.lockoutMs) return;
   if (!bot.entity || bot.health <= 0) return;
   g.active = true; g.fires++; g.startedAt = Date.now();
   const guarded = suspendGuard();
@@ -571,7 +696,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 4, boundAt: Date.now(), stale: false };
+REG.survival = { version: 5, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -582,7 +707,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 4, home: g.home,
+  installed: true, version: 5, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
