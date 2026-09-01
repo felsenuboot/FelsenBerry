@@ -56,7 +56,7 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v39** · `agenda.js` v12 · `producer.js` v5 · `telemetry.js` v1 (ledger
+Live versions: `skills.js` **v40** · `agenda.js` v12 · `producer.js` v5 · `graychat.js` v4 · `telemetry.js` v1 (ledger
 schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
 · `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
 (superseded by survival.js).
@@ -85,8 +85,20 @@ choice plus the carried stick buffer plus producer's partial-craft fix removed t
 dependency that caused the original drift. Cause gone, backstop unnecessary — measured, not
 argued.
 
-**THE PHASE-1 DONE-SIGNAL REMAINS THE UN-FIXTURED SOAK** — all five criteria, on a stable
-version, with nothing handed to the bot.
+**THE CONTROLLED SOAK IS SUPERSEDED (Felix/team-lead, 2026-09-01).** The operation moved back
+to the cavecrew (main) server and the local test server is closed. The FELCREW fleet is LIVE
+there, driverless, on the validated engine — so the live deployment IS the field test now, and
+the planned 3-hour un-fixtured soak is NOT to be launched.
+
+What stands in its place as the self-sufficiency validation is the depot-less deep run that
+passed: ~275 blocks mined driverless, every torch produced locally with no depot reachable,
+zero errors, mineLane completed and `assertTask` verified it. That result is why deploying to
+the real server was the right next step rather than another controlled run.
+
+Development is HELD pending a roadmap evaluation Felix asked for — an explicit
+continue-vs-pivot decision with filed issues, including the movement work (Baritone is a hard
+NO for a headless stack; the direction is an in-process watchdog plus a recovery ladder that
+imitates Baritone's execution-loop guarantees in JS). No movement/wedge work until that lands.
 
 **Acquire-by-producing has landed** (#37), which was the named gate on that run. RESTOCK is
 now withdraw → produce → stand down: the depot stays the cheap first answer, `produce`
