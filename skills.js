@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 32;
+const ENGINE_VERSION = 33;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -133,8 +133,12 @@ const FILLERS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'a
   'granite', 'deepslate', 'tuff', 'netherrack']);
 const KIT_TIERS = {
   excursion: { torches: 8, foodItems: 2, weapon: true },
-  underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16 },
-  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, armor: true, shield: true, water: true },
+  // sticks + table: the makings of an in-place tool re-craft, carried rather than hoped for
+  // (#43 item 1, promoted to phase-1). They are only meaningful where wood is not reachable,
+  // so the surface `excursion` tier does not ask for them. The spare pickaxe stays: these
+  // ADD a recovery path, they do not buy out a safety requirement.
+  underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16, sticks: 2, table: 1 },
+  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 4, table: 1, armor: true, shield: true, water: true },
 };
 const TOOL_LOW_PCT = 20; // preflight durability gate (status warns at 15% mid-task)
 // findBlocks' maxDistance is a 3D SPHERE, so an unconstrained scan happily selects ore
@@ -1623,6 +1627,18 @@ S.kitCheck = function (bot, tier) {
   if (req.filler) {
     const filler = total((i) => FILLERS.has(i.name));
     if (filler < req.filler) missing.push(`filler blocks ${filler}/${req.filler} (survival.js wall-off budget)`);
+  }
+  // The makings of ONE in-place tool re-craft (#43 item 1). A stone pickaxe is 3 cobblestone
+  // and 2 sticks on a table, and the filler above is already cobblestone — so these two light
+  // items are the difference between "pickaxe broke at y52" being a wedge and being a 2.2s
+  // recraft where the bot stands. Measured: 36.6s and a failure without them, 2.2s and a
+  // stone_pickaxe with them, same bot, same spot.
+  if (req.sticks) {
+    const sticks = total((i) => i.name === 'stick');
+    if (sticks < req.sticks) missing.push(`sticks ${sticks}/${req.sticks} (to re-craft a tool where you stand)`);
+  }
+  if (req.table && !items.some((i) => i.name === 'crafting_table')) {
+    missing.push('crafting_table (a tool is a 3x3 recipe; there is none underground)');
   }
   if (req.shield && !items.some((i) => i.name === 'shield')
     && !(bot.inventory.slots[45] && bot.inventory.slots[45].name === 'shield')) missing.push('shield');
