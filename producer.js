@@ -227,6 +227,26 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
       return { ok: made > 0, made, how: 'crafted', reason: made >= want ? undefined : (made > 0 ? 'partial' : 'craft_failed'), steps };
     }
 
+    // CRAFTING_TABLE (4 planks -> 1 table; 2x2, no table needed). Team-lead greenlit this as the
+    // enabler for #43 item(1) (promoted to phase-1): the deep kit now carries the makings of an
+    // in-place tool re-craft, and RESTOCK's floor calls produce('crafting_table',1) to self-heal it
+    // — otherwise the new kit floor would be a permanent refusal no rung could satisfy.
+    if (R === 'crafting_table') {
+      const before = inv(bot, 'crafting_table');
+      if (before < want) {
+        if (await ensurePlanks(bot, 4 * (want - before), steps, chk)) {
+          let guard = 0;
+          while (guard++ < want + 2 && inv(bot, 'crafting_table') - before < want) {
+            chk();
+            const r = await S.craftSafe(bot, 'crafting_table', 1);
+            if (!r.made) break;
+          }
+        }
+      }
+      const made = inv(bot, 'crafting_table') - before;
+      return { ok: made > 0, made, how: made > 0 ? 'crafted' : null, reason: made >= want ? undefined : (made > 0 ? 'partial' : 'no_wood'), steps };
+    }
+
     return { ok: false, made: 0, how: null, reason: 'unproduceable', steps };
   } catch (e) {
     // cancellation and fatal (low_health) are task-control signals, NOT produce failures —
@@ -249,7 +269,7 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
 // thing that can 'finish' with made<count, a textbook yield), and clean preemption via ctx.step.
 S.define('produce', {
   description: 'Acquire a consumable by MAKING it (mine/chop/craft) rather than withdrawing — the agenda RESTOCK produce-fallback. resource is an item name; result carries {ok, made, how, reason}.',
-  params: { resource: 'item name: torch | cobblestone | coal | stick | *_planks', count: 'how many (default 16)' },
+  params: { resource: 'item name: torch | cobblestone | coal | stick | *_planks | crafting_table', count: 'how many (default 16)' },
   tool: null,
   validate: (a) => (a.resource && typeof a.resource === 'string') ? null : 'need resource (item name string)',
   fn: async (ctx) => {
@@ -266,15 +286,15 @@ S.define('produce', {
 
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 2,
+  version: 3,
   restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 2, boundAt: Date.now(), stale: false };
+REG.producer = { version: 3, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 2,
+return { installed: true, version: 3,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
-  resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks'],
+  resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table'],
   reasons: ['no_pickaxe', 'no_coal_nearby', 'no_ore_nearby', 'no_wood', 'no_space', 'partial', 'unproduceable'] };
