@@ -64,6 +64,24 @@ const PRODUCEABLE = {
 // Fixed order: deterministic, and cheapest-and-most-blocking first. The table and sticks
 // come before torches because they are one craft each and they are what unblocks TOOL.
 const PRODUCE_ORDER = ['crafting_table', 'stick', 'torch', 'cobblestone'];
+// Skills whose work ACCUMULATES across a preemption. A lane that RESTOCK paused for a torch
+// refill and the ladder then resumed is PROGRESS, not a cancel — but `count` is per
+// invocation, so each resume restarted from zero and a high count never completed. Measured:
+// count:150 produced ZERO completions across ~275 blocks genuinely mined, while count:24
+// completed cleanly. The bot was working perfectly; only the bookkeeping said otherwise.
+// The fix lives HERE and not in the skill: a skill invocation is stateless by design and
+// cannot know about prior attempts, whereas the agenda owns the project and is the thing
+// that preempted its own task. Restarting with the REMAINING count also keeps
+// `mineLane.banked` graded against the count it was actually given, where making the skill
+// accumulate internally would push banked past count and quietly break its own assertion.
+const RESUMABLE = {
+  mineLane: {
+    total: (a) => (a && a.count) || 8,
+    done: (r) => (r && r.banked) || 0,
+    remaining: (a, left) => Object.assign({}, a, { count: left }),
+  },
+};
+const resumable = (skill) => RESUMABLE[skill] || null;
 const PRODUCE_COOLDOWN_MS = 120000;   // after a produce that made NOTHING, stop asking that resource
 // How long "the depot could not supply this" stays believed. It must expire: another bot may
 // restock the depot, and a permanent latch would mean never withdrawing again.
@@ -84,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 12, enabled: true,
+  version: 13, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -527,7 +545,15 @@ const RUNGS = [
       if (oursRunning(s)) return 'running';
       const p = A.project;
       if (!p || !p.skill) return 'none';
-      const r = runSkill(p.skill, p.args, 'PROJECT');
+      // resume with what is LEFT, not the original ask
+      const res = resumable(p.skill);
+      let args = p.args;
+      if (res && p.totalWanted) {
+        const left = Math.max(1, p.totalWanted - (p.progress || 0));
+        if (left !== p.totalWanted) note(`resuming ${p.skill}: ${p.progress}/${p.totalWanted} done, asking for ${left}`);
+        args = res.remaining(p.args, left);
+      }
+      const r = runSkill(p.skill, args, 'PROJECT');
       if (!r.ok && r._transient) return 'busy';
       if (!r.ok) {
         p.attempts = (p.attempts || 0) + 1;
@@ -648,9 +674,32 @@ const tick = () => {
       try { verdict = (raw && globalThis.__skills.assertTask) ? globalThis.__skills.assertTask(raw, bot) : null; } catch (e) {}
       const claimed = Boolean(s.task.done);
       const refuted = Boolean(verdict && verdict.fail);
-      if (claimed && !refuted) {
+      // Bank what this run actually achieved, however it ended. A run cut short by a higher
+      // rung still mined what it mined.
+      const res = resumable(p.skill);
+      if (res) {
+        const got = res.done(raw && raw.result);
+        if (got > 0) {
+          p.progress = (p.progress || 0) + got;
+          note(`project progress ${p.progress}/${p.totalWanted} (+${got})`);
+        }
+      }
+      // A PREEMPTION IS NOT A FAILURE. RESTOCK interrupting a lane for a torch refill used
+      // to land in the failure branch below — attempts++, stand-down, and after five of them
+      // the project was BLOCKED for the crime of being interrupted by its own ladder. A
+      // paused-and-resumed lane is progress; only a run that ended on its own without
+      // achieving anything is a failed attempt.
+      const paused = Boolean(raw && raw.cancelled);
+      // Completion still requires VERIFICATION — accumulated progress is the skill's own
+      // arithmetic, so finishing on it alone would be the naive-success trap one level up.
+      // The final run is graded by assertTask against the count it was actually given.
+      const finished = claimed && !refuted && (!res || !p.totalWanted || (p.progress || 0) >= p.totalWanted);
+      if (finished) {
         p.completedOnce = true; p.attempts = 0;
         note(`project VERIFIED done (${p.skill}${verdict ? ', ' + verdict.rule : ''})`);
+      } else if (paused) {
+        note(`project paused by a higher rung at ${p.progress || 0}/${p.totalWanted || '?'} — resuming, not retrying`);
+        A.owner = null;
       } else {
         p.lastError = refuted ? ('assert:' + verdict.rule) : (s.task.error ? s.task.error.code : 'no_progress');
         p.attempts = (p.attempts || 0) + 1;
@@ -775,9 +824,13 @@ A.setProject = (spec) => {
   if (!spec) { A.project = null; note('project cleared'); return { ok: true, project: null }; }
   if (typeof spec === 'string') spec = { skill: spec, args: {} };
   if (!spec.skill) return { ok: false, error: 'need {skill, args?, tool?, restockFloor?, repeat?}' };
+  const res = resumable(spec.skill);
   A.project = { skill: spec.skill, args: spec.args || {}, tool: spec.tool || null,
     restockFloor: spec.restockFloor || null, repeat: Boolean(spec.repeat),
-    completedOnce: false, attempts: 0, blocked: null, setAt: now() };
+    completedOnce: false, attempts: 0, blocked: null, setAt: now(),
+    // cumulative work across preemptions; totalWanted is the ORIGINAL ask, since args.count
+    // gets rewritten to the remainder on each resume
+    totalWanted: res ? res.total(spec.args || {}) : null, progress: 0 };
   A.blocked = null;
   note(`project set: ${spec.skill}`);
   return { ok: true, project: A.project };
