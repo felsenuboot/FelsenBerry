@@ -704,7 +704,11 @@ const server = http.createServer(async (req, res) => {
         if (![x, y, z].every((n) => typeof n === 'number' && isFinite(n))) {
           return send(res, 400, { ok: false, error: 'need numeric {"x","y","z"}' });
         }
-        log(`<api> goto (${x}, ${y}, ${z})`);
+        // #25: the request used to be the only line logged, so goto latency/outcome could
+        // never be reconstructed from runner.js's own log alone. rid correlates the two.
+        const rid = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const t0 = Date.now();
+        log(`<api> goto ${rid} request (${x}, ${y}, ${z})`);
         const goal = new goals.GoalNear(x, y, z, 1);
         let timer;
         try {
@@ -715,12 +719,15 @@ const server = http.createServer(async (req, res) => {
             }),
           ]);
           clearTimeout(timer);
-          return send(res, 200, { ok: true, position: jsonSafe({ ...bot.entity.position }) });
+          const position = jsonSafe({ ...bot.entity.position });
+          log(`<api> goto ${rid} resolved ok in ${Date.now() - t0}ms`);
+          return send(res, 200, { ok: true, position });
         } catch (err) {
           clearTimeout(timer);
           try {
             bot.pathfinder.setGoal(null); // stop pathing on timeout/failure
           } catch (_) {}
+          log(`<api> goto ${rid} resolved error in ${Date.now() - t0}ms: ${err.message}`);
           return send(res, 500, { ok: false, error: err.message });
         }
       }
