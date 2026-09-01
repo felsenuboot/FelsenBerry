@@ -11,9 +11,9 @@ rollup + burndown. Updated every triage cycle.
 
 ## Tracker health
 
-**felsenuboot/felcrew-mcp**: 29 open, 6 closed (35 total, net +2 this
-mid-cycle update — filed #36 and closed it same-motion since the fix had
-already shipped).
+**felsenuboot/felcrew-mcp**: 28 open, 7 closed (35 total). #5 (farmCycle)
+closed this update; #13 narrowed to its still-open bug half; #35 partially
+shipped (harvestGrass done, 2 of 3 primitives left).
 **ZetOmega/cavecrew-mcp**: 4 open, 0 closed — all 4 filed BY us; no reply
 yet. Five outstanding yes/no items on felcrew#1 remain unanswered; team-lead's
 call is no further nudge for now.
@@ -27,6 +27,7 @@ Closed to date, all with cited evidence:
 | #18 | surfaceExposed false-negative | commit `e99d273` |
 | #30 | TOOLGUARD + ensureTool | commit `1bcab7b`, 33s empty-inventory-to-equipped-axe live test |
 | #36 | idleguard.stop() stripped every dig guard | shipped idleguard v8 + digguard v4, same-session fix — filed+closed together |
+| #5 | farmCycle | commit `8b285cb`, live-verified: harvested 4/replanted 4/baked 4/deposited 10 |
 
 **#30's close retires DRIVER_GUIDE.md's right-tool-always interim law** —
 flagged to engine-dev (law-lifecycle owner) to mark it RETIRED per the
@@ -80,8 +81,8 @@ issues. **PHASE-2 — cooperation (deprioritized).** #1, #6, #8 only.
 | ~~30~~ | ~~TOOLGUARD + ensureTool~~ | — | — | — | **CLOSED** `1bcab7b` |
 | 26 | Baritone: 7 findings, 1 safety-critical | 1 | high | engine-dev-3 | item 1 briefed; digguard.js v4 has it SCAFFOLDED, not wired — handoff note posted |
 | 4 | spawnProof + BASE-vs-reality diff | 1 | high | engine-dev-3 | briefed |
-| 5 | farmCycle | 1 | high | engine-dev-3 | spec-ready |
-| 13 | tillFarmland + reverting bug | 1 | high | engine-dev-3 | briefed |
+| ~~5~~ | ~~farmCycle~~ | — | — | — | **CLOSED** `8b285cb` |
+| 13 | tillFarmland — **bug half only** (revert root cause) | 1 | medium (was high) | engine-dev-3 | skill half shipped `8b285cb`; root-cause revert bug still unexplained, farmCycle re-tills as a mitigation |
 | 19 | placeBlock hitbox no-op | 1 | high | engine-dev-3 | briefed, mostly already fixed (2 call sites left) |
 | 10 | openContainer furnace gap | 1 | medium | engine-dev-3 | confirmed still open |
 | 12 | collectDrops/huntAnimals hazard blind spot | 1 | medium | engine-dev-3 | |
@@ -89,7 +90,7 @@ issues. **PHASE-2 — cooperation (deprioritized).** #1, #6, #8 only.
 | 15 | dirt/leaf_litter depot bloat | 1 | medium | engine-dev-3 | |
 | 27 | disconnect-mid-loop false success | 1 | medium | engine-dev-3 | |
 | 16 | cave-mapping/sealing skill | 1 | low | engine-dev-3 | |
-| 35 | harvestGrass + ctx.stripLog + ctx.settle | 1 | low | engine-dev-3 | briefed, new this cycle |
+| 35 | harvestGrass shipped; ctx.stripLog + ctx.settle open | 1 | low | engine-dev-3 | partial `8b285cb`; ctx.settle needs a skills.js makeCtx edit, coordinating with engine-dev-2 to avoid a collision |
 | 22 | Benchmark harness + baseline suite (C1-C3) | 1 | high | engine-dev | briefed |
 | 32 | survival.js live-mob QA gap | 1 | high | engine-dev | CREEPER confirmed live; narrowed to BREAK_LOS arrow-shadow only |
 | 23 | `__survival.drill(branch)` hook | 1 | medium | engine-dev | |
@@ -108,7 +109,9 @@ the rule starts biting from next cycle.
 
 engine-dev-2: 11 (1 blocked-on-design [#28], 1 picked-up [#31], rest active;
 #30 closed this cycle).
-engine-dev-3: 11 (one safety-critical, four priority-high).
+engine-dev-3: 10 (#5 closed this cycle; one safety-critical, three
+priority-high remaining — #4, #19, and #13 dropped to medium now its skill
+half shipped).
 engine-dev: 5 (curator lane — intentionally lighter, QA/fixtures/docs scope).
 
 ## Implementation briefs on file (ready to pick up, no re-research needed)
