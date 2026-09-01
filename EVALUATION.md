@@ -11,6 +11,22 @@ Adopted at engine v15. Owner of the file: team lead. Amendments are dated append
 
 ---
 
+## The false-success root (why law 1 exists, added 2026-09-01)
+
+"Reporting success you haven't earned" recurs at every altitude — task, project, tool,
+restock, payload-presence, goto-arrival — because each layer trusts the layer BELOW's
+word for it. The fix is always the same shape: GRADE WITH SOMETHING THAT DIDN'T DO THE
+WORK. That's why exporting `assertTask` (one shared verifier used by BOTH the agenda's
+project-completion check and the telemetry ledger's task-level check) mattered more
+than any single bug it fixed — it's the same principle applied one layer up, closing
+the class rather than one instance of it. Every false-success finding logged this
+session, from `come` claiming arrival it never reached to the agenda marking a project
+done that a `safeDescend` never actually descended, is this one root cause recurring at
+a different altitude. When auditing a NEW layer of the stack, ask first whether it's
+grading itself — if so, assume it lies under exactly the conditions that matter most.
+
+---
+
 ## 0. The five laws (everything else derives from these)
 
 1. **Verifier or it didn't happen.** No metric may be sourced from the system under
