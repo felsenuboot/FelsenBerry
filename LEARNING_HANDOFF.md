@@ -312,6 +312,23 @@ insight applied to our stack, and it's what keeps token costs near zero at scale
   terrain surveys of chunks you haven't walked through recently — `goto` there first
   (or walk within render distance) before treating a block scan as ground truth,
   especially for anything you're about to report as fleet-wide intel or dig up.
+- **Which server a bot is on can be routed by ENV VAR, not just CLI flags — check
+  both before diagnosing against a coordinate table (found live 2026-09-01, near-miss
+  on a false "base wiped" alarm)**: `runner.js`'s host/port resolve as `--host`/
+  `--mcport` flag, THEN `MC_HOST`/`MC_PORT` env vars, THEN the fleet default
+  (`100.101.197.44:25565`, the main server). SoloSauhund's process args show neither
+  flag, so a `ps aux` / process-args check alone makes it LOOK like it's on the fleet
+  default (main) — but `spawn.sh` actually routes it to the local test world
+  (`127.0.0.1:25599`, seed felcrewtest) via the env vars, invisible to a flag-only
+  check. Diagnosing SoloSauhund's `bot.blockAt` reads against `protected.json`'s
+  MAIN-server coordinates (home/depot/torch_posts_1/etc.) then looks exactly like the
+  entire base was destroyed — every coordinate reads air — when the real explanation
+  is just "this is a fresh world where nothing was ever built there." Confirm which
+  server a bot is actually on from the bot's OWN evidence before trusting a
+  process-args check: its log line ("connecting to \<host\>:\<port\>") or, more
+  reliably, its `/proc/<pid>/environ` for `MC_HOST`/`MC_PORT`. **SoloSauhund:3120
+  specifically is the standing LOCAL soak-test bot** (env-routed to 25599) — never
+  diagnose it against main-server coordinates or state.
 - **Orphaned goto promises poison later goals ("goal was changed" errors, found live
   2026-08-31)**: a manual `Promise.race([bot.pathfinder.goto(goal), timeout])` loop
   that does NOT call `bot.pathfinder.setGoal(null)` on the timeout branch leaves the

@@ -396,6 +396,17 @@ find the bug in the verifier, don't widen its tolerance to make the noise stop.
   process restart when the main server comes back, not just wait for auto-reconnect,
   to guarantee the guard chain is actually intact rather than reporting installed
   while doing nothing.
+- **MAIN-BASE-INTEGRITY CHECK, also for the next return** (precaution, unconfirmed,
+  not actionable until then — 2026-09-01): the chunk regen requested in
+  ZetOmega/cavecrew-mcp#2 (chunks near the base) MAY have been carried out while main
+  was down, and a real chunk regen wipes built structures along with whatever
+  corruption it targeted. Before trusting `protected.json` on main again, `bot.blockAt`
+  -verify that its registered coordinates (home, depot, torch_posts_1, house_1,
+  main_hall_1, farm_1, ...) still hold real blocks, not air. A false alarm on this
+  exact question already happened once (a bot mistakenly diagnosed against main's
+  coordinates while actually connected to the fresh, base-less LOCAL world, see the
+  SoloSauhund routing note below) — verify the bot is actually ON main first, then
+  verify the base is actually there, before concluding anything is wiped.
 - Task-state truth is status.task.done from __skills.status — NEVER infer from
   watching the bot move or chat: idle-guard picks up finished bots and makes them
   look busy, which has fooled multiple drivers into waiting on already-finished
