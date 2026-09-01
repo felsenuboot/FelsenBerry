@@ -281,7 +281,10 @@ neighbour" beyond the mechanical protected-region check, when to escalate to Fel
 what counts as a milestone, and the `@`/`!` chat-tier convention (a writing decision per
 message). When you're about to propose a gate, ask which half of the codicil the rule
 actually belongs to — LLM judgment where judgment is required, engine everywhere else.
-See LAWS_AUDIT.md's own "Not gate candidates" section for the full reasoning.
+The audit's purpose is to delete rules a gate has genuinely replaced, not to convert
+everything — the "not gate candidates" list above is the deliberate boundary of that
+purpose, not unfinished work. See LAWS_AUDIT.md's own "Not gate candidates" section for
+the full reasoning.
 
 **RETIRED — reach-discipline interim rule** (was: "before any manual/eval dig,
 place, activate, or attack, move within ~3 blocks of the target first — never
@@ -345,22 +348,37 @@ means actually reading the other's diff, every time, not treating a green test r
 sufficient.
 
 **A payload timer MAY re-arm a subscription or re-assert a config/flag value; it MUST
-NEVER re-assign a bot method it also wraps.** The precise form of the "no self-healing
-guard timers" rule, replacing an earlier cruder version that would have wrongly banned
-safe patterns too (survival.js's own danger-listener re-subscribe is legitimate and
-stays fine under this wording). What it forbids: a timer that notices its wrapper is
-"missing" and tries to defensively re-wrap the method — engine-dev-2 tried exactly this
-as the obvious fix for a stripped guard, and it is a TRAP. Detecting "am I still in the
-chain" means walking it, and every wrapper has to publish what it wraps for that walk to
-mean anything; two guards each checking only "am I outermost" re-layer over each other
-and form a cycle — 9.2 MILLION recursive dig calls in one live test before it was
-killed. Both self-heals were removed; the guard-stripping bug itself was fixed at the
-source instead (see the SUSPENDING IDLEGUARD note above). engine-dev-2 audited all 8
-owned payloads against this exact wording and found zero violations — every timer in
-the current stack touches flags, listener arrays, or Movements arrays, never a wrapped
-method. If a self-heal is ever genuinely needed later: every dig wrapper must first
-publish `__wrappedTarget` (digguard and toolguard already do this) before anything
-attempts to walk the chain.
+NEVER re-assign a bot method it also wraps.** The precise form of "no self-healing guard
+timers" — narrower than a flat ban on purpose. A flat "no timers, ever" would be WRONG
+as well as unenforceable: digguard reloads `protected.json` every ~10s, dangerscan scans
+at 4Hz, survival re-arms its `__danger` subscription, the agenda ticks every 2s — all
+legitimate, all still fine under this wording, because none of them re-assigns a method.
+A rule that bans things people need gets quietly ignored; this narrower line is the one
+that actually has to hold. What it forbids specifically: a timer that notices its
+wrapper is "missing" and tries to defensively re-wrap the method — engine-dev-2 tried
+exactly this as the obvious fix for a stripped guard, and it is a TRAP. Detecting "am I
+still in the chain" means walking it, and every wrapper has to publish what it wraps for
+that walk to mean anything; two guards each checking only "am I outermost" re-layer over
+each other and form a cycle — 9.2 MILLION recursive dig calls in one live test before it
+was killed, plus a real dig outage on a second engineer's bot from the same cause. Both
+self-heals were removed; the guard-stripping bug itself was fixed at the source instead
+(a payload disables in place rather than restoring by assignment — idleguard v8, see the
+SUSPENDING IDLEGUARD note above — so nothing ever falls out of the chain and no self-heal
+is needed). engine-dev-2 audited all 8 owned payloads against this exact wording and
+found zero violations — every timer in the current stack touches flags, listener arrays,
+or Movements arrays, never a wrapped method. If a self-heal is ever genuinely needed
+later: every dig wrapper must first publish `__wrappedTarget` (digguard and toolguard
+already do this) before anything attempts to walk the chain.
+
+**"Widening a verifier until it stops complaining is how a false-success metric becomes
+decorative."** From the telemetry aggregator's first real run: it found a genuine 4.8%
+trust gap (naive SR vs. verified SR) traced to a `come` assertion with a unit mismatch —
+it compared the bot's float entity position against an integer block target, so a bot
+standing exactly on the right block was charged ~1.0 of phantom distance and could fail
+the check. The fix was correcting the unit, not loosening the distance limit — the
+genuine misses (2.8 and 3.4 blocks out) still fail after the fix. Loosening a limit until
+an alarm goes quiet feels like progress and is actually erasure; if a verifier is noisy,
+find the bug in the verifier, don't widen its tolerance to make the noise stop.
 
 ## Server-drop doctrine + completion truth (user, 2026-09-01)
 - If the SERVER drops or crashes: everyone REJOINS, always. Runner processes
