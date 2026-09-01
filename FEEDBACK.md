@@ -1055,3 +1055,23 @@ type: bug
 status: shipped(runner.js) — cold-start verified
 what: #41's point was that a run must be attributable to its WHOLE stack, not just skills. I then added producer.js to auto-inject without adding it to the `versions` record, so the soak's ledger could not have said which producer version produced it — the one payload acquire-by-producing depends on. Same omission shape as the original bug, reintroduced by the person who fixed it, one payload later.
 fix: producer joins the record. Verified by cold start rather than inspection — a fresh process with the soak's flags wrote `{"ev":"versions", skills:37, agenda:11, ..., producer:3}`, and /state reports it too.
+
+### 2026-09-01 engine-dev-2 — TOOL reached the kit's PICKAXE requirement only through activeClass (launch blocker)
+type: bug
+status: shipped(agenda v12) — live-verified on the exact failing shape
+what: engine-dev-3's sustained-loop re-verify failed with the bot stalled at 1 pickaxe. I had previously reported this as not-reproducing, and I was wrong in a specific and instructive way: my repro exercised `S.ensureTool(bot,'pickaxe',{spare:true})` DIRECTLY and proved the ACQUISITION works — it never tested the RUNG that is supposed to ask for it. eng-3's second report named the thing I had not checked ("TOOL.fire returned FALSE at 1 pickaxe held, even though projectKit().picks=2"), and that was the bug.
+measured on v11, same bot, 1 pickaxe held, kitPicks 2, both project shapes side by side:
+  project WITH `tool:'pickaxe'`  -> TOOL fire true,  clear false   (correct)
+  project WITHOUT a tool         -> TOOL fire FALSE, clear TRUE    (the bug)
+root cause: `activeClass(s)` is `project.tool || ROLE_TOOL[role]`, and TOOL reached the gate's `picks` requirement only through it, after an early `if (!c) return false`. So a project with no explicit tool, on a bot whose role maps to no tool (`builder` -> null, or a role-less bot), left `picks: 2` aimed at by NOTHING — fire false, clear TRUE, kitCheck still saying "pickaxes 1/2", mineLane refused kit_missing forever. Exactly the WEAPON gap one requirement over.
+fix: `kitPickShort()` is asked BEFORE the activeClass guard, alongside `weaponMissing()`, and the act picks a target in priority order — the project's own tool if broken, then the gate's spare pickaxe, then the gate's weapon — so all three are reachable when no tool class resolves.
+NOT fixed by lowering `picks` to 1, which was the proposed fix and would have made the repro pass. With picks:1 the requirement still would not have been AIMED at; it would merely have happened to be satisfied by produce's internal ensureTool, leaving the defect latent for the next tier that wants a spare. Fixing the symptom would have hidden the cause.
+verified live on the failing shape: picks 1 -> 2 via TOOL, RESTOCK then healed the table and sticks the craft consumed, kit missing -> [], PROJECT started mineLane with activeTaskRung=PROJECT.
+THE FIXTURE PASSED FOR THE WRONG REASON, as eng-3 suspected when they said sense() and the injected snapshot disagreed: agenda-ladder's base role is `miner`, which maps to pickaxe, so activeClass was never null in the existing "1 pickaxe but kit wants 2" case. A `builder`-role case now pins it. 44/44.
+the lesson, and it is the session's recurring one at yet another altitude: **testing the ACQUISITION is not testing the RUNG THAT ASKS FOR IT.** I proved the capability existed and reported "does not reproduce"; the caller that was supposed to invoke it was the broken part. Same family as "a verifier only protects the layer it is pointed at" and "a test that stubs what it depends on cannot tell you it is there".
+
+### 2026-09-01 engine-dev-2 — stack-check verifies PRESENCE, not VERSION (known gap)
+type: bug (test harness)
+status: open — deliberately not fixed pre-launch
+what: `bench/fixtures/stack-check.js` confirms payloads are installed, but not that they are the versions you intend. engine-dev-3's bot passed the pre-flight 43/43 while running skills v34, two versions behind the v36 they believed they were verifying against — so a green pre-flight did not tell them their stack was stale.
+fix (deferred): assert expected versions. It needs an expected-version source of truth, which is a new mechanism on the launch path, so it is not going in before the soak. Until then the reading is: check the /state version line alongside the pass count.
