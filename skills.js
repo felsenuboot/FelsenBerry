@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 45;
+const ENGINE_VERSION = 46;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -750,23 +750,28 @@ function makeCtx(bot, task) {
     async gotoSee(p, timeoutMs = 20000) {
       return ctx.goto(new goals.GoalLookAtBlock(new Vec3(p.x, p.y, p.z), bot.world, { reach: 4.0 }), timeoutMs);
     },
-    // #70b: is `p` actually pathable-to RIGHT NOW? A getPathTo probe — a path SEARCH, no movement —
-    // so a skill can DROP an unreachable work-target before committing a real goto to it. That is
-    // the no_path churn #70 killed for relocate candidates (relocateToWork), applied at the skills'
-    // own target selection: MettMarcel's harvestGrass and BuddelBernd's mineLane were gotoNear-ing
-    // grass/ore across a barrier they had no route to. getPathTo IS a real search, so callers MUST
-    // bound how many they probe (nearest-few, sorted by distance — never the whole scan). `minPartial`
-    // accepts a best-effort partial that carries the bot at least that far (relocate wants ~12; a
-    // WORK-target wants a full route, minPartial 0 — a partial that dead-ends short can't work it).
-    reachable(p, range = 2, minPartial = 0, timeoutMs = 2000) {
+    // #70: is `p` actually pathable-to RIGHT NOW — by the SAME planner the real goto will use? A
+    // getPathTo probe (a path SEARCH, no movement) so a skill/relocate can DROP a target it has no
+    // route to BEFORE committing a goto (the no_path churn: MettMarcel's harvestGrass + relocate,
+    // BuddelBernd's mineLane, all gotoNear-ing across a barrier).
+    //
+    // TWO things the reconnect-#2 diagnostic forced, both "the checker must match the executor":
+    //  1. STRICT success only. A getPathTo 'partial' means gotoNear CANNOT reach the goal (only part
+    //     way), and a gotoNear to a partial-only GoalNear throws no_path — so a partial is NOT
+    //     reachable for anything we intend to walk to. Accepting partials (the old minPartial=12) is
+    //     exactly what made relocateToWork issue 4 no_path gotos while reporting ok.
+    //  2. Probe with ctx.goto's WORK profile, NOT the ambient bot.pathfinder.movements. The executor
+    //     swaps WORK in (protection-aware exclusions + dig knobs) for the actual path; probing the
+    //     ambient profile could plan through camp/base blocks WORK excludes and pass a target the
+    //     real goto then no_paths. Cached per task (protected regions don't move mid-task).
+    // getPathTo IS a real search, so callers MUST bound how many they probe (nearest-few, not a scan).
+    reachable(p, range = 2, timeoutMs = 2000) {
       try {
-        const r = bot.pathfinder.getPathTo(bot.pathfinder.movements, new goals.GoalNear(p.x, p.y, p.z, range), timeoutMs);
-        if (r.status === 'success') return true;
-        if (minPartial > 0 && r.status === 'partial' && r.path && r.path.length) {
-          const e = r.path[r.path.length - 1], hp = bot.entity.position;
-          if (e && e.x != null) return Math.sqrt((e.x - hp.x) ** 2 + (e.z - hp.z) ** 2) >= minPartial;
+        if (!ctx._reachMoves) {
+          ctx._reachMoves = (G.__movementProfiles && typeof G.__movementProfiles.WORK === 'function')
+            ? G.__movementProfiles.WORK(bot) : bot.pathfinder.movements;
         }
-        return false;
+        return bot.pathfinder.getPathTo(ctx._reachMoves, new goals.GoalNear(p.x, p.y, p.z, range), timeoutMs).status === 'success';
       } catch (_) { return false; }
     },
 
@@ -871,6 +876,13 @@ function makeCtx(bot, task) {
       const t0 = Date.now();
       let picked = 0, unreachable = 0;
       const attempts = new Map();
+      // #D: PERSISTENT across sweeps. A drop embedded in terrain is unreachable every sweep, and the
+      // per-call attempts map reset each time — so collectDrops re-chased it forever (BuddelBernd:
+      // 34 no_path gotos to a stray item at ~[11,91,67], never reaching mineLane). Blacklist the
+      // unroutable CELL (position is stable; entity ids churn) for a while so later sweeps skip it.
+      const bl = (S._dropBlacklist = S._dropBlacklist || new Map());
+      const blKey = (pos) => `${pos.x},${pos.y},${pos.z}`;
+      for (const [k, exp] of bl) if (exp < t0) bl.delete(k);   // expire stale entries (terrain may change)
       await new Promise((r) => setTimeout(r, 600)); // let drops pop out and settle
       while (Date.now() - t0 < timeoutMs) {
         ctx.step();
@@ -881,6 +893,7 @@ function makeCtx(bot, task) {
           if (e.isValid === false) return false;
           if (e.position.distanceTo(me) > radius) return false;
           if ((attempts.get(e.id) || 0) >= 2) return false;
+          if (bl.has(blKey(e.position.floored()))) return false;   // #D: known-unreachable cell
           if (only) {
             let it = null;
             try { it = e.getDroppedItem(); } catch (_) { return true; } // metadata not in yet: assume collectable
@@ -891,10 +904,14 @@ function makeCtx(bot, task) {
         if (!cands.length) break;
         const e = cands[0];
         const p = e.position.floored();
+        // #D: probe reachability BEFORE the goto — never emit a no_path goto to an embedded drop.
+        if (p.offset(0.5, 0.5, 0.5).distanceTo(me.offset(0, 1.6, 0)) > 3 && !ctx.reachable(p, 1)) {
+          bl.set(blKey(p), Date.now() + 5 * 60000); attempts.set(e.id, 2); unreachable++; continue;
+        }
         try { await ctx.gotoNear(p, 1, 12000); }
         catch (_) {
           attempts.set(e.id, (attempts.get(e.id) || 0) + 1);
-          if (attempts.get(e.id) >= 2) unreachable++;
+          if (attempts.get(e.id) >= 2) { bl.set(blKey(p), Date.now() + 5 * 60000); unreachable++; }
           continue;
         }
         await new Promise((r) => setTimeout(r, 500));
@@ -1206,6 +1223,12 @@ const ASSERTS = {
     const want = (task.args && task.args.count) || 1;
     const got = r.treesFelled || 0;
     return { rule: 'chopTrees.felled', fail: got === 0 && (r.logsDug || 0) > 0, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
+  },
+  relocateToWork: (task) => {
+    const r = task.result; if (!r) return null;
+    // #C: a relocate that moved NOWHERE is not a success — grade it a miss so the ledger/playcheck
+    // don't read a 0m boxed relocate as productive (the outcome:ok-despite-relocated-0m false success).
+    return { rule: 'relocateToWork.moved', fail: !r.relocated, want: 1, got: r.relocated ? 1 : 0, yield: r.relocated ? 1 : 0 };
   },
   huntAnimals: (task) => {
     const r = task.result; if (!r) return null;
@@ -2893,7 +2916,7 @@ S.define('chopTrees', {
   description: 'Fell whole trees (flood-filled connected logs, bottom-up), collect all drops, replant saplings when held.',
   params: { types: "'any' or array of species (oak, spruce, birch, jungle, acacia, dark_oak, cherry, pale_oak, mangrove)", count: 'trees to fell (default 1)', maxDist: 'search radius (default 64)', replant: 'bool (default true)' },
   validate: (a) => {
-    let types = a.types || ['oak'];
+    let types = a.types || 'any';   // #A: default ANY species, not oak-only (FurzFriedrich thrashed "no oak within 64" beside birch/spruce; matches what SALIENT claims)
     if (typeof types === 'string') types = types === 'any' ? SPECIES : [types];
     if (!Array.isArray(types) || !types.length) return 'types must be a species array or "any"';
     for (const t of types) if (!SPECIES.includes(t)) return `unknown species '${t}' (known: ${SPECIES.join(', ')})`;
@@ -2901,7 +2924,7 @@ S.define('chopTrees', {
   },
   fn: async (ctx) => {
     const { bot, args } = ctx;
-    let types = args.types || ['oak'];
+    let types = args.types || 'any';   // #A: default ANY species, not oak-only — see validate()
     if (typeof types === 'string') types = types === 'any' ? SPECIES : [types];
     const count = Math.max(1, Math.min(16, args.count || 1));
     const maxDist = Math.min(args.maxDist || 64, 64);
@@ -3075,10 +3098,10 @@ S.define('relocateToWork', {
     // So probe each candidate with getPathTo BEFORE committing a goto: skip no_path/timeout
     // targets, and WIDEN the ring when the local fan is all-unreachable rather than re-picking the
     // same doomed set. A genuinely boxed bot then stands down cheaply instead of churning gotos.
-    // A relocate candidate is worth a goto if a route exists, or a partial that carries us ≥12
-    // blocks to genuinely fresh ground (a boxed/island bot's partial dead-ends at the wall a few
-    // blocks off — not progress). Same getPathTo gate the work-skills now use, via ctx.reachable.
-    const routable = (dest) => ctx.reachable(dest, 2, 12);
+    // A relocate candidate is worth a goto only if a full route exists — the SAME strict gate the
+    // work-skills use. Accepting partials (the old minPartial=12) is what let relocateToWork commit
+    // gotos to spots gotoNear could only reach part-way, then no_path (MettMarcel's 4 phantom gotos).
+    const routable = (dest) => ctx.reachable(dest, 2);
     const candidateAt = (h, ring) => {
       const tx = Math.floor(here.x + h[0] * ring), tz = Math.floor(here.z + h[1] * ring);
       const topY = Math.floor(Math.max(here.y, HOME ? HOME.y : here.y)) + 4;
@@ -3111,9 +3134,14 @@ S.define('relocateToWork', {
       const boxed = tried > 0 && unroutable >= tried;
       return { relocated: false, reason: boxed ? 'boxed_in' : 'no_reachable_spot', kind, tried, unroutable };
     }
+    // #C: 'relocated' must reflect ACTUAL displacement, not just that a gotoNear resolved. A goto
+    // that resolves without the bot moving (a false-arrival) must NOT grade as a successful relocate
+    // — that was the outcome:ok-despite-0m false success. Measure from the real final position.
+    const fin = bot.entity.position;
+    const dist = Math.round(Math.sqrt((fin.x - here.x) ** 2 + (fin.z - here.z) ** 2));
+    if (dist < 3) return { relocated: false, reason: 'no_progress', kind, tried, unroutable };
     try { await ctx.collectDrops(8, 6000); } catch (_) {}
-    const dist = Math.round(Math.sqrt((moved.x - here.x) ** 2 + (moved.z - here.z) ** 2));
-    return { relocated: true, kind, to: { x: moved.x, y: moved.y, z: moved.z }, dist };
+    return { relocated: true, kind, to: { x: Math.round(fin.x), y: Math.round(fin.y), z: Math.round(fin.z) }, dist };
   },
   // #67a: a relocate that found nowhere new to go is not news — stay silent.
   doneMsg: (t) => (t.result && t.result.relocated
