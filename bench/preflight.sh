@@ -8,6 +8,8 @@
 # What it is actually for: catching payload drift and stale injection in about a second. A bot
 # can report the right versions in /state and still be running a half-injected stack; these
 # cases exercise the real predicates, so they fail loudly when the ladder is not what you think.
+# stack-check runs FIRST and checks PRESENCE, because the behavioural fixtures stub
+# __skills.start and would otherwise pass green on a bot where `produce` was never installed.
 set -e
 PORT="${1:-3110}"
 cd "$(dirname "$0")/.."
@@ -15,7 +17,7 @@ python3 - "$PORT" <<'PY'
 import json, sys, urllib.request
 port = sys.argv[1]
 total = passed = 0
-for f in ['agenda-ladder', 'agenda-deepkit', 'assert-produce']:
+for f in ['stack-check', 'agenda-ladder', 'agenda-deepkit', 'assert-produce']:
     code = open('bench/fixtures/%s.js' % f).read()
     req = urllib.request.Request('http://127.0.0.1:%s/eval' % port,
                                  data=json.dumps({'code': code}).encode(),

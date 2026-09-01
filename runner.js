@@ -594,6 +594,11 @@ const server = http.createServer(async (req, res) => {
         digguard: ver(globalThis.__digguard),
         toolguard: ver(globalThis.__toolguard),
         agenda: ver(globalThis.__agenda),
+        // producer carries __skills.produce and the `produce` skill, which the agenda's
+        // RESTOCK rung depends on for acquire-by-producing. It was auto-injected but not
+        // REPORTED, so "is produce installed" needed an /eval — exactly the gap this map
+        // exists to close.
+        producer: ver(globalThis.__producer),
         graychat: ver(globalThis.__graychat),
         idleguard: ver(globalThis.__idleguard),
         reachguard: ver(globalThis.__reachguard),

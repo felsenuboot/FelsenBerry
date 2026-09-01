@@ -522,8 +522,8 @@ Tiers are cumulative, and which one applies is derived from the skill and its ar
 | Tier | Applies to | Requires |
 |---|---|---|
 | `excursion` | `chopTrees`, `huntAnimals` | 8+ torches, 2+ food items, a sword or axe |
-| `underground` | `mineLane`, `safeDescend` | 16+ torches, 4+ food, weapon, **2 pickaxes**, 16+ filler blocks, **2+ sticks, 1 crafting table** |
-| `deep` | `safeDescend {toY < 0}`, `mineLane` while already below y=0 | 40+ torches, 8+ food, weapon, 2 picks, 16 filler, **4+ sticks, 1 crafting table**, worn chestplate, shield, water bucket |
+| `underground` | `mineLane`, `safeDescend` | 16+ torches, 4+ food, weapon, **2 pickaxes**, 16+ filler blocks, **8+ sticks, 1 crafting table** |
+| `deep` | `safeDescend {toY < 0}`, `mineLane` while already below y=0 | 40+ torches, 8+ food, weapon, 2 picks, 16 filler, **8+ sticks, 1 crafting table**, worn chestplate, shield, water bucket |
 
 The 2-pickaxe rule is bernd-driver's double tool loss made mechanical, and the 16 filler
 blocks are survival.js's wall-off budget — without them the panic reflex can only run.
@@ -533,8 +533,14 @@ the bot stands: 3 of the filler cobblestone plus 2 sticks on a table IS a stone 
 are there because a pickaxe that breaks at depth used to be a dead end — the acquisition path
 would find surface trees 40 blocks overhead, fail to reach them one by one, and report "need
 more logs" 36 seconds later with the bot still toolless. Carrying two light items turns that
-into a 2.2-second recraft with no travel at all. You should not have to provision them by
+into a 2.2-second recraft with no travel at all. The bot mines its table back up afterwards,
+so a re-craft does not cost you the table. You should not have to provision any of it by
 hand: RESTOCK withdraws them from the depot, and makes them itself if the depot is out.
+
+The stick floor is 8 rather than the 2 a re-craft costs (raised in v37) because sticks are
+also the only scarce input to TORCH production underground: `produce` mines its own coal, but
+a stick needs wood and there is none down there. One log is four planks is eight sticks is
+thirty-two torches, so the margin is cheap insurance on a long run.
 
 Check before you commit to a plan (pure inspection, no side effects):
 
