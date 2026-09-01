@@ -38,7 +38,7 @@ triage: (2026-09-01 synthesis) ship in the SAME status change as the 4Hz danger 
 
 ### 2026-09-01 marcel-driver — harvestGrass skill (rule-of-twice)
 type: rule-of-twice
-status: open
+status: shipped(farmskills v1) — engine-dev-3 2026-09-01. `__skills.harvestGrass({radius,count})`: findBlocks grass/fern, cut via ctx.digBlock (only ever matches grass names + skips ctx.isProtected targets, so it never touches terrain/structure), collectDrops filtered to seeds. Live-verified on the local server (cut to the count cap, seeds collected). Ships in the new `farmskills.js` module (auto-injected after skills.js), NOT the skills.js body. NOTE for #35: harvestGrass done; ctx.stripLog + ctx.settle still open (ctx.settle wants a skills.js makeCtx edit — coordinating with engine-dev-2 to avoid the shared-file collision).
 github: felsenuboot/felcrew-mcp#35 (issue-manager sync, 2026-09-01 — bundled with ctx.stripLog/ctx.settle, phase-1, owner engine-dev-3)
 what: Grass/seed harvesting hand-driven via raw eval twice in one shift.
 fix: skills.js harvestGrass(radius, target): find short_grass/tall_grass, goto+dig+collect, gated like huntAnimals, never digs terrain blocks.
@@ -281,7 +281,7 @@ fix: needs an engine-side look (or a `/eval` random-tick probe) — if confirmed
 
 ### 2026-09-01 karl-driver — tillFarmland skill (rule-of-twice)
 type: rule-of-twice
-status: open
+status: shipped(farmskills v1) — engine-dev-3 2026-09-01. `__skills.tillFarmland({rect|cells, plant})`: per cell equip-hoe + lookAt the TOP FACE (pos+.5,1,.5) + activateBlock(block,[0,1,0]) — the karl/marcel activateBlock-top-face fix baked in as the mechanic; clears grass/snow clutter first, skips protected/crop/water/non-soil cells, optional seed plant via placeBlock up-face with an own-hitbox step-aside. Live-verified on the local server: 15/16 plot cells tilled+planted, the water cell correctly skipped, hoe auto-acquired via ctx.ensureTool. Ships in `farmskills.js`. github #13 — this is the SKILL half; the separate farmland-reverting bug stays open (farmCycle re-tills reverted cells as a workaround, but the root-cause revert bug is unfixed).
 what: Hand-drove hoe-tilling via raw /eval well past twice this session (32 cells: 23 new + 6 re-tills + 4 seed-plants at farm_1) — same goto+equip+lookAt+activateBlock pattern every time.
 fix: skills.js `tillFarmland(cells|rect, {plant:seedName})`: for each target cell, clear a solid block one above if present (never dig a `wheat`/crop block — treat any mature crop as protected, matching the chopTrees natural-tree lesson), fill an air floor with dirt if needed, hoe-till via `activateBlock(block, [0,1,0])` (see the activateItem/activateBlock entry above), optionally plant a seed item the same way. Gate like huntAnimals/harvestGrass; house-rule drop collection applies.
 github: felsenuboot/felcrew-mcp#13 (combined with marcel-driver's farmland-reverting entry above)
@@ -344,7 +344,7 @@ CORRECTION (2026-09-01, rollout-manager, likely closes this as a non-bug): this 
 
 ### 2026-09-01 team-lead (from marcel-driver's idle gap) — farmCycle skill (rule-of-many)
 type: rule-of-twice
-status: open
+status: shipped(farmskills v1) — engine-dev-3 2026-09-01. `__skills.farmCycle({field, crop?, replant, bakeAt, bakeTable?, depositTo})`: survey ripe crops (age-max only — immature never dug), harvest via ctx.digBlock, collectDrops (seed/product filtered so it doesn't hoover junk), replant empties AND re-till any cell that reverted to dirt/grass (self-heals the farmland-revert bug), optional craftSafe bread at a wheat threshold, optional deposit (made NON-FATAL — a blocked chest logs + returns instead of erroring the whole cycle/queue). A no-ripe-crop pass is a fast no-op, so it is safe as a queue onEmpty fallback (the farm never sleeps). Live-verified full path on the local server: harvested 4/replanted 4/baked 4/deposited 10, no-op pass clean, retill path healed a reverted farmland cell. Ships in `farmskills.js` (auto-injected after skills.js, persists across reconnects). github #5.
 what: The farm's harvest→sweep→replant→bake cycle is the most-repeated hand-driven
 sequence in the fleet (dozens of cycles tonight) and stops dead whenever the
 driver ends a turn without queuing the next pass — idle-guard's generic work

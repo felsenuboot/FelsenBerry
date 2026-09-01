@@ -37,10 +37,12 @@ every ./spawn.sh, same as before, until you restart the process:
 DISCOVER
   ./task.sh <port> list   # come, collectDrops, chopTrees, mineLane, huntAnimals, depositToChest,
                           # safeDescend, buildSchematic, buildWall, buildFloor, frameStructure,
-                          # buildStaircase
+                          # buildStaircase, farmCycle, tillFarmland, harvestGrass
                           # (v7: buildSchematic/buildWall/frameStructure are live-verified;
                           #  buildFloor shares the same engine; buildStaircase is still the one
                           #  build skill never live-run — see ENGINE_NOTES.md before trusting it)
+                          # (farm skills ship in farmskills.js — auto-injected after skills.js,
+                          #  so payloads.farmskills should read 1; see FARM SKILLS below)
 
 START (fire-and-forget; returns {taskId} instantly)
   ./task.sh <port> start mineLane '{"target":"stone","count":5}'
@@ -440,6 +442,40 @@ ingredient drops by more than the recipe asked for. `made` is what actually arri
 that, not your arithmetic. It finds a crafting table within 4 blocks on its own (pass
 `{table:{x,y,z}}` to pin one); 2x2 recipes work without one, and a 3x3 recipe with no table
 in reach comes back with that stated in `reason`.
+
+## Farm skills (farmskills.js v1) — the farm that never sleeps
+
+Three skills ship in `farmskills.js` (auto-injected after skills.js, so `payloads.farmskills`
+reads `1` on a current bot). They reuse the engine's ctx primitives, so every house rule
+(tool preflight, drop-sweep, reach guard, protected-structure filter) already applies.
+
+- **`farmCycle`** — one full pass over a field: harvest ripe crops (age-max ONLY — immature
+  crops are never dug), sweep drops, replant empties, re-till any cell that reverted to
+  dirt/grass (self-heals the farmland-revert bug), optional bread bake, optional deposit.
+  ```sh
+  ./task.sh <port> start farmCycle '{"field":{"from":{"x":-2,"y":110,"z":10},"to":{"x":4,"y":110,"z":15}},
+    "replant":true,"bakeAt":9,"depositTo":{"x":-3,"y":111,"z":1}}'
+  ```
+  `field` is the FARMLAND level (crops grow at y+1). `crop` auto-detects (or pass
+  `wheat`|`carrots`|`potatoes`|`beetroots`). `bakeAt` = wheat-count threshold to craft
+  floor(wheat/3) bread (`bakeTable:{x,y,z}` optional, else it auto-finds one). `depositTo`
+  banks products + bread but ALWAYS keeps seeds for replanting. Seeds are never deposited.
+  **A no-ripe-crop pass is a fast no-op, so it is the ideal `onEmpty` fallback** — queue it
+  and the farm tends itself forever:
+  ```sh
+  ./task.sh <port> queue '[{"name":"farmCycle","args":{"field":{...}}}]' \
+    '{"onEmpty":{"name":"farmCycle","args":{"field":{...}},"everyMs":60000}}'
+  ```
+  Deposit is NON-FATAL: a blocked/unreachable chest logs a reason and returns instead of
+  erroring the cycle, so a chest hiccup never halts the queue.
+- **`tillFarmland`** — hoe soil into farmland over a `rect:{from,to}` (or explicit
+  `cells:[{x,y,z}]`), optional `plant:"wheat_seeds"` (or carrot/potato/beetroot_seeds) per
+  cell. Skips protected/crop/water/non-soil cells; clears grass clutter first; acquires a
+  hoe via ensureTool. `y` in the rect is the SOIL level.
+- **`harvestGrass`** — cut short/tall grass & ferns within `radius` (up to `count`) for
+  wheat seeds; only ever breaks grass/fern blocks, never terrain or structure.
+
+All three are idempotent-friendly (already-tilled/planted cells are skipped) and queueable.
 
 GITHUB ISSUES (open to every teammate, drivers included — user law, 2026-09-01)
 The repo (`felsenuboot/felcrew-mcp`, `gh` CLI already authenticated machine-wide) has an
