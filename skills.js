@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 28;
+const ENGINE_VERSION = 30;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -943,15 +943,28 @@ function makeCtx(bot, task) {
     // no-op fallback (does nothing, keeps current movements) on an older runner.js
     // process without globalThis.__movementProfiles — travel still works, just without
     // the dig-averse tuning. ALWAYS call the returned restore() in a finally.
+    // The profile functions also mutate PLANNER SCALARS on bot.pathfinder itself
+    // (thinkTimeout / tickTimeout / searchRadius / enablePathShortcut) — those live on the
+    // pathfinder, not on the Movements object, so swapping movements back does NOT restore
+    // them. Measured: after a restock the bot kept thinkTimeout 25000 and searchRadius -1
+    // permanently, meaning every later WORK/CAVE task inherited HAUL's unlimited search
+    // instead of WORK's deliberate 64-block "fail fast and honestly" budget. Snapshot and
+    // restore them alongside the movements.
     enterHaul() {
       let prev = null;
+      const pf = bot.pathfinder;
+      const scalars = pf ? { thinkTimeout: pf.thinkTimeout, tickTimeout: pf.tickTimeout,
+        searchRadius: pf.searchRadius, enablePathShortcut: pf.enablePathShortcut } : null;
       try {
         if (G.__movementProfiles && typeof G.__movementProfiles.HAUL === 'function') {
           prev = bot.pathfinder.movements || null;
           bot.pathfinder.setMovements(G.__movementProfiles.HAUL(bot));
         }
       } catch (e) { pushLog('warn', 'enterHaul: movements not applied: ' + e.message); }
-      return () => { try { if (prev) bot.pathfinder.setMovements(prev); } catch (_) {} };
+      return () => {
+        try { if (prev) bot.pathfinder.setMovements(prev); } catch (_) {}
+        try { if (scalars) Object.assign(bot.pathfinder, scalars); } catch (_) {}
+      };
     },
 
     // Withdraw a shopping list from a chest/barrel. needs = {itemName: count}.
@@ -2871,6 +2884,14 @@ S.define('restock', {
     if (!chests.length) throw fatal('not_found', 'no depot chests configured', 'add a depot block to protected.json or pass chests:[{x,y,z}]');
 
     ctx.setPhase('restocking', `Topping up: ${Object.entries(need).map(([n, c]) => c + ' ' + n).join(', ')}.`);
+    // A restock is a long haul by nature — the depot is at the surface and the bot calling
+    // this is usually deep. On the default profile that route is beyond the planner's search
+    // budget: the soak ledger shows a y62->surface trip returning `partial` 416 times with
+    // ZERO successes, inching ~17 blocks of a 76-block ascent before wedging, and it did that
+    // ten times in a row. HAUL is what that route needs (thinkTimeout 25s, unlimited
+    // searchRadius, path shortcuts) and it is the same treatment `come` already gets.
+    const restoreMoves = ctx.enterHaul();
+    try {
     const got = {};
     for (const c of chests) {
       ctx.step();
@@ -2886,6 +2907,7 @@ S.define('restock', {
       ctx.log(`still short: ${Object.entries(short).map(([n, c]) => c + ' ' + n).join(', ')} — depot is out`);
     }
     return { got, short, stocked: Object.keys(short).length === 0 };
+    } finally { try { restoreMoves(); } catch (_) {} }
   },
   doneMsg: (t) => {
     const g = Object.entries(t.result.got || {});
