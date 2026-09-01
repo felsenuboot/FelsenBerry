@@ -5,7 +5,7 @@
 // only after 60s of driver silence, and aborts its own work the moment a driver acts.
 // Idempotent: re-injection restores originals then replaces. Disable: __idleguard.stop()
 if (globalThis.__idleguard) { try { globalThis.__idleguard.stop(); } catch (e) {} }
-const g = { version: 9, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
+const g = { version: 10, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
             runs: 0, errors: 0, lastExternal: Date.now(), workStarted: 0, patched: [], pausedUntil: 0 };
 globalThis.__idleguard = g;
 // pause(ms): drivers call __idleguard.pause(120000) at the start of long monitoring
@@ -35,7 +35,39 @@ const patch = (obj, key) => {
 };
 patch(bot.pathfinder, "setGoal");
 patch(bot.pathfinder, "goto");
-patch(bot, "dig");
+// bot.dig is the ONE method digchain owns (#55). Registering an observer there instead of
+// patching keeps the chain the TRUE single wrap point: engine-dev-3 found that our wrapper
+// sat on TOP of the chain and, publishing no __wrappedTarget, hid it — harmless on a fleet
+// reconnect (fresh bot, clean rebuild) but a manual same-bot re-inject would stack a second
+// chain above ours and double-run every guard check.
+// Order -10 so it runs FIRST, before reach(0): today's wrapper sits above the guards and
+// therefore records an ATTEMPT even when a guard later rejects it. Idle detection wants that
+// — a bot whose digs are being refused is still a bot trying to work, not an idle one.
+// Returns null (pass): this is an observer, not a check.
+// Gated on the same enabled/busy flags, so stop() leaves it INERT exactly as the permanent
+// wrapper is. It is never unregistered at all, matching this file's v8 contract: idleguard
+// has no restore() by design, because restoring a patched method by assignment is what once
+// stripped the whole guard stack off a live bot. Registering once and going inert keeps that
+// property — digchain's registry is keyed by name, so a re-inject overwrites rather than
+// appends, which is the same "rebind, never re-wrap" rule the patches above follow.
+if (globalThis.__digchain && globalThis.__digchain.register) {
+  const holder = { g };
+  globalThis.__digchain.register("idle-activity", -10, () => {
+    const cur = holder.g;
+    if (cur && cur.enabled && !cur.busy) cur.lastExternal = Date.now();
+    return null;
+  });
+  g.digViaChain = true;
+  g.__digHolder = holder;
+} else {
+  // Fall back to the patch, UNLIKE the safety guards which no-op when the chain is missing.
+  // The asymmetry is deliberate: a guard that fails to install means unguarded digs on a real
+  // base, so silence is the worse failure and refusing is correct. Idle tracking failing to
+  // install only means the bot misjudges its own idleness — degraded, not dangerous — so an
+  // extra wrapper is the better trade. runner-first makes this path near-dead anyway.
+  patch(bot, "dig");
+  g.digViaChain = false;
+}
 patch(bot, "equip");
 patch(bot, "craft");
 patch(bot, "openContainer");
@@ -165,4 +197,4 @@ g.timer = setInterval(() => {
     try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
   })().catch(() => {});
 }, 5000);
-return { installed: true, version: 9, role: g.role };
+return { installed: true, version: 10, role: g.role, digViaChain: Boolean(g.digViaChain) };
