@@ -38,7 +38,7 @@ dropsLeft > 0, half-kit accepted, staleAfterReconnect > 0.
 ## autonomy floor (queue+idleguard+runner)       [suite: AS]
 | date | engine | hours | idle% | uptime% | interventions | staleAfterReconnect | deaths | tokens | verdict | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | — | — | — | needs queue loop/re-seed (FEEDBACK filed; watcher workaround ok) |
+| — | — | — | — | — | — | — | — | — | — | queue loop:true shipped (skills v28, #24 closed) — the external soak-watch.sh re-seed workaround is no longer needed; this suite tests the queue+idleguard floor specifically (distinct from the newer agenda.js soak, scored separately below) and still awaits C1's benchmark facilities on the main server for its actual gauntlet |
 
 ## Tier-0 fixture suite                          [suite: fixtures/]
 | date | engine | fixtures run | passed | failed | quarantined (flaky) | verdict | notes |
