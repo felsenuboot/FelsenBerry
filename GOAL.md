@@ -56,30 +56,37 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v19** · `telemetry.js` v1 · `dangerscan.js` v3 · `survival.js` v3
-· `digguard.js` v4 · `toolguard.js` v2 · `idleguard.js` v9 · `graychat.js` v3 · `reachguard.js` v1.
-`panicguard.js` is RETIRED (superseded by survival.js). `GET /state.payloads` reports these
-numbers live, `stalePayloads[]` names any payload bound to a bot object a reconnect replaced,
-and `GET /metrics` reports the ledger's own health — presence has never implied liveness, and
-that has now bitten us four separate ways (reconnect swap, patch-stack teardown, stale light
-packets, and a guard sliced out by an over-broad edit).
+Live versions: `skills.js` **v27** · `agenda.js` v6 · `telemetry.js` v1 (ledger schema v2)
+· `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3 · `idleguard.js` v9
+· `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED (superseded by survival.js).
+`GET /state` reports live payload versions, `stalePayloads[]`, `agenda` (current rung), and
+`ash` readiness; `GET /metrics` reports the ledger's own health.
 
-**Phase-1 self-sufficiency — what the engine can now do with no driver and no depot.**
-Verified on the local server from a completely empty inventory on a fresh world:
-`__skills.ensureTool(bot,'axe')` tried the depot, found none, gathered wood by hand,
-crafted planks, crafted AND placed its own crafting table, crafted a wooden_axe and
-equipped it — 33 seconds, fully deterministic. Paired with toolguard at the `bot.dig`
-choke point (which equips before it rejects), "right tool always, acquire if missing" is
-now an engine gate rather than a driver habit.
+**The capstone has its first verified completion.** SoloSauhund, driverless, descended to the
+`toY:20` target and the agenda graded it with `__skills.assertTask` BEFORE setting
+`completedOnce` — `safeDescend.netDescent` checks real net Δy (~31 blocks), returned a
+non-null verdict, and genuinely passed. The ladder then fell to IDLE. The telemetry
+corroborated it independently: `outcome:"ok"`, `want:22 got:22 yield:1`, 22 levels in 22
+steps. So `assertTask` has now been observed BOTH refusing a false completion and granting a
+true one — the full cycle. The RESTOCK hysteresis fix is field-confirmed too: cancelled
+safeDescends fell from 15 in the churn run to 1 in the fixed run, then it completed.
+
+**This is acceptance criterion #4 only, and the descent was FIXTURED** (torches and
+cobblestone were given via RCON). It proves the ladder and verification MECHANICS. It cannot
+show from-nothing self-sufficiency, and must not be read as doing so.
+
+**THE PHASE-1 DONE-SIGNAL REMAINS THE UN-FIXTURED SOAK** — all five criteria, on a stable
+version, with nothing handed to the bot. That is gated on torch production landing
+(issue #37: RESTOCK can only WITHDRAW; torches are unwithdrawable on a depot-less world, not
+mineable, and restock does not craft, so a driverless deep descent cannot yet sustain).
 
 Known honest gaps, so nothing here reads as more finished than it is:
-- survival.js CREEPER retreat is now confirmed working live (engine-dev measured a real
-  10.9-block gain via GoalInvert); BREAK_LOS's arrow-shadow WALL path has still never run,
-  because corner-step keeps succeeding first in ordinary terrain.
-- safeDescend's `no_descent` tripwire is arithmetic-verified but not force-tested.
-- Shield doctrine: both engine prerequisites shipped, but no bot carries a shield yet —
-  needs iron and a craft.
-- ensureTool's DEPOT withdrawal branch has only been exercised as a miss (no depot exists
-  on the local world). The craft branch is fully verified; the withdrawal path needs one
-  run against the real base.
-- The autonomous agenda / needs-selector — the phase-1 capstone — is not started.
+- survival.js CREEPER retreat is confirmed live; BREAK_LOS's arrow-shadow WALL path has still
+  never run, because corner-step keeps succeeding first.
+- ashfinder / `/goto2` is merged and its security gap closed, but its MOVEMENT QUALITY is
+  unproven — a 12-block hop timed out 7 blocks short. Merged is not "works".
+- Assertion COVERAGE is the metric to watch next: an FSR of 0 is only meaningful in
+  proportion to how much was actually graded. metrics.mjs now reports it (0/0 until bots
+  restart onto ledger schema v2) and says so outright when coverage is thin.
+- 10+ `wedge` outcomes in the soak ledger are real and unexamined.
+- The RESTOCK produce-fallback (#37) is the current blocker on sustained driverless work.
