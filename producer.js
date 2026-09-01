@@ -239,13 +239,18 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
     if (R === 'crafting_table') {
       const before = inv(bot, 'crafting_table');
       if (before < want) {
-        if (await ensurePlanks(bot, 4 * (want - before), steps, chk)) {
-          let guard = 0;
-          while (guard++ < want + 2 && inv(bot, 'crafting_table') - before < want) {
-            chk();
-            const r = await S.craftSafe(bot, 'crafting_table', 1);
-            if (!r.made) break;
-          }
+        // Gather what wood we can, then craft from the planks in hand even if short of the full
+        // bill — the same partial-craft discipline as ensureSticks/ensurePlanks. Reachable via
+        // the public produce('crafting_table') default of want=16 (producer.js:284): a bot with
+        // planks but no reachable wood used to return no_wood/made:0 instead of floor(planks/4)
+        // tables. RESTOCK's want=1 ask masks it, but it is a real defect. The loop stops on its
+        // own when planks run out (craftSafe returns !made).
+        await ensurePlanks(bot, 4 * (want - before), steps, chk);
+        let guard = 0;
+        while (guard++ < want + 2 && inv(bot, 'crafting_table') - before < want) {
+          chk();
+          const r = await S.craftSafe(bot, 'crafting_table', 1);
+          if (!r.made) break;
         }
       }
       const made = inv(bot, 'crafting_table') - before;
@@ -291,14 +296,14 @@ S.define('produce', {
 
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 4,
+  version: 5,
   restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 4, boundAt: Date.now(), stale: false };
+REG.producer = { version: 5, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 4,
+return { installed: true, version: 5,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
   resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table'],
