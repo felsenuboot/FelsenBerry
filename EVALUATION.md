@@ -581,7 +581,7 @@ for the same claim, matching C1's two-signal pattern). Followed within one tick 
 `/state.agenda.rung` reading `IDLE` (or a genuinely new project set) — the project
 must not be immediately re-picked or left dangling.
 
-### C5 — Self-recovery from an induced wedge and a forced relog
+### C5 — Self-recovery from an induced wedge, a forced relog, and a deep tool-break
 
 **Wedge induction**: while the bot is actively pathing (mid-`goto`/mid-skill
 travel), `setblock` a `minecraft:torch` at the bot's exact current feet position
@@ -598,6 +598,39 @@ guard-stripping class of bug this session's doctrine work was largely about, see
 DRIVER_GUIDE's SUSPENDING IDLEGUARD note); (c) `/state.agenda.ticks` is increasing
 again (the ladder resumed on its own) within 60s total from the kick, with no driver
 action setting a new project or restarting anything by hand.
+
+**Deep tool-break induction (team-lead, deliberately exercising the open
+kit-foresight question from FEEDBACK.md rather than hoping it recurs
+organically)**: wait until the bot is genuinely deep in its project (well below
+the surface, actively mining/descending, not near a depot or reachable wood by
+observation) — the un-fixtured run's own descent naturally produces this window,
+so time the induction to it rather than forcing depth artificially. Identify the
+currently-equipped tool (`bot.heldItem.name`) and its `maxDurability`
+(`bot.registry.items[bot.heldItem.type].maxDurability`) via `/eval`, then
+`clear <bot> minecraft:<toolname>` followed by
+`give <bot> minecraft:<toolname>[minecraft:damage=<maxDurability-1>] 1` — the
+same damaged-item give syntax already verified in
+`bench/fixtures/tool-break-silent.sh` — leaving exactly one use before it breaks,
+so it breaks on the bot's own very next dig rather than requiring a long wait for
+organic decay, and breaks DURING real use rather than being silently swapped.
+
+**Pass** (this is the reactive-recovery half of the open question — see below for
+what a non-pass means): `/state.agenda` shows `blocked:"no_tool"` clear again
+(TOOL rung's own `clear()` condition satisfied — a working tool of the active
+class re-equipped) AND `rung` returns to `PROJECT` with the SAME project held,
+within a generous bound (10 minutes — a full gather-wood/craft-planks/place-table/
+craft-tool chain plus travel time from wherever the bot actually is, not the 33s
+empty-inventory baseline measured from right next to a tree on #30).
+
+**If this does NOT pass within the bound**: do not treat it as a mere criterion
+failure to shrug off. This is the CONCRETE FAILURE the determinism codicil
+requires before a kit-foresight rung (carry spares, or turn back before a tool
+dies rather than react after) can be proposed — per team-lead's steer, we do not
+pre-judge which outcome is correct, and either one is a clean, useful result.
+Record exactly what `ensureTool`/`produce()` actually attempted and where it gave
+up (mirroring the v3 near-miss writeup in FEEDBACK.md — "short on planks", "no
+reachable tree", etc.), and file the kit-foresight follow-up citing this specific,
+concrete data as its justification, not the hypothesis alone.
 
 ### Overall verdict
 
