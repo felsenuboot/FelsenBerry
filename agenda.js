@@ -67,7 +67,7 @@ const DEPOT_SHORT_TTL_MS = 600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 7, enabled: true,
+  version: 8, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -131,6 +131,13 @@ const sense = (inject) => {
 
     // best tool per class, with durability — P1d's input
     s.tools = {};
+    // ...and HOW MANY of each class, because the kit gate asks for a spare. TOOL's fire()
+    // and clear() used to count pickaxes straight out of bot.inventory, which made those
+    // predicates read the live world instead of the snapshot they were handed — so
+    // __agenda.step(injectedSnapshot) could not replay a synthetic world for the TOOL rung,
+    // and the design's mandatory deterministic-replay hook was quietly leaky. Every input a
+    // predicate reads has to come through sense(), or the dry run is not a dry run.
+    s.toolCounts = {};
     for (const it of items) {
       const m = /_(pickaxe|axe|shovel|hoe|sword)$/.exec(it.name);
       if (!m) continue;
@@ -138,6 +145,7 @@ const sense = (inject) => {
       const max = it.maxDurability || 0;
       const dur = max ? Math.round(((max - (it.durabilityUsed || 0)) / max) * 100) : 100;
       if (!s.tools[cls] || dur > s.tools[cls].dur) s.tools[cls] = { name: it.name, dur };
+      s.toolCounts[cls] = (s.toolCounts[cls] || 0) + 1;
     }
 
     const d = globalThis.__danger;
@@ -179,18 +187,28 @@ const activeClass = (s) => {
 // a requirement no rung was aiming at.
 const activeFloors = (s) => {
   if (A.project && A.project.restockFloor) return A.project.restockFloor;
-  const k = projectKit();
+  const k = projectKit(s);          // s, not bot: this feeds RESTOCK's fire/clear
   if (k) return { torches: k.torches, food: k.foodItems, filler: k.filler };
   return ROLE_FLOOR[s.role] || null;
 };
-// the kit requirement for the project's skill, or null
-const projectKit = () => {
+// The kit requirement for the project's skill, or null.
+//
+// A dynamic kit spec is a function of (args, bot) and the ones we have read exactly one
+// thing off that bot: `position.y` (mineLane asks "am I below zero" to pick underground vs
+// deep). Handed the real bot during a DRY RUN, that reads the live world and makes the
+// replay non-deterministic — the tier, and therefore the pick requirement, would depend on
+// where the bot happens to be standing rather than on the snapshot under test. So when the
+// snapshot is injected, pass a position-only shim built from it.
+// CONTRACT, and it binds anyone adding a kit function: kit(args, bot) may read POSITION
+// only. Reading anything else off that bot silently breaks deterministic replay.
+const projectKit = (s) => {
   try {
     const S = globalThis.__skills;
     if (!A.project || !S || !S.kitTiers || !S.registry) return null;
     const spec = S.registry[A.project.skill];
     if (!spec || !spec.kit) return null;
-    const tier = typeof spec.kit === 'function' ? spec.kit(A.project.args || {}, bot) : spec.kit;
+    const src = (s && s.injected && s.pos) ? { entity: { position: s.pos } } : bot;
+    const tier = typeof spec.kit === 'function' ? spec.kit(A.project.args || {}, src) : spec.kit;
     return tier ? (S.kitTiers()[tier] || null) : null;
   } catch (e) { return null; }
 };
@@ -298,11 +316,11 @@ const RUNGS = [
       if (!b || b.dur <= 15) return true;
       // the departure gate may want a BACKUP (underground wants 2 pickaxes). Holding one
       // good pickaxe satisfied this rung while the gate kept refusing — a shortfall nobody
-      // was fixing. Ask the gate directly.
-      const k = projectKit();
+      // was fixing. Ask the gate directly, but read the COUNT from the snapshot (see
+      // s.toolCounts) so this predicate stays replayable.
+      const k = projectKit(s);
       if (k && k.picks && c === 'pickaxe') {
-        const n = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
-        if (n < k.picks) return true;
+        if (((s.toolCounts || {}).pickaxe || 0) < k.picks) return true;
       }
       return false;
     },
@@ -311,10 +329,9 @@ const RUNGS = [
       if (!c) return true;
       const b = s.tools[c];
       if (!(b && b.dur > 25)) return false;
-      const k = projectKit();
+      const k = projectKit(s);
       if (k && k.picks && c === 'pickaxe') {
-        const n = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
-        if (n < k.picks) return false;
+        if (((s.toolCounts || {}).pickaxe || 0) < k.picks) return false;
       }
       return true;
     },
@@ -329,8 +346,8 @@ const RUNGS = [
       // it is a clean step-boundary stop.
       // If we already hold a working tool and the gate wants a BACKUP, ask for a spare —
       // otherwise ensureTool answers "you have one" and the rung can never clear.
-      const k = projectKit();
-      const held = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
+      const k = projectKit(s);
+      const held = (s.toolCounts || {}).pickaxe || 0;
       const wantSpare = Boolean(k && k.picks && c === 'pickaxe' && held >= 1 && held < k.picks);
       const r = runSkill('ensureTool', { tool: c, spare: wantSpare }, 'TOOL');
       if (r.ok) return 'started';
