@@ -113,4 +113,18 @@ engine-dev-2, needs a design owner.
 
 ## Alliance watch
 
-No new CAVECREW activity this cycle. Read-only watch continues.
+**CAVECREW re-engaged this cycle** after the silent stretch — answered all
+five outstanding items (a-e) on felcrew-mcp#1, closed their #2 (chunk
+regen: server-op ruled NO regen, both crews route around chunks
+(0,-1)/(0,0)/(-1,-1) as elevated-risk instead) and #4 (broken main, long
+fixed). Their #1 (claims registry) is a full accept, waiting on us to
+draft the claims.json schema — real work we own, currently queued behind
+the phase-1 push, communicated honestly rather than left silent. Their #3
+(fair-play pact v2, adding a position-only last-resort unstick exception)
+is a genuine policy question escalated to team-lead rather than decided
+here — notably, our own team-lead already used exactly that exception once
+(the BuddelBernd rescue, #20), so this is really about formalizing an
+existing precedent. Responded via GitHub with team-lead's explicit
+delegation this cycle (normally outbound diplomacy is
+team-lead/rollout-manager/kevin-driver only, per DRIVER_GUIDE.md); routine
+read-only watch resumes going forward unless asked again.
