@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 33;
+const ENGINE_VERSION = 34;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -3024,20 +3024,29 @@ S.define('restock', {
     const restoreMoves = ctx.enterHaul();
     try {
     const got = {};
+    // How many chests we actually OPENED. "The depot was out" and "we never got to the
+    // depot" are different facts and they deserve different responses, but the result used
+    // to report both as an identical `short`. That mattered once it was measured: on a world
+    // where the depot does not exist, this whole call cost ~7 minutes of hauling toward
+    // coordinates it could not reach, and the agenda's 10-minute retry would have had a
+    // driverless bot spending most of a soak walking to a chest that was never there.
+    let reached = 0;
     for (const c of chests) {
       ctx.step();
       need = shortfall();
       if (!Object.keys(need).length) break;
       let r = null;
-      try { r = await ctx.withdrawFromChest(c, need); }
+      try { r = await ctx.withdrawFromChest(c, need); reached++; }
       catch (e) { ctx.log(`chest ${c.x},${c.y},${c.z}: ${e.message}`); continue; }
       for (const [n, k] of Object.entries(r.got || {})) got[n] = (got[n] || 0) + k;
     }
     const short = shortfall();
     if (Object.keys(short).length) {
-      ctx.log(`still short: ${Object.entries(short).map(([n, c]) => c + ' ' + n).join(', ')} — depot is out`);
+      ctx.log(reached === 0
+        ? `still short and reached NO chest of ${chests.length} — the depot is unreachable from here, not empty`
+        : `still short: ${Object.entries(short).map(([n, c]) => c + ' ' + n).join(', ')} — depot is out`);
     }
-    return { got, short, stocked: Object.keys(short).length === 0 };
+    return { got, short, reached, chests: chests.length, stocked: Object.keys(short).length === 0 };
     } finally { try { restoreMoves(); } catch (_) {} }
   },
   doneMsg: (t) => {

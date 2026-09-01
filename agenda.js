@@ -68,6 +68,13 @@ const PRODUCE_COOLDOWN_MS = 120000;   // after a produce that made NOTHING, stop
 // How long "the depot could not supply this" stays believed. It must expire: another bot may
 // restock the depot, and a permanent latch would mean never withdrawing again.
 const DEPOT_SHORT_TTL_MS = 600000;
+// ...but "the depot was out" and "we never got to the depot" are different facts. Measured on
+// a world with no depot: one withdraw attempt cost ~7 minutes of hauling toward coordinates
+// it could not reach. Retrying that every 10 minutes would have a driverless bot spending
+// most of a three-hour soak walking to a chest that was never there. When restock reports it
+// opened NO chest at all, believe that far longer — it is a fact about the world and the
+// route, not about stock levels, and it does not change because someone made a delivery.
+const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 // A single act() that never settles freezes the WHOLE ladder: tick() returns early on
 // A.busy, so one hung await silently ends autonomy. Found live — a TOOL act stalled and the
 // brain sat at busy:true with zero ticks for minutes, owner null, timer alive, looking
@@ -77,7 +84,7 @@ const DEPOT_SHORT_TTL_MS = 600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 9, enabled: true,
+  version: 10, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -85,7 +92,7 @@ const A = {
   // the produce-fallback's memory: what the depot could not supply (item names — the COUNTS
   // are deliberately not trusted, they go stale the moment anything is consumed), when that
   // was learned, and which resources produce has just failed to make.
-  _restockShort: null, _restockShortAt: 0, _restockNeeds: null, _produceCooldown: {},
+  _restockShort: null, _restockShortAt: 0, _restockShortTtl: 0, _restockNeeds: null, _produceCooldown: {},
   metrics: { ticks: 0, transitions: 0, acts: 0, errors: 0, byRung: {} },
   log: [],
 };
@@ -430,7 +437,8 @@ const RUNGS = [
       // actually come back short (or errored), so the depot stays the cheap first answer and
       // producing is the fallback, not the habit.
       const shortAge = s.now - (A._restockShortAt || 0);
-      const depotShort = (A._restockShort && shortAge < DEPOT_SHORT_TTL_MS) ? A._restockShort : null;
+      const shortTtl = A._restockShortTtl || DEPOT_SHORT_TTL_MS;
+      const depotShort = (A._restockShort && shortAge < shortTtl) ? A._restockShort : null;
       if (depotShort) {
         // Recompute the gap from the inventory NOW. The recorded shortfall is a signal ("the
         // depot is out of these"), never a quantity — reusing its counts would be the same
@@ -615,6 +623,10 @@ const tick = () => {
       const raw = s.task._raw;
       if (raw && raw.name === 'restock') {
         const short = (raw.result && raw.result.short) || null;
+        // A restock that opened no chest tells us about the ROUTE, not about stock — and a
+        // route does not improve because someone restocked the depot. Believe it far longer.
+        const reached = raw.result && typeof raw.result.reached === 'number' ? raw.result.reached : 0;
+        A._restockShortTtl = reached > 0 ? DEPOT_SHORT_TTL_MS : DEPOT_UNREACHABLE_TTL_MS;
         if (short && Object.keys(short).length) { A._restockShort = short; A._restockShortAt = s.now; }
         else if (raw.error) {
           // A restock that ERRORED withdrew nothing, and it carries no result to read. Judging
