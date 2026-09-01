@@ -235,6 +235,34 @@ if (by) {
 }
 if (has('goto') || !by) printMovement(movement(gotos));
 
+// ---------- repeat clusters ----------
+// A failure counter is a SYMPTOM counter. Ten wedges from one retrying rung look like a
+// broad movement problem pooled, and collapse to a single missing config line when grouped
+// — that exact case cost a look-around before the ledger was read properly. So group before
+// concluding, automatically, rather than leaving it to whoever reads the table to remember.
+function clusters(ends) {
+  const m = new Map();
+  for (const e of ends) {
+    if (e.outcome === 'ok' || e.outcome === 'bad_input') continue;
+    const at = Array.isArray(e.pos) ? e.pos.join(',') : '?';
+    const k = `${e.outcome}|${e.skill}|${at}`;
+    const c = m.get(k) || { outcome: e.outcome, skill: e.skill, at, n: 0, code: e.code || null };
+    c.n++;
+    m.set(k, c);
+  }
+  return [...m.values()].filter((c) => c.n >= 3).sort((a, b) => b.n - a.n);
+}
+const cl = clusters(ends);
+if (cl.length) {
+  console.log('\n── repeat clusters (same outcome + skill + exit position, n>=3) ──');
+  for (const c of cl) {
+    console.log(`  ${String(c.n).padStart(3)}x  ${c.outcome.padEnd(14)} ${String(c.skill).padEnd(16)} at ${c.at}${c.code ? '  code:' + c.code : ''}`);
+  }
+  const worst = cl[0];
+  console.log(`  -> ${worst.n} of these are ONE failure repeating, not ${worst.n} independent ones.`);
+  console.log('     Fix the cluster before reading the pooled rate as a quality signal.');
+}
+
 // ---------- baseline / A-B ----------
 const BASE = path.join(DIR, 'bench', 'baseline.json');
 const bl = flag('baseline');
