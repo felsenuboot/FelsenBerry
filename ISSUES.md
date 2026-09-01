@@ -67,8 +67,8 @@ issues. **PHASE-2 — cooperation (deprioritized).** #1, #6, #8 only.
 
 | # | Title | Phase | Priority | Owner | Status |
 |---|---|---|---|---|---|
-| 28 | AUTONOMOUS AGENDA — Phase 1 capstone | 1 | high | engine-dev-2 | **BLOCKED ON DESIGN** — research/AGENDA-DESIGN.md workflow running (4 architecture docs already landed), do not start early |
-| 21 | Telemetry layer + metrics.mjs (E1-E6) | 1 | high | engine-dev-2 | briefed; queued behind #28 per engine-dev-2's own sequencing |
+| 28 | AUTONOMOUS AGENDA — Phase 1 capstone | 1 | **TOP** | engine-dev-2 | **UNBLOCKED, briefed** — research/AGENDA-DESIGN.md decided (ship priority-ladder architecture A + behavior-tree test-hook graft); full build-order + acceptance test posted as the brief. Preempts the rest of engine-dev-2's queue on pickup. |
+| 21 | Telemetry layer + metrics.mjs (E1-E6) | 1 | high | engine-dev-2 | briefed; explicitly preempted by #28 until it lands |
 | 31 | ctx.gotoFar multi-leg waypointing | 1 | medium | engine-dev-2 | **picked up** |
 | 33 | Generation counter (movement promises) | 1 | medium | engine-dev-2 | briefed |
 | 34 | 3-signal stall watchdog | 1 | medium | engine-dev-2 | briefed |
@@ -127,9 +127,12 @@ engine-dev: 5 (curator lane — intentionally lighter, QA/fixtures/docs scope).
 6. **#35** (engine-dev-3) — three small, independently-shippable primitives
    bundled from one source FEEDBACK entry.
 
-**Not yet briefed, needs real design/field work**: #28 (blocked on the
-design workflow — do not start), #32 (needs a staged live-mob encounter,
-narrowed to just BREAK_LOS's arrow-shadow-wall path now).
+7. **#28 (the capstone)** — design complete (`research/AGENDA-DESIGN.md`),
+   full build-order + acceptance test posted as the brief. Top-priority,
+   preempts the rest of engine-dev-2's queue on pickup.
+
+**Not yet briefed, needs real field work**: #32 (needs a staged live-mob
+encounter, narrowed to just BREAK_LOS's arrow-shadow-wall path now).
 
 ## Alliance watch
 
