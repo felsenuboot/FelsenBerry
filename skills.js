@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 37;
+const ENGINE_VERSION = 38;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1252,9 +1252,21 @@ function cheapestSatisfying(need) {
 // can afford both still spends the cheaper material.
 function payableTier(bot, need) {
   const count = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
-  const planks = bot.inventory.items().filter((i) => /_planks$/.test(i.name)).reduce((a, i) => a + i.count, 0);
-  const logs = bot.inventory.items().filter((i) => /_log$/.test(i.name)).reduce((a, i) => a + i.count, 0);
-  const plankStock = planks + logs * 4;
+  // Planks of DIFFERENT WOODS do not combine into one tool head. Summing them across types
+  // is how the soak deadlocked: a bot holding oak_planks:1 + acacia_planks:2 scored a plank
+  // stock of 3, was told a wooden pickaxe was affordable, crafted ZERO, and never fell
+  // through to the stone pickaxe it could have made instantly from 297 carried cobblestone.
+  // So affordability is measured in the LARGEST SINGLE TYPE, which is what a recipe can
+  // actually consume. Logs are counted per-species for the same reason.
+  // (Found by engine-dev-3, from the run's terminal inventory.)
+  const bySpecies = {};
+  for (const it of bot.inventory.items()) {
+    const p = /^(.*)_planks$/.exec(it.name);
+    if (p) { bySpecies[p[1]] = (bySpecies[p[1]] || 0) + it.count; continue; }
+    const l = /^(.*)_log$/.exec(it.name);
+    if (l) bySpecies[l[1]] = (bySpecies[l[1]] || 0) + it.count * 4;
+  }
+  const plankStock = Object.values(bySpecies).reduce((m, n) => Math.max(m, n), 0);
   let tableInReach = false;
   try {
     tableInReach = bot.inventory.items().some((i) => i.name === 'crafting_table')
@@ -1263,12 +1275,40 @@ function payableTier(bot, need) {
   // a 3x3 tool recipe needs a table; without one in reach it costs 4 more planks to make
   const tableCost = tableInReach ? 0 : 4;
   const stickCost = count('stick') >= 2 ? 0 : 2;          // 2 planks -> 4 sticks
-  for (const t of ['wooden', 'stone']) {
+  // MOST DURABLE affordable tier, not cheapest. Cheapest-first is the wrong economy for a
+  // bot that works underground: wood is the scarce material down there and cobblestone is a
+  // KIT FLOOR it already carries, so a wooden pickaxe both wastes the scarce resource and
+  // wears out in 59 blocks, sending the bot back to the surface for more wood. That surface
+  // treadmill is what stopped the soak sustaining. Stone costs material the bot is standing
+  // on and lasts more than twice as long. If stone is not affordable the loop still falls
+  // back to wooden, which is the right answer on the surface with no cobblestone.
+  const affordable = [];
+  for (const t of ['stone', 'wooden']) {
     const name = `${t}_${need.cls}`;
     if (!satisfiesNeed(name, need)) continue;
     const headPlanks = t === 'wooden' ? 3 : 0;
     if (t === 'stone' && count('cobblestone') < 3) continue;
-    if (plankStock >= headPlanks + stickCost + tableCost) return name;
+    if (plankStock >= headPlanks + stickCost + tableCost) affordable.push(name);
+  }
+  return affordable[0] || null;
+}
+// Every bootstrappable tier this bot could pay for right now, most durable first — so a
+// craft that yields nothing can fall through to the next one instead of giving up. Same
+// deadlock: the answer was in the bag the whole time, one tier down the list.
+function payableTiers(bot, need) {
+  const out = [];
+  const seen = new Set();
+  let n = payableTier(bot, need);
+  while (n && !seen.has(n)) { out.push(n); seen.add(n); n = payableTierExcluding(bot, need, seen); }
+  return out;
+}
+function payableTierExcluding(bot, need, exclude) {
+  const count = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+  for (const t of ['stone', 'wooden']) {
+    const name = `${t}_${need.cls}`;
+    if (exclude.has(name) || !satisfiesNeed(name, need)) continue;
+    if (t === 'stone' && count('cobblestone') < 3) continue;
+    return name;                 // affordability of the head is re-checked by the craft itself
   }
   return null;
 }
@@ -1365,17 +1405,26 @@ S.ensureTool = async function (bot, spec, opts = {}) {
     }
   }
 
-  // 3. craft it
+  // 3. craft it — trying EVERY tier this bot can pay for, most durable first, not just the
+  // one that looked best up front. A craft can yield nothing for reasons the affordability
+  // check cannot see (the mixed-plank case that deadlocked the soak was exactly this: the
+  // bill said yes, the recipe said no), and giving up then strands a bot that is carrying
+  // the materials for the next tier down. One attempt per tier — this escalates, it does
+  // not retry, so a genuinely unmakeable tool still fails fast.
   if (opts.craft !== false && want) {
-    try {
-      const r = await craftToolChain(bot, want, cfg, steps);
-      if (r.ok) {
-        const it = bot.inventory.items().find((i) => i.name === want);
-        if (it) { try { await bot.equip(it, 'hand'); } catch (_) {} }
-        return { ok: true, how: 'crafted', item: want, steps };
-      }
-      steps.push('craft:' + r.reason);
-    } catch (e) { steps.push('craft:' + String(e.message).slice(0, 60)); }
+    const tiers = [want, ...payableTiers(bot, need).filter((t) => t !== want)];
+    for (const tier of tiers) {
+      try {
+        const r = await craftToolChain(bot, tier, cfg, steps);
+        if (r.ok) {
+          const it = bot.inventory.items().find((i) => i.name === tier);
+          if (it) { try { await bot.equip(it, 'hand'); } catch (_) {} }
+          return { ok: true, how: 'crafted', item: tier, steps };
+        }
+        steps.push('craft:' + r.reason);
+      } catch (e) { steps.push('craft:' + String(e.message).slice(0, 60)); }
+      if (tiers.length > 1) steps.push('escalate:' + tier + '->next');
+    }
   }
 
   pushLog('warn', `acquisition_failed: need ${want || need.cls} — ${steps.join(' | ')}`);
@@ -1427,8 +1476,30 @@ async function craftToolChain(bot, want, cfg, steps) {
   // second skipped gathering entirely because it already had *some* planks. So: work out
   // the bill, count planks AND the planks still locked up in logs, and only gather when
   // that total can't cover it.
-  const countPlanks = () => bot.inventory.items().filter((i) => /_planks$/.test(i.name)).reduce((a, i) => a + i.count, 0);
-  const countLogs = () => bot.inventory.items().filter((i) => /_log$/.test(i.name)).reduce((a, i) => a + i.count, 0);
+  // Per-SPECIES, and report the largest single stack: planks of different woods do not
+  // combine into one tool head, so a cross-type sum overstates what is actually craftable.
+  // Same defect as payableTier's, same fix — see the note there for the soak it deadlocked.
+  const speciesStock = () => {
+    const by = {};
+    for (const it of bot.inventory.items()) {
+      const p = /^(.*)_planks$/.exec(it.name);
+      if (p) { by[p[1]] = by[p[1]] || { planks: 0, logs: 0 }; by[p[1]].planks += it.count; continue; }
+      const l = /^(.*)_log$/.exec(it.name);
+      if (l) { by[l[1]] = by[l[1]] || { planks: 0, logs: 0 }; by[l[1]].logs += it.count; }
+    }
+    return by;
+  };
+  // The one species we will actually build from — everything downstream must agree on it,
+  // or the bill is counted against one wood and the craft attempted with another.
+  const bestSpecies = () => {
+    let best = { name: null, planks: 0, logs: 0, total: 0 };
+    for (const [name, v] of Object.entries(speciesStock())) {
+      const total = v.planks + v.logs * 4;
+      if (total > best.total) best = { name, planks: v.planks, logs: v.logs, total };
+    }
+    return best;
+  };
+  const countPlanks = () => bestSpecies().planks;
   const headPlanks = headMat === 'planks' ? 3 : 0;
   // A 3x3 tool recipe needs a crafting table, and if none is in reach we have to craft one —
   // which costs 4 MORE planks. Found live by the agenda's TOOL rung: a bot holding 3 planks
@@ -1442,7 +1513,7 @@ async function craftToolChain(bot, want, cfg, steps) {
   };
   const tablePlanks = tableInReach() ? 0 : 4;
   const plankBill = () => headPlanks + tablePlanks + (count('stick') >= 2 ? 0 : 2);
-  const plankSupply = () => countPlanks() + countLogs() * 4;   // one log = four planks
+  const plankSupply = () => bestSpecies().total;   // one log = four planks, of ONE species
 
   if (plankSupply() < plankBill()) {
     const logIds = SPECIES.map((sp) => bot.registry.blocksByName[sp + '_log']).filter(Boolean).map((d) => d.id);
@@ -1479,7 +1550,11 @@ async function craftToolChain(bot, want, cfg, steps) {
   // logs -> planks until the bill is covered
   let guard = 0;
   while (guard++ < 10 && countPlanks() < plankBill()) {
-    const lg = bot.inventory.items().find((i) => /_log$/.test(i.name));
+    // convert the CHOSEN species' logs. Taking whatever log came first is what produced the
+    // mixed oak+acacia stack that made the bill look payable and the recipe refuse.
+    const sp = bestSpecies().name;
+    const lg = bot.inventory.items().find((i) => /_log$/.test(i.name) && (!sp || i.name === sp + '_log'))
+      || bot.inventory.items().find((i) => /_log$/.test(i.name));
     if (!lg) break;
     const r = await S.craftSafe(bot, lg.name.replace(/_log$/, '_planks'), 1);
     if (!r.made) break;
