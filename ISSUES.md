@@ -8,9 +8,12 @@ triage cycle.
 
 ## Tracker health
 
-**felsenuboot/felcrew-mcp**: 21 open, 4 closed (25 total).
+**felsenuboot/felcrew-mcp**: 25 open, 4 closed (29 total).
 **ZetOmega/cavecrew-mcp**: 4 open, 0 closed — all 4 filed BY us as courteous
-work-item requests; none closed yet on their side.
+work-item requests; none closed yet on their side. Checked this cycle — no
+new activity from CAVECREW on the alliance channel (felcrew#1) or their own
+tracker; the five outstanding yes/no items (a-e) remain unanswered.
+Team-lead's call stands: no further nudge for now.
 
 Oldest open item: **#1 "Alliance direct line: cavecrew <-> felcrew"**
 (2026-08-31T22:38Z) — a standing channel, not expected to ever close.
@@ -161,6 +164,18 @@ needed)
 Next candidates once these land: #12 (collectDrops/huntAnimals hazard
 awareness — small, reuses idleguard v4's `surfaceOk`-style filter) and #14
 (autoTorch consumption visibility).
+
+## New this cycle (post priority-correction)
+
+- **#29** filed from a fresh kevin-driver FEEDBACK.md entry: the MCP
+  (Kevin) bot has zero reconnect visibility/tooling during a full server
+  outage, unlike the framework fleet's documented auto-reconnect. Timely
+  given the current server-down situation. Needs investigation before a fix
+  shape is clear (docs-only vs. a new MCP tool) — not briefed yet.
+
+Running total this session: 12 issues touched (3 closed with evidence, 6
+new implementation briefs posted across #6/#19/#13/#26/#4, 2 priority
+corrections, 8 new issues filed: #21-25, #27, #28, #29).
 
 ## Alliance watch
 

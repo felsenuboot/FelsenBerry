@@ -663,6 +663,7 @@ fix: engine-dev-2 owns the telemetry layer + metrics.mjs (EVALUATION.md §7 E1�
 ### 2026-09-01 kevin-driver — no reconnect visibility/tooling for MCP bot during full server outage
 type: feature-request
 status: open
+github: felsenuboot/felcrew-mcp#29 (issue-manager sync, 2026-09-01)
 what: During tonight's full server outage, every mcp__minecraft__* call returned
   "Cannot connect to Minecraft server at <host>:<port>" — a categorically different
   message from the "Bot is connecting to the Minecraft server. Please wait a moment
