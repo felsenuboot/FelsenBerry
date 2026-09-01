@@ -58,6 +58,19 @@ Scored by reading `logs/metrics-<bot>.jsonl` (metrics.mjs) + live `/state` again
 acceptance criteria in felsenuboot/felcrew-mcp#28. Do not treat any entry below as a final
 PASS — it counts only once a STABLE agenda version runs a full >=3h window start-to-finish.
 
+**M0 acceptance definition — FROZEN, 2026-09-01 (#51, full text also in #28's body; detailed
+per-criterion mechanics in EVALUATION.md §9)**: duration is `>=3h` GATE / `8h` PILLAR bar;
+food is carved out of "un-fixtured" for Arc A (#45, retired at M7/#61) — tools/torches/kit
+still must be from-nothing; FSR=0 counts only over `>=70%` of gradable task_ends graded
+(gradable = has an ASSERTS entry) AND total gradable `n>=20`, with any reported breakdown
+cell needing its own `n>=5`; `tokensSpent=0` is a hard pass condition, not a footnote;
+`stalePayloads=[]` for the WHOLE window plus identical payload versions at start/end is a
+hard pass condition (frozen-stack proof); a main-server drop mid-window VOIDs the run (not a
+C1 fail) and the clock restarts, it does not resume; a single rare LOGGED surprise-LLM call
+is not an automatic fail but counts as a real `interventions` entry, not silent 0; no new
+capability lands until the soak has run once (gates Arc B); #40 (live env-damage risk) must
+be diagnosed or its coordinates avoided before the window is scored as a real C1 attempt.
+
 ### 2026-09-01 — agenda v3, SoloSauhund:3120 (local world, seed felcrewtest)
 
 **Version caveat (read first)**: `session.engine` in the telemetry ledger is always `null`

@@ -623,6 +623,17 @@ elsewhere (food-production stays its own deferred question); if the buffer runs
 low anyway despite 128, THAT is a real, separate food-production finding worth
 its own report, not folded into C1's pass/fail.
 
+**M0 cross-references (#51, frozen 2026-09-01)**: the food buffer above is the
+concrete instance of M0's food carve-out — "un-fixtured" means from-nothing on
+tools/torches/kit, food is explicitly excepted for Arc A (#45's huntAnimals
+gate bug, retired at M7/#61), so provisioning this buffer is not a scope
+violation. Duration: `>=3h` is the pass gate, `8h` the pillar bar — the "full
+>=3h window" language throughout this section is the gate, not a compromise
+figure. **#40 (undiagnosed ongoing environmental damage at a fixed underground
+spot) is a live risk to THIS criterion specifically** — diagnose it (capture
+the #20 signature if it recurs) or confirm the soak's chosen work zone avoids
+those coordinates before scoring a window as a real C1 attempt.
+
 **Ground truth, two independent signals, BOTH required — corrected after checking
 telemetry.js directly rather than assuming a periodic sample would catch it**: (a)
 zero standalone `ev:"death"` records for the window (`telemetry.js`'s
@@ -661,7 +672,12 @@ that wiring lands, so future scorings read it straight from the tool (same
 suppression already built). 70%-floor and n≥20 are not new numbers either —
 they mirror the `--gate` mechanism's existing SR-floor and sample-floor
 exactly, for the same reason: an established, already-scrutinized bar beats a
-freshly-invented one.
+freshly-invented one. **Numbered per #51/M0**: this 70%/n>=20 pair IS the
+frozen coverage floor referenced there — stated once here in full, not
+duplicated. Within it, any individually-REPORTED breakdown cell (per-skill,
+per-outcome) still needs its own `n>=5` to be shown at all rather than
+suppressed, same anti-Goodhart rule as everywhere else in this doctrine (a 1/1
+reads like triumph). FSR=0 over 0/0, or over a suppressed cell, is not a pass.
 **Separate from this scoring, tracked apart** (team-lead): a skill that
 SHOULD have an assert but lacks one would be silently excluded by this filter
 without anyone noticing — that's an engine-quality audit question (does every
@@ -881,3 +897,27 @@ mirrors the `--gate` mechanism's own mechanical, non-negotiable rule. A run that
 fails is still valuable: score it as iteration feedback (which criterion failed,
 against which threshold, by how much) exactly as the earlier v3 scorecard entries
 did, not discarded.
+
+**Cross-cutting hard-pass conditions (#51/M0, frozen 2026-09-01) — apply to the
+WHOLE run, checked before any of C1-C5 even matter:**
+- **`tokensSpent=0`** for the entire driverless window. Any nonzero in-loop
+  LLM/network spend is itself a finding to report, not averaged away. Measured
+  by M1 (#52)'s new hard counter — unmeasured runs cannot claim this yet.
+- **Frozen-stack integrity**: `stalePayloads=[]` for the ENTIRE window (not just
+  checked once at the start) AND payload versions/checksums read identical at
+  window start vs. window end — the injection model re-reads payloads from disk
+  on every reconnect, so a mid-soak file touch silently breaks the freeze
+  without this check. A run that can't prove the stack stayed frozen the whole
+  way through didn't test one stack.
+- **Infra-interruption**: a main-server drop mid-window is a VOID + full re-run,
+  NOT a C1 fail (infra flakiness is not an engine-determinism finding) — the
+  clock restarts, it does not resume from where it left off, since the whole
+  point is one CONTINUOUS window.
+- **Surprise-LLM boundary**: a single, rare, LOGGED surprise-handling LLM call
+  during the window is not an automatic fail (the determinism codicil permits
+  genuine judgment calls) — it counts as a real `interventions` entry, not
+  silent 0, and is reported as a finding. It only becomes disqualifying if it
+  recurs systematically, which is itself the thing to chase down.
+- **Capability freeze**: the stack under test must not have gained a new
+  capability (skill/rung/gate/produce-path) after the window started — that's
+  what "one stable version" in the paragraph above actually means in practice.
