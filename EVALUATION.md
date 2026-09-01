@@ -55,10 +55,61 @@ skill's behavior on a live bot, stop the ladder first (`__agenda.stop()`), never
 just set a busy flag** — a second driver on the same body contaminates the
 numbers before any conclusion is drawn, exactly like the wedge cluster taught
 one layer down (group by cause before concluding), just applied to the
-measurer's own setup instead of the engine's runtime. This guards the person
-verifying from fooling themselves, which the false-success root and the
-verifier-pointed-at-the-wrong-task corollary above don't cover on their own —
-together the three make up the verification-hygiene set.
+measurer's own setup instead of the engine's runtime.
+
+**Refinement — stopping is necessary but NOT sufficient (team-lead, same day):**
+the rule above answers one question and a second, DIFFERENT question needs the
+opposite setup. **STOP the ladder when measuring a SKILL in isolation** — the
+rule just stated. **DRIVE with the ladder when the question is what the LADDER
+does** — hand-calling the skill proves the CAPABILITY exists while bypassing the
+rung's `fire()`, which is the very decision under test. The case that forced
+this half: engine-dev-2 hand-called `ensureTool(..., {spare:true})` twice,
+watched pickaxes go 0->1->2, and reported an agenda stall as "does not
+reproduce." Both observations were true and the conclusion was still wrong,
+because the broken part was the CALLER (`TOOL.fire()` returning false whenever
+no tool class resolved, so the kit's `picks` requirement was aimed at by
+nothing) not the callee — testing the capability is not testing the caller. The
+two rules compose rather than compete: pick the one that matches the question,
+and STATE WHICH ONE WAS USED when reporting a result, because they answer
+different questions and are not interchangeable.
+
+**Testability is a property of the code, not of the test (engine-dev-2,
+2026-09-01):**
+
+> "A rule that can only be tested by staging a live bot will not stay tested."
+
+The case: `payableTier` decided which tool tier the bot could afford by reading
+`bot.inventory` directly, so every test of it was a live-bot staging exercise —
+which meant it never got one, and it shipped a bug that summed plank stock
+across wood types when a tool head needs three of ONE. A bot holding
+`oak_planks:1 + acacia_planks:2` was told a wooden pickaxe was payable (3>=3
+pooled), crafted zero, and never fell through to the stone pickaxe it could
+have made instantly from 297 carried cobblestone — a terminal deadlock that
+cost a full soak run and thirty minutes of ledger forensics to find. The fix
+was not a better test, it was a purer function: `tierFrom(items, need,
+tableInReach)` (`skills.js:1260`) takes its inputs as arguments; `payableTier`
+is now a thin wrapper supplying them from the live bot; `S.tierFor` (line 1308)
+exports the pure form. Eleven cases now run against synthetic inventories in
+about a second, covering the whole class — mixed woods falling through to
+stone, the honest negative (mixed woods with no cobble are payable by NOTHING
+rather than by a wooden lie), per-species log counting, table/stick costs
+entering the bill. Same injectable-snapshot rule `__agenda.step()` already
+lives by, which is why that rule was worth having in the first place. **The
+generalisable form: when a decision is hard to test, the usual cause is that it
+reaches for state instead of receiving it — fix the reach, and the test becomes
+trivial.**
+
+**The three verification lessons, and the one before them, are the same shape
+one layer apart** (engine-dev-2's own synthesis, worth keeping verbatim): a
+verifier only protects the layer it is actually POINTED at (the false-success
+root's corollary); a test that STUBS what it depends on cannot tell you it is
+there (measurement isolation — stop to test a skill alone); testing the
+CAPABILITY is not testing the CALLER (the drive-vs-stop refinement — drive with
+the ladder to test the ladder); and now, a decision that reaches for its own
+state instead of receiving it can only ever be tested by staging the world it
+reaches into (testability-by-purity). Each time, the thing being checked was
+fine and the thing doing the checking was aimed slightly wrong. Together these
+five are the verification-hygiene set.
 
 ---
 
