@@ -511,21 +511,31 @@ flakiness isn't the bot's fault) — only an actual death is.
 AND coverage ≥ 70% AND gradable n ≥ 20. **A clean FSR over thin coverage is
 explicitly NOT a pass** — 0/0 reads like triumph and means nothing (§8).
 
-**Coverage definition, and a correction to flag before scoring**: coverage =
-gradedN / gradableN where gradableN = count of `v>=2` `task_end` records **whose
-skill has an ASSERTS table entry** (currently: come, safeDescend/buildStaircase,
-mineLane, chopTrees, huntAnimals, collectDrops, depositToChest,
-buildWall/Floor/frameStructure/buildSchematic — NOT restock or ensureTool, which
-have no ASSERTS entry and are therefore structurally ungradable regardless of run
-quality). metrics.mjs's current `gradableN` (as of commit 6513682) counts ALL v≥2
-`task_end` records, not just ones with an ASSERTS entry — on THIS soak, where
-restock/ensureTool are load-bearing and ungradable by design, that looser
-denominator would understate coverage for reasons that have nothing to do with a
-real test gap. Recommend metrics.mjs scope `gradableN` to the ASSERTS-table skill
-set before this run is scored; flagging rather than changing engine-dev-2's file
-myself. 70%-floor and n≥20 are not new numbers either — they mirror the `--gate`
-mechanism's existing SR-floor and sample-floor exactly, for the same reason: an
-established, already-scrutinized bar beats a freshly-invented one.
+**Coverage definition (DECIDED, team-lead)**: coverage = gradedN / gradableN
+where gradableN = count of `v>=2` `task_end` records **whose skill has an
+ASSERTS table entry** (currently: come, safeDescend/buildStaircase, mineLane,
+chopTrees, huntAnimals, collectDrops, depositToChest,
+buildWall/Floor/frameStructure/buildSchematic). The ASSERTS registry IS the
+definition of "gradable" — restock/ensureTool have no entry because they're
+graded by their own rung's `clear()` condition instead of a task-level
+assertion, so they're ungradable-BY-DESIGN, correctly excluded, not a gap.
+metrics.mjs's current `gradableN` (as of commit 6513682) counts ALL v≥2
+`task_end` records rather than just ASSERTS-having ones — for THIS FIRST
+scoring, compute coverage BY HAND from the ledger (filter to the ASSERTS-table
+skill set above, the registry is the source of truth) rather than trusting the
+tool's own number, so the RESTOCK-wiring critical path isn't interrupted for a
+metrics.mjs change; coordinate the automation with engine-dev-2 directly once
+that wiring lands, so future scorings read it straight from the tool (same
+"make the honest reading automatic" family as the wedge-grouping and n<5
+suppression already built). 70%-floor and n≥20 are not new numbers either —
+they mirror the `--gate` mechanism's existing SR-floor and sample-floor
+exactly, for the same reason: an established, already-scrutinized bar beats a
+freshly-invented one.
+**Separate from this scoring, tracked apart** (team-lead): a skill that
+SHOULD have an assert but lacks one would be silently excluded by this filter
+without anyone noticing — that's an engine-quality audit question (does every
+gradable-in-principle skill actually carry one), not a soak-scoring one. See
+the FEEDBACK.md entry filed alongside this rubric lock.
 
 ### C3 — Priority order under induced stress
 
