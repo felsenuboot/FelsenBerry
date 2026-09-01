@@ -1379,3 +1379,11 @@ This fully explains #38's original 90s hang without any underwater/entity-geomet
 Side note, not chased further: the fixed drill's corner-step result picked a cell 11 blocks below the bot's starting Y in real cave/water terrain, and HP had dropped to 7 by the time I checked shortly after (drill itself reported 13). Possibly fall-damage risk in corner-step target selection not accounting for the PATH to a candidate cell, only the destination's solidity — flagging as an unconfirmed observation, not a verified finding, since this is cave terrain that could have other explanations (real damage from something else nearby).
 fix: commit 2e0f270 — `enter()` now calls `(pickOverride || pick)()`; also fixed the maxRunMs force-exit path not incrementing `g.failures` (a hang was previously exactly as "successful" as a clean run by that counter).
 github: felsenuboot/felcrew-mcp#38 (resolved), cross-reference #65 (same session)
+
+### 2026-09-01 engine-dev — playcheck landed on main; three ledger gaps filed as #69
+type: project
+status: done
+what: bench/playcheck.mjs landed on main (commit 1285a34, merges branch playcheck). This is the exact committed tool used for the BEFORE baseline reported earlier today (BuddelBernd/KloputzKarl/MettMarcel/PflasterPeter all IDLE, FurzFriedrich SPARSE) — landing the identical file, not a rewrite, so the upcoming AFTER run (once eng-3's #45/#67/#54 batch reconnects) is apples-to-apples with no drift.
+The three honest GAP lines playcheck prints (no continuous position trace outside task/goto spans, chest deposits uncounted, chat not classified no-op-vs-meaningful) are now filed as felsenuboot/felcrew-mcp#69, labeled phase-1/enhancement, per team-lead's scoping call — capture and track, don't fix now, don't scope-creep the harness. Notably: the chest-deposit gap is a genuine bug, not just a missing feature — telemetry.js defines `M.chest()` as part of its public API but nothing anywhere calls it.
+fix: n/a — landing + documentation entry. Next actionable step is the AFTER run: `node bench/playcheck.mjs --since 1h` against the live fleet once the batch deploys.
+github: felsenuboot/felcrew-mcp#69 (new, ledger gaps)
