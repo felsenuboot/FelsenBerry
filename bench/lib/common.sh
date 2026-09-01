@@ -143,7 +143,10 @@ FIXTURE_NAME="${FIXTURE_NAME:-$(basename "${BASH_SOURCE[1]:-unknown}" .sh)}"
 _FAIL_REASON=""
 
 pass() {
-  echo "PASS $FIXTURE_NAME"
+  # optional detail message (#56): a bare PASS/FAIL line loses which of several valid
+  # outcomes actually happened (e.g. "which recovery stage cleared it") -- print it when
+  # given, backward-compatible with every existing fixture that calls pass() with none.
+  if [[ -n "${1:-}" ]]; then echo "PASS $FIXTURE_NAME: $1"; else echo "PASS $FIXTURE_NAME"; fi
   exit 0
 }
 fail() {
