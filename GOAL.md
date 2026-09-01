@@ -56,7 +56,7 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v31** · `agenda.js` v7 · `producer.js` v2 · `telemetry.js` v1 (ledger
+Live versions: `skills.js` **v34** · `agenda.js` v10 · `producer.js` v3 · `telemetry.js` v1 (ledger
 schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
 · `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
 (superseded by survival.js).
@@ -89,16 +89,21 @@ spirit: `ensureTool` now picks the tier it can PAY for out of the bag rather tha
 that is cheapest on paper, so a bot at y73 with no pickaxe and 58 cobblestone crafts a stone
 pickaxe in place in 2.2s where it previously failed after 36.6s and reported "need more logs".
 
+**The deep kit now carries the makings of a tool re-craft** (#43 item 1, promoted to phase-1 by
+team-lead and CLOSED). `underground` and `deep` require sticks and a crafting table alongside
+the filler cobblestone — those three are a stone pickaxe — and RESTOCK can withdraw them or
+make them, so the new floor SELF-HEALS rather than being a departure-only demand no rung could
+satisfy. Verified un-fixtured: a bot stripped of both acquired them itself, table first, then
+sticks. Item 2 (reactive ascend-to-resupply) stays phase-1.5 and unbuilt.
+
 Known honest gaps, so nothing here reads as more finished than it is:
-- **The un-fixtured soak has not been run.** Producing torches works; that is not the same
-  claim as five criteria met for three hours with nothing handed to the bot.
-- **A second unproduceable floor is open and unassigned**: the underground kit tier requires
-  `foodItems: 4`, `produce` has no food path, and `huntAnimals`' own kit gate requires
-  `foodItems: 2` — so a bot with no food cannot hunt for food. That bootstrap paradox gates
-  departure the same way torches did.
-- Issue #43 (deep toolless strand) stays phase-1.5 and unbuilt by explicit decision. The v31
-  tool fixes are bugs in the existing path, not that deferred capability, and the kit gate is
-  unchanged.
+- **The un-fixtured soak has not been run.** Producing torches and self-healing a kit both
+  work; that is not the same claim as five criteria met for three hours.
+- **Food is the one floor with no produce path**: the underground tier requires `foodItems: 4`
+  and `huntAnimals`' own kit gate requires `foodItems: 2`, so a foodless bot cannot hunt for
+  food. Team-lead's call: that is a GATE bug (hunting should be gated on a weapon, not on
+  already having food), queued to engine-dev-3, and NOT a soak blocker — the acceptance soak
+  gives food, scoping itself to the tool and torch self-sufficiency axis.
 - survival.js CREEPER retreat is confirmed live; BREAK_LOS's arrow-shadow WALL path has still
   never run, because corner-step keeps succeeding first.
 - ashfinder / `/goto2` is merged and its security gap closed, but its MOVEMENT QUALITY is

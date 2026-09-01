@@ -522,11 +522,19 @@ Tiers are cumulative, and which one applies is derived from the skill and its ar
 | Tier | Applies to | Requires |
 |---|---|---|
 | `excursion` | `chopTrees`, `huntAnimals` | 8+ torches, 2+ food items, a sword or axe |
-| `underground` | `mineLane`, `safeDescend` | 16+ torches, 4+ food, weapon, **2 pickaxes**, 16+ filler blocks |
-| `deep` | `safeDescend {toY < 0}`, `mineLane` while already below y=0 | 40+ torches, 8+ food, weapon, 2 picks, 16 filler, worn chestplate, shield, water bucket |
+| `underground` | `mineLane`, `safeDescend` | 16+ torches, 4+ food, weapon, **2 pickaxes**, 16+ filler blocks, **2+ sticks, 1 crafting table** |
+| `deep` | `safeDescend {toY < 0}`, `mineLane` while already below y=0 | 40+ torches, 8+ food, weapon, 2 picks, 16 filler, **4+ sticks, 1 crafting table**, worn chestplate, shield, water bucket |
 
 The 2-pickaxe rule is bernd-driver's double tool loss made mechanical, and the 16 filler
 blocks are survival.js's wall-off budget — without them the panic reflex can only run.
+
+**Sticks and a crafting table (new in skills v33)** are the makings of one tool re-craft where
+the bot stands: 3 of the filler cobblestone plus 2 sticks on a table IS a stone pickaxe. They
+are there because a pickaxe that breaks at depth used to be a dead end — the acquisition path
+would find surface trees 40 blocks overhead, fail to reach them one by one, and report "need
+more logs" 36 seconds later with the bot still toolless. Carrying two light items turns that
+into a 2.2-second recraft with no travel at all. You should not have to provision them by
+hand: RESTOCK withdraws them from the depot, and makes them itself if the depot is out.
 
 Check before you commit to a plan (pure inspection, no side effects):
 
