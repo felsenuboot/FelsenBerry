@@ -581,7 +581,15 @@ for the same claim, matching C1's two-signal pattern). Followed within one tick 
 `/state.agenda.rung` reading `IDLE` (or a genuinely new project set) — the project
 must not be immediately re-picked or left dangling.
 
-### C5 — Self-recovery from an induced wedge, a forced relog, and a deep tool-break
+**Project choice, revised per engine-dev-3's calibration (see C5's project
+scoping note for the full reasoning)**: the soak's project must be BOUNDED and
+completable within the run — e.g. `safeDescend` to a moderate, fixed depth, or a
+fixed-count `mineLane` — not an unbounded deep-mine. An unbounded project risks
+this criterion never resolving for a reason unrelated to the five criteria being
+measured (the known phase-1.5 toolless-at-depth gap), not because anything here
+failed.
+
+### C5 — Self-recovery from an induced wedge, a forced relog, and a recoverable tool-break
 
 **Wedge induction**: while the bot is actively pathing (mid-`goto`/mid-skill
 travel), `setblock` a `minecraft:torch` at the bot's exact current feet position
@@ -599,13 +607,11 @@ DRIVER_GUIDE's SUSPENDING IDLEGUARD note); (c) `/state.agenda.ticks` is increasi
 again (the ladder resumed on its own) within 60s total from the kick, with no driver
 action setting a new project or restarting anything by hand.
 
-**Deep tool-break induction (team-lead, deliberately exercising the open
-kit-foresight question from FEEDBACK.md rather than hoping it recurs
-organically)**: wait until the bot is genuinely deep in its project (well below
-the surface, actively mining/descending, not near a depot or reachable wood by
-observation) — the un-fixtured run's own descent naturally produces this window,
-so time the induction to it rather than forcing depth artificially. Identify the
-currently-equipped tool (`bot.heldItem.name`) and its `maxDurability`
+**Recoverable tool-break induction (REVISED per engine-dev-3's calibration — see
+below for why the original deep-strand design was wrong)**: induce the break
+where wood IS reachable — near the surface / near the project's start, NOT deep
+in an unbounded descent. Identify the currently-equipped tool
+(`bot.heldItem.name`) and its `maxDurability`
 (`bot.registry.items[bot.heldItem.type].maxDurability`) via `/eval`, then
 `clear <bot> minecraft:<toolname>` followed by
 `give <bot> minecraft:<toolname>[minecraft:damage=<maxDurability-1>] 1` — the
@@ -614,23 +620,35 @@ same damaged-item give syntax already verified in
 so it breaks on the bot's own very next dig rather than requiring a long wait for
 organic decay, and breaks DURING real use rather than being silently swapped.
 
-**Pass** (this is the reactive-recovery half of the open question — see below for
-what a non-pass means): `/state.agenda` shows `blocked:"no_tool"` clear again
-(TOOL rung's own `clear()` condition satisfied — a working tool of the active
-class re-equipped) AND `rung` returns to `PROJECT` with the SAME project held,
-within a generous bound (10 minutes — a full gather-wood/craft-planks/place-table/
-craft-tool chain plus travel time from wherever the bot actually is, not the 33s
-empty-inventory baseline measured from right next to a tree on #30).
+**Pass**: `/state.agenda` shows `blocked:"no_tool"` clear again (TOOL rung's own
+`clear()` condition satisfied — a working tool of the active class re-equipped)
+AND `rung` returns to `PROJECT` with the SAME project held, within a generous
+bound (10 minutes — a full gather-wood/craft-planks/place-table/craft-tool chain
+plus real travel time, not the 33s empty-inventory-right-next-to-a-tree baseline
+on #30). This tests whether the engine self-recovers a tool break WHEN RECOVERY
+IS ACTUALLY POSSIBLE — a genuine phase-1 self-sufficiency question.
 
-**If this does NOT pass within the bound**: do not treat it as a mere criterion
-failure to shrug off. This is the CONCRETE FAILURE the determinism codicil
-requires before a kit-foresight rung (carry spares, or turn back before a tool
-dies rather than react after) can be proposed — per team-lead's steer, we do not
-pre-judge which outcome is correct, and either one is a clean, useful result.
-Record exactly what `ensureTool`/`produce()` actually attempted and where it gave
-up (mirroring the v3 near-miss writeup in FEEDBACK.md — "short on planks", "no
-reachable tree", etc.), and file the kit-foresight follow-up citing this specific,
-concrete data as its justification, not the hypothesis alone.
+**Why this is NOT the deep-strand version originally drafted here**: the
+toolless-at-depth scenario (last pickaxe breaks deep underground, no reachable
+wood, produce()/ensureTool genuinely cannot recover) is a KNOWN, EXPECTED
+phase-1.5 gap per engine-dev-3's calibration — continuous deep-mining
+sustainability is a harder, later problem, not a phase-1 acceptance requirement.
+Inducing it here would deliberately trigger a known-to-fail scenario and wrongly
+sink an otherwise-passing phase-1 run on a gap phase-1 was never scoped to
+close. The kit-foresight open question from FEEDBACK.md stays open and
+un-speculated-on regardless — it just isn't what THIS criterion tests. If the
+deep-strand scenario is ever deliberately exercised (a separate, later
+phase-1.5 soak), THAT would be the concrete failure to cite when filing the
+foresight rung — not this run.
+
+**Project scoping note (applies to C4 as much as C5)**: for the same reason, the
+soak's PROJECT must be BOUNDED and completable — e.g. `safeDescend` to a
+moderate, fixed depth, or a fixed-count `mineLane` — not an unbounded deep-mine
+that would eventually hit the toolless-at-depth wall on its own regardless of
+whether this induction ever fires. An unbounded project risks C4 (verified
+completion) never resolving for a reason that has nothing to do with the five
+criteria being measured, and risks the SAME phase-1.5 gap intruding on the run
+by accident even without a deliberate induction.
 
 ### Overall verdict
 
