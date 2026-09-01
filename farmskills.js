@@ -437,8 +437,13 @@ S.define('harvestGrass', {
     let cut = 0, i = 0;
     while (cut < cap) {
       ctx.step();
+      // findBlocks' maxDistance is a 3D SPHERE, so without a vertical gate this can select
+      // grass many blocks BELOW the bot and walk it down a ravine to a stranded/mobbed death
+      // (the shape that killed CAVECREW's Grog; MAX_BELOW=5 matches mineLane/chopTrees in
+      // skills.js). Grass is a surface feature — never chase it downward.
+      const floorY = Math.floor(bot.entity.position.y) - 5;
       const found = bot.findBlocks({ matching: ids, maxDistance: radius, count: 24 });
-      const targets = found.filter((p) => !ctx.isProtected(p));
+      const targets = found.filter((p) => !ctx.isProtected(p) && p.y >= floorY);
       if (!targets.length) break;
       let progressed = false;
       for (const p of targets) {
