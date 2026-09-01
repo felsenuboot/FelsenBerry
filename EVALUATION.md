@@ -573,6 +573,25 @@ executes, not hand-driven steps, so the result is reproducible.
 truth, named per criterion — never the agenda's own self-report alone (law 0's
 "grade with something that didn't do the work," §"The false-success root").**
 
+**Scoring method (team-lead, hardened by two runs where trajectory lied and the
+outcome enum didn't): grade off the OUTCOME ENUM, never off how the run LOOKS.**
+Evidence: a 30-minute run looked healthy for its first 6 minutes, then rotted —
+trajectory said "fine" long after the tally would have said otherwise. Separately,
+a run that LOOKED like it was drifting to the surface (position climbing,
+apparently abandoning its depth) had a `mineLane` outcome tally that said
+`ok:1` — it had genuinely completed — and engine-dev-3 correctly reversed an
+initial "failure" read once they checked the tally instead of the trajectory.
+Both times the visual shape of the run lied and the outcome enum was honest.
+Concretely: **C4 grades on the project skill's `task_end` records with
+`outcome:"ok"` (§ its own section, now including the task-identity check), not
+on position or apparent trajectory. C1 grades on the death signals (§ its own
+section), not on how active the bot looks. C3/C5 grade on the rung-transition
+and recovery OUTCOMES in the ledger/log, not on watching the bot move.** A run
+that looks like it's mining but produces zero completed attempts is a fail; a
+run that looks like it's wandering but the tally shows real completions is not.
+Same anti-self-flattery discipline as the coverage metric (a clean-looking FSR
+over thin coverage) — a compelling-looking run is not evidence, the tally is.
+
 **Step 0 of launch (MANDATORY pre-flight, before any induced-stress procedure
 below): run the dry-run regression suite** — `bench/fixtures/agenda-ladder.js`
 (21 cases, includes 2 weapon cases) + `bench/fixtures/agenda-deepkit.js` (9 cases)
