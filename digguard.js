@@ -1,4 +1,6 @@
-// digguard v4 payload (inject via POST /eval, idempotent).
+// digguard v5 payload (inject via POST /eval, idempotent).
+// v5 (engine-dev-3, #26): the level-3 bot.ashDig wrap below is now actually IMPLEMENTED — v4
+// advertised THREE levels in this header and left the restore hook, but the body only had 1+2.
 //
 // Makes registered base infrastructure undiggable at THREE levels:
 //   1. bot.dig  — covers chopTrees, idle-guard, skills, manual evals (everything
@@ -29,7 +31,7 @@ const FILE = nodePath.join(nodePath.dirname(process.mainModule.filename), 'prote
 const RELOAD_MS = 10000;
 
 const g = {
-  enabled: true, version: 4, file: FILE,
+  enabled: true, version: 5, file: FILE,
   blocked: 0, blockedByRegion: {}, plannerHits: 0, ashBlocked: 0,
   regions: [], neverProtect: new Set(), loadedAt: 0, mtime: 0, error: null, reloads: 0,
 };
@@ -162,14 +164,63 @@ const wireMovements = () => {
 };
 g.wired = wireMovements();
 
+// ---- level 3: bot.ashDig (ashfinder /goto2 bypasses bot.dig — GitHub #26, safety) ----
+// ashfinder breaks blocks through bot.ashDig, which never passes through bot.dig, so levels
+// 1+2 miss it entirely. Wrap it too, reusing g.hit (ONE protected-region lookup, not
+// goto2.patch.js's parallel box list — that guardAshDig becomes redundant now). typeof-guarded:
+// most bots never load ashfinder and bot.ashDig won't exist there, so this is a no-op for the
+// normal fleet and live only where /goto2 is loaded.
+//
+// Unlike bot.dig, a plain idempotent re-wrap on the timer IS safe here: the level-1 no-self-heal
+// note is specific to TWO self-healing bot.dig wrappers (digguard + toolguard) re-pointing at
+// each other into a call cycle. bot.ashDig has exactly one wrapper (this one) — goto2's per-run
+// guardAshDig is retired in its favour — so an identity-checked re-wrap can never form a cycle.
+const guardedAshDig = (block, ...rest) => {
+  try {
+    if (g.enabled && block && block.position) {
+      const r = g.hit(block.position, block.name);
+      if (r) {
+        g.blocked++; g.ashBlocked = (g.ashBlocked || 0) + 1;
+        g.blockedByRegion[r.id] = (g.blockedByRegion[r.id] || 0) + 1;
+        if (g.blockedByRegion[r.id] <= 2) {
+          try { bot.chat("Hands off - " + r.id + " is protected base structure (" + r.reason + "). Backing off."); } catch (e) {}
+        }
+        return Promise.reject(new Error('protected_structure:' + r.id));
+      }
+    }
+  } catch (e) {}
+  return g.origAsh(block, ...rest);
+};
+guardedAshDig.__digguardWrapper = true;
+// (Re)wrap only when ashDig exists and is not already ours. guardedAshDig is a stable closure,
+// so once installed a re-run is a no-op (identity match); if a reconnect or a late ashfinder
+// load replaced bot.ashDig, we layer over whatever is current. No chain-walk: nothing else wraps
+// ashDig, so "am I outermost" is the whole question.
+const ensureAshWrapped = () => {
+  try {
+    if (typeof bot.ashDig !== 'function' || bot.ashDig === guardedAshDig) return false;
+    g.origAsh = bot.ashDig.bind(bot);
+    guardedAshDig.__wrappedTarget = bot.ashDig;
+    bot.ashDig = guardedAshDig;
+    g.ashRewraps = (g.ashRewraps || 0) + 1;
+    return true;
+  } catch (e) { return false; }
+};
+// restoreAsh is the hook g.restore() already calls (left in place for #26). Undo our wrap only
+// if it is still ours, so restore() never clobbers a wrapper something else layered on later.
+g.restoreAsh = () => { try { if (g.origAsh && bot.ashDig === guardedAshDig) bot.ashDig = g.origAsh; } catch (e) {} };
+g.ashWired = ensureAshWrapped();
+
 // Re-wire periodically: a reconnect (or any setMovements call) installs a fresh Movements
 // object that has never heard of us. The same timer polls protected.json so an edit reaches
-// running bots within ~10s with no re-injection. NOTE: this timer must never re-wrap
-// bot.dig — see the no-self-heal note above.
+// running bots within ~10s with no re-injection, and re-checks the ashDig wrap so a /goto2
+// loaded AFTER digguard still gets covered within ~10s. NOTE: this timer must never re-wrap
+// bot.dig — see the no-self-heal note above — but ashDig (single-wrapper) is safe.
 g.timer = setInterval(() => {
   if (globalThis.__digguard !== g || !g.enabled) { clearInterval(g.timer); return; }
   load(false);
   wireMovements();
+  ensureAshWrapped();
 }, RELOAD_MS);
 
 g.reload = () => { const changed = load(true); wireMovements(); return { changed, regions: g.regions.length, error: g.error }; };
@@ -195,13 +246,13 @@ g.restore = () => {
 // the DEAD bot and protects nothing. Bind to our own bot's 'end' and mark ourselves stale
 // so drivers and GET /state see the truth instead of a phantom install.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.digguard = { version: 4, boundAt: Date.now(), stale: false };
+REG.digguard = { version: 5, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try { REG.digguard.stale = true; g.enabled = false; if (g.timer) clearInterval(g.timer); } catch (e) {}
 });
 
 return {
-  installed: true, version: 4, file: FILE, regions: g.regions.length,
+  installed: true, version: 5, file: FILE, regions: g.regions.length,
   ids: g.regions.map((r) => r.id), plannerWired: g.wired, ashWired: g.ashWired,
   neverProtect: g.neverProtect.size, error: g.error, scaffoldingDisabled: true,
 };
