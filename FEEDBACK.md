@@ -714,3 +714,35 @@ status: shipped(v18 + idleguard v9)
 what: The "gather >=25 blocks from the plaza" rule was the last per-action check in DRIVER_GUIDE still living purely in driver habits, which the determinism codicil forbids. Its safety half was already gated (ctx.isProtected stops chopTrees targeting a structure's logs); the residual buffer is aesthetic — keeping the base's immediate treescape intact.
 fix: SHIPPED. protected.json gains a `harvestExclusion` list (cylinder or box, with `appliesTo` scoping), consumed by `__skills.harvestAllowed(pos, kind)` at TARGET SELECTION in chopTrees and in idleguard's mineNearest. Horizontal distance only, and mineLane is deliberately NOT gated — quarry_lane_1 is at the base on purpose and a driver-issued mining task is not what the rule was written for. Verified live: blocked at 24 blocks, allowed at 26, mineLane unaffected at the plaza centre. Fails OPEN if the config is unreadable.
 Full audit table in LAWS_AUDIT.md — 11 laws now gated and ready for the curator to retire, 3 genuine gaps (lease heartbeats during long smelts, deposit-excess trigger, two-bot rendezvous), and a list of rules that are judgement rather than checks and should STAY written down.
+
+### 2026-09-01 team-lead — SOAK RESULT: driverless survival SOLID, productivity agenda-blocked
+type: milestone-evidence
+status: open
+what: SoloSauhund (driverless, pure v16 engine, no LLM) ran 30 min on the local
+server: ALIVE, HP/food 20/20, zero deaths — survival/dangerscan/kit systems work
+fully autonomously. BUT productivity is nil: idle-guard's single-role default
+loops "previous task DONE — sweeping drops, waiting for orders" → chopTrees fails
+(no tree in range on fresh world) → come fails. The phase-1 scoreboard reads:
+SURVIVAL pillar ✓ driverless-proven; SELF-DIRECTED-PRODUCTIVITY pillar ✗ —
+blocked precisely on the missing agenda (#28). This is the strongest evidence yet
+that the agenda is THE phase-1 capstone: a bot that survives but can't choose
+useful work is not a self-sufficient player. Re-run this soak WITH agenda.js
+injected = the phase-1 acceptance test (AGENDA-DESIGN.md §acceptance).
+Secondary bug: "come — travel failed: Took too long to decide path to goal!"
+repeats — pathfinder thinkTimeout exceeded (idle-guard issuing come to a hard/
+unreachable target on fresh terrain). The agenda must fail-fast on undecidable
+paths rather than retry-loop; note for gotoFar/come hardening.
+fix: ship #28 (agenda) — it IS the fix. Keep SoloSauhund alive as the standing
+acceptance-test bed; inject agenda.js into it the moment it's built.
+
+### 2026-09-01 engine-dev-2 — telemetry ledger E1-E3 (EVALUATION.md / issue #21)
+type: feature-request
+status: shipped(telemetry v1 + runner + skills v19) — live-verified on the local server
+what: The measurement foundation the autonomy-soak benchmark needs to score phase-1, built to "verifier-or-it-didn't-happen": a task that CLAIMS success is not counted as success until an independent assertion agrees, and false_success is the headline metric with a target of zero.
+fix: SHIPPED, all three in one commit as required.
+E1 telemetry.js — single-writer JSONL ledger at logs/metrics-<bot>.jsonl, 500ms odometer/vitals sampler, tool-break watcher, per-goto aggregation of pathfinder's own path_update/path_reset telemetry, routeClass, adg/SALIENT/INV_KEYS, and classify() implementing the closed 16-value enum with exact precedence. Verified: an idle bot writes session + connect and nothing else.
+E2 runner.js — installed ONCE per bot instance in createBot, NOT on spawn (spawn fires again on every reconnect and would stack a fresh listener set each time — the same leak class as tonight's guard bugs). GET /metrics added. The non-negotiable companion fix shipped in the same commit: telemetry permanently owns a path_update listener, so the bare `listenerCount > 1` orphan detector would have reported a leak on every instrumented bot forever; it now subtracts __metrics.pathListeners. Verified: orphanedGoto still false on an idle instrumented bot.
+E3 skills.js — 6 call sites, no logic changes. task_start fires BEFORE the kit preflight and a kit rejection emits its own matched task_end, so refusing to depart lands in the denominator instead of being invisible. task_end emits in the IIFE BEFORE _onTaskEnd (which starts the next task synchronously, so emitting after would order the ledger wrongly). goto spans open in ctx.goto and close in its existing finally, which already covers return/throw/Cancelled. Plus wedge on _unstick, craft under-production, and retry counting.
+The ASSERTS table lives next to the registry and deliberately OUTSIDE every skill's fn — an assertion that lives inside the code it judges is worthless the moment that code is what's lying.
+CAUGHT A REAL SPECIMEN ON ITS FIRST RUN: a `come` produced two goto spans (one with 3 unsticks, one no_path), classified outcome:"wedge" by the precedence table, with assert:"come.arrived" and yield:0 — the bot did not reach its target and the ledger said so independently of the skill's own reporting. That is the entire point of the design, demonstrated unprompted.
+still open: E4 guard-hook emits (dangerscan/survival call into __metrics), E5 roster.json + metrics.mjs aggregator, E6 version pinning.

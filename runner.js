@@ -19,6 +19,9 @@ const mineflayer = require('mineflayer');
 const pathfinderPlugin = require('mineflayer-pathfinder');
 const { pathfinder, Movements, goals } = pathfinderPlugin;
 const { Vec3 } = require('vec3');
+// metrics ledger (EVALUATION.md E1-E2). Optional: a telemetry failure must never stop a bot.
+let telemetry = null;
+try { telemetry = require('./telemetry.js'); } catch (err) { console.log('telemetry.js not loaded: ' + err.message); }
 
 // ---------- optional "Baritone-like" plugins ----------
 // Every load is guarded: a missing/broken plugin logs a warning and its endpoint
@@ -430,6 +433,14 @@ function createBot() {
     if (!connected) scheduleReconnect(`error: ${err.message}`);
   });
 
+  // Install the metrics ledger ONCE per bot instance, here in createBot rather than on the
+  // spawn event: spawn fires again on every reconnect, and re-installing would stack a fresh
+  // set of listeners each time — the same leak class we spent tonight fixing in the guards.
+  if (telemetry) {
+    try { telemetry.install(bot, { name: NAME, role: ROLE, host: MC_HOST }); }
+    catch (err) { log(`telemetry install failed: ${err.message}`); }
+  }
+
   bot.on('end', (reason) => {
     connected = false;
     log(`<end> connection ended (${reason})`);
@@ -481,6 +492,12 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     const route = `${req.method} ${url.pathname}`;
 
+    if (route === 'GET /metrics') {
+      const m = globalThis.__metrics;
+      if (!m) return send(res, 501, { ok: false, error: 'telemetry not installed' });
+      return send(res, 200, { ok: true, ...m.snapshot(), guards: m.guardCounts ? m.guardCounts() : null });
+    }
+
     if (route === 'GET /state') {
       const pos = connected && bot && bot.entity ? bot.entity.position : null;
       // payload presence checked LIVE via globalThis, not a cached injection-time report —
@@ -523,7 +540,12 @@ const server = http.createServer(async (req, res) => {
       let pathStuckRecent = null;
       try {
         if (connected && bot && typeof bot.listenerCount === 'function') {
-          orphanedGoto = bot.listenerCount('path_update') > 1;
+          // goto.js attaches its listeners per call and removes them in cleanup(), so a
+          // surviving path_update listener means a stale promise is still alive. telemetry
+          // owns one of these permanently, so subtract what it declares — without this the
+          // detector reports a leak on every instrumented bot forever.
+          const ownedByMetrics = (globalThis.__metrics && globalThis.__metrics.pathListeners) || 0;
+          orphanedGoto = bot.listenerCount('path_update') > 1 + ownedByMetrics;
           pathStuckRecent = (bot._pathStuckTimes || []).length;
         }
       } catch (_) {}

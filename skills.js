@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 18;
+const ENGINE_VERSION = 19;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -388,6 +388,7 @@ function makeCtx(bot, task) {
           if (e instanceof Cancelled || e.fatal) throw e;
           lastErr = e;
           pushLog('retry', `${label} ${i}/${tries}: ${e.message}`);
+          try { const m = MET(); if (m && m.retry) m.retry(); } catch (_) {}
           if (i < tries) await ctx.sleep(500 * Math.pow(3, i - 1));
         }
       }
@@ -404,6 +405,9 @@ function makeCtx(bot, task) {
     // movement we dig the nuisance block(s) at the feet and hop; 3 failed
     // unsticks -> error code 'stuck'. Goal is always cleared on exit.
     async goto(goal, timeoutMs = 30000) {
+      const _m = MET();
+      if (_m && _m.gotoStart) _m.gotoStart(goal, timeoutMs);
+      let _res = 'error', _afail = false;
       ctx.step();
       const t0 = Date.now();
       const gotoP = bot.pathfinder.goto(goal);
@@ -430,16 +434,19 @@ function makeCtx(bot, task) {
               if (typeof goal.isEnd === 'function') arrived = Boolean(goal.isEnd(p) || goal.isEnd(p.offset(0, 1, 0)));
             } catch (_) { arrived = true; } // goal type we can't introspect — don't break it
             if (!arrived) {
+              _res = 'no_path'; _afail = true;    // the empty-path false success, caught
               const e = new Error('goto resolved without reaching the goal (empty-path noPath)');
               e.code = 'no_path';
               throw e;
             }
+            _res = 'arrived';
             return;
           }
           try { ctx.step(); }
           catch (e) { try { bot.pathfinder.setGoal(null); } catch (_) {} throw e; }
           if (Date.now() - t0 > timeoutMs) {
             try { bot.pathfinder.setGoal(null); } catch (_) {}
+            _res = 'path_timeout';
             const e = new Error(`path_timeout after ${timeoutMs}ms`);
             e.code = 'path_timeout';
             throw e;
@@ -449,6 +456,7 @@ function makeCtx(bot, task) {
           else if (Date.now() - lastMove > 6000) {
             if (unsticks >= 3) {
               try { bot.pathfinder.setGoal(null); } catch (_) {}
+              _res = 'stuck';
               const e = new Error('stuck: no movement despite an active path');
               e.code = 'stuck';
               throw e;
@@ -460,6 +468,8 @@ function makeCtx(bot, task) {
         }
       } finally {
         try { bot.pathfinder.setGoal(null); } catch (_) {}
+        // every exit path (return, throw, Cancelled) runs through here — one span, always closed
+        try { const m = MET(); if (m && m.gotoEnd) m.gotoEnd(_res, _afail); } catch (_) {}
       }
     },
 
@@ -467,6 +477,7 @@ function makeCtx(bot, task) {
     // bot's AABB (leaf_litter is the live-confirmed offender) and hop backwards.
     async _unstick() {
       pushLog('info', 'movement stalled — unsticking (nuisance dig + hop)');
+      try { const m = MET(); if (m && m.unstick) m.unstick('nuisance'); } catch (_) {}
       const base = bot.entity.position;
       const cols = new Set();
       for (const ox of [-0.31, 0.31]) for (const oz of [-0.31, 0.31]) {
@@ -971,6 +982,86 @@ function makeCtx(bot, task) {
   return ctx;
 }
 
+
+// ---------- false-success assertions (EVALUATION.md ss4.6) ----------
+// These live HERE, next to the registry and away from every skill's fn, on purpose: an
+// assertion that lives inside the code it judges is worthless the moment that code is the
+// thing that's lying. Each is a pure function of (task, bot) run once after task.done is
+// set. `yield` is continuous so partial credit is measurable without a binary verdict.
+// A skill with no entry yields null and is simply excluded from yield KPIs.
+const ASSERTS = {
+  come: (task, bot) => {
+    const a = task.args || {};
+    if (typeof a.x !== 'number') return null;
+    const p = bot.entity && bot.entity.position;
+    if (!p) return null;
+    const d = Math.sqrt((p.x - a.x) ** 2 + (p.y - a.y) ** 2 + (p.z - a.z) ** 2);
+    const limit = (a.range == null ? 1 : a.range) + 1.5;
+    // `come` returns no result object, so final position is the ONLY ground truth —
+    // which is exactly how ctx.goto's empty-path noPath used to report success.
+    return { rule: 'come.arrived', fail: d > limit, want: 1, got: d <= limit ? 1 : 0, yield: d <= limit ? 1 : 0 };
+  },
+  safeDescend: (task) => {
+    const r = task.result; if (!r) return null;
+    const want = Math.max(1, (r.startY || 0) - (task.args && task.args.toY != null ? task.args.toY : r.endY || 0));
+    const got = (r.startY || 0) - (r.endY || 0);
+    // the documented 96-steps-for-one-level staircase
+    return { rule: 'safeDescend.netDescent', fail: got < 2 && (r.steps || 0) > 8, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
+  },
+  buildStaircase: (task) => ASSERTS.safeDescend(task),
+  mineLane: (task) => {
+    const r = task.result; if (!r) return null;
+    const want = (task.args && task.args.count) || 8;
+    const got = r.banked || 0;
+    return { rule: 'mineLane.banked', fail: got === 0 && (r.dug || 0) > 0, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
+  },
+  chopTrees: (task) => {
+    const r = task.result; if (!r) return null;
+    const want = (task.args && task.args.count) || 1;
+    const got = r.treesFelled || 0;
+    return { rule: 'chopTrees.felled', fail: got === 0 && (r.logsDug || 0) > 0, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
+  },
+  huntAnimals: (task) => {
+    const r = task.result; if (!r) return null;
+    const want = (task.args && task.args.count) || 1;
+    const got = r.killed || 0;
+    return { rule: 'huntAnimals.killed', fail: got === 0 && (r.swings || 0) > 3, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
+  },
+  collectDrops: (task) => {
+    const r = task.result; if (!r) return null;
+    // best-effort by contract — never punish an honest sweep that found nothing
+    const want = (r.picked || 0) + (r.unreachable || 0);
+    return { rule: 'collectDrops.bestEffort', fail: false, want, got: r.picked || 0, yield: want > 0 ? (r.picked || 0) / want : null };
+  },
+  depositToChest: (task) => {
+    const r = task.result; if (!r) return null;
+    const want = r.offered != null ? r.offered : null;
+    const got = r.moved != null ? r.moved : (r.deposited != null ? r.deposited : null);
+    if (want == null || got == null) return null;
+    return { rule: 'depositToChest.moved', fail: got === 0 && want > 0, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
+  },
+};
+const buildAssert = (task) => {
+  const r = task.result; if (!r || r.blocks == null) return null;
+  const ok = r.verified && r.verified.ok != null ? r.verified.ok : null;
+  if (ok == null) return null;
+  // the build skills already verify with blockAt — free ground truth, so use it
+  return { rule: 'build.verified', fail: ok < r.blocks, want: r.blocks, got: ok, yield: r.blocks > 0 ? ok / r.blocks : null };
+};
+for (const k of ['buildWall', 'buildFloor', 'frameStructure', 'buildSchematic']) ASSERTS[k] = buildAssert;
+
+function runAssert(task, bot) {
+  try {
+    const f = ASSERTS[task.name];
+    if (typeof f !== 'function') return null;
+    const r = f(task, bot);
+    if (!r) return null;
+    return { rule: r.rule, fail: Boolean(r.fail), want: r.want == null ? null : r.want,
+      got: r.got == null ? null : r.got, yield: r.yield == null ? null : Math.round(r.yield * 1000) / 1000 };
+  } catch (_) { return null; }        // a broken assertion must never fail a real task
+}
+const MET = () => { try { return globalThis.__metrics; } catch (_) { return null; } };
+
 // ---------- task runner ----------
 // _q is ENGINE-INTERNAL ({qid,runId} for a queued item, {fallback,quiet} for an
 // onEmpty sweep). Drivers, task.sh and DRIVER_GUIDE never pass it.
@@ -1322,6 +1413,7 @@ S.craftSafe = async function (bot, itemName, times = 1, opts = {}) {
       }
     }
   }
+  try { const m = MET(); if (m && m.craft) m.craft(itemName, want, made, null); } catch (_) {}
   return { ok: true, made, calls, table: table ? [table.position.x, table.position.y, table.position.z] : null };
 };
 
@@ -1387,6 +1479,11 @@ S.start = function (bot, name, args = {}, _q = null) {
   catch (e) { bad = 'validate threw: ' + e.message; }
   if (bad) return { ok: false, error: { code: 'bad_args', message: bad, params: skill.params } };
 
+  // Telemetry: the attempt is recorded BEFORE the kit gate, so a kit_missing rejection lands
+  // in the denominator. Counting only tasks that got past preflight would make refusing to
+  // depart invisible and flatter every success rate.
+  const _met = MET();
+
   // KIT PREFLIGHT (P1.6) — fail BEFORE the task exists, so a half-kitted bot never departs.
   // Escape hatch: args.force = true (logged, so a shortcut is always visible after the fact).
   // declared tool: a WARNING, not a block — the skill calls ctx.ensureTool() up front and
@@ -1402,8 +1499,10 @@ S.start = function (bot, name, args = {}, _q = null) {
     if (!kit.ok && !args.force) {
       pushLog('warn', `kit_missing (${tier}): ${kit.missing.join(', ')}`);
       say(bot, `Not setting off half-kitted — I still need: ${kit.missing.join(', ')}.`);
-      return { ok: false, error: { code: 'kit_missing', tier, missing: kit.missing, warnings: kit.warnings,
-        hint: 'restock from the depot (chest B torches/cobble, chest C food), then restart — or pass {"force":true} to override' } };
+      const kitErr = { code: 'kit_missing', tier, missing: kit.missing, warnings: kit.warnings,
+        hint: 'restock from the depot (chest B torches/cobble, chest C food), then restart — or pass {"force":true} to override' };
+      if (_met && _met.taskRejected) _met.taskRejected(name, args, kitErr);
+      return { ok: false, error: kitErr };
     }
     if (!kit.ok) pushLog('warn', `kit_missing OVERRIDDEN by force: ${kit.missing.join(', ')}`);
   }
@@ -1431,6 +1530,10 @@ S.start = function (bot, name, args = {}, _q = null) {
   };
   if (!task.fallback) S._fallbackRuns = 0; // real work re-arms the fallback announcement
   pushLog('task', `start ${name} ${JSON.stringify(args).slice(0, 120)}`);
+  if (_met && _met.taskStart) {
+    _met.taskStart(task, { src: _q && _q.qid ? 'queue' : (_q && _q.fallback ? 'fallback' : 'driver'),
+      qid: _q && _q.qid ? _q.qid : null, kit: tier ? S.kitCheck(bot, tier) : null });
+  }
 
   const onEnd = () => { S._cancel = true; task._disconnected = true; };
   bot.once('end', onEnd);
@@ -1483,6 +1586,12 @@ S.start = function (bot, name, args = {}, _q = null) {
     // _onTaskEnd/_pump contain no await — so terminal state and the next start()
     // land in ONE uninterrupted continuation: no poll can ever observe
     // running:false while queue.n > 0.
+    // Emit BEFORE _onTaskEnd: that starts the next task synchronously, so emitting after it
+    // would order the ledger wrongly (next task_start ahead of this task_end).
+    try {
+      const m = MET();
+      if (m && m.taskEnd) m.taskEnd(task, runAssert(task, bot));
+    } catch (e) { pushLog('error', 'telemetry taskEnd: ' + e.message); }
     try { S._onTaskEnd(bot, task); } catch (e) { pushLog('error', 'queue advance: ' + e.message); }
   })();
 
