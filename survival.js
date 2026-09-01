@@ -615,7 +615,11 @@ const enter = async (why, pickOverride) => {
   g.active = true; g.fires++; g.startedAt = Date.now();
   const guarded = suspendGuard();
   let out = null;
-  const cap = setTimeout(() => { pushLog('error', 'panic run exceeded maxRunMs — forcing exit'); g.active = false; }, g.cfg.maxRunMs);
+  // #38: this force-exit used to bypass the catch block entirely (it doesn't throw, it
+  // just flips g.active off), so a run that hit the 90s wall-clock cap silently did NOT
+  // count as a failure -- g.failures stayed exactly as informative as a run that never
+  // hung at all. A hang IS a failure by any reasonable definition of the word.
+  const cap = setTimeout(() => { pushLog('error', 'panic run exceeded maxRunMs — forcing exit'); g.active = false; g.failures++; }, g.cfg.maxRunMs);
   try {
     // ordered teardown of whatever the bot was doing (AUTONOMY_PLAN step 3)
     try { if (globalThis.__skills && globalThis.__skills.stop) globalThis.__skills.stop('panic'); } catch (e) {}
@@ -629,7 +633,18 @@ const enter = async (why, pickOverride) => {
     pushLog('warn', `panic_enter (${why}) hp=${Math.round(bot.health)} threat=${top}`);
     try { const m = globalThis.__metrics; if (m && m.panic) m.panic('enter', why, bot.health); } catch (e) {}
     g.branch = 'deciding';
-    out = await pick();
+    // #38: this called the real pick() UNCONDITIONALLY -- pickOverride was captured as a
+    // parameter and used only as a truthy flag for the lockout check above, never actually
+    // invoked. g.drill()'s entire premise is "go through the real enter() state machine
+    // but force the requested branch/threat" (its own doc comment, below) -- that premise
+    // was false. A drill() call ran the REAL pick() against REAL ambient conditions the
+    // whole time, silently testing whatever the bot happened to be near rather than the
+    // scenario the caller asked for. Reproducing #38's original repro live with this bug
+    // still in place: drill('BREAK_LOS', {...a real id...}) actually fell through pick()'s
+    // own no-real-threat path into branchWallOff(null), which is why it took a long time
+    // (WALL_OFF's regen-wait) for reasons that had nothing to do with BREAK_LOS, corner
+    // stepping, or the underwater entity at all.
+    out = await (pickOverride || pick)();
     g.branch = out && out.branch;
     g.lastBranch = g.branch;
     g.recovered++;
