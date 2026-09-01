@@ -39,6 +39,7 @@ triage: (2026-09-01 synthesis) ship in the SAME status change as the 4Hz danger 
 ### 2026-09-01 marcel-driver — harvestGrass skill (rule-of-twice)
 type: rule-of-twice
 status: open
+github: felsenuboot/felcrew-mcp#35 (issue-manager sync, 2026-09-01 — bundled with ctx.stripLog/ctx.settle, phase-1, owner engine-dev-3)
 what: Grass/seed harvesting hand-driven via raw eval twice in one shift.
 fix: skills.js harvestGrass(radius, target): find short_grass/tall_grass, goto+dig+collect, gated like huntAnimals, never digs terrain blocks.
 
@@ -205,7 +206,8 @@ fix: for engine support — a lightweight "where's my peer" endpoint/skill (`__s
 
 ### 2026-09-01 team-lead — CAVECREW stack steal-list (see research/cavecrew-stack-analysis.md)
 type: feature-request
-status: open
+status: picked-up (issue-manager sync, 2026-09-01) — items 2 and 5 filed as issues, both owned by engine-dev-2; item 1 already covered by ctx.placeBlockAt's own verify-on-timeout pattern (v7). Items 3 (external overseer) and 4 (death protocol) remain unfiled — larger structural items, next cycle.
+github: felsenuboot/felcrew-mcp#33 (item 2, generation counter), #34 (item 5, 3-signal watchdog)
 what: Analysis of allied crew's public stack (ZetOmega/cavecrew-mcp) found 5 mechanisms superior to ours, several closing OUR open entries:
   1. safeDig/safePlace verify-on-timeout (re-check world before believing failure) — closes the placeBlock false-timeout entry. Effort S.
   2. Per-connect GENERATION COUNTER threaded through all movement promises (stale ones become no-ops) — closes the orphaned-goto entry + zombie-relog class. Effort M.
@@ -492,6 +494,7 @@ fix: `surfaceExposed`/`skyLight` in status should probably be computed from a sm
 ### 2026-09-01 friedrich-driver — hand-rolled place+strip+dig loses items unless equip AND every action gets its own settle tick
 type: bug
 status: open
+github: felsenuboot/felcrew-mcp#35 (issue-manager sync, 2026-09-01 — bundled with harvestGrass, phase-1, owner engine-dev-3)
 what: Manually stripping oak_log (place → equip axe → bot.activateBlock(placed) → dig, no skill for this yet) to build karl-driver's wall posts. First batch: 15 attempts with only 4-tick gaps between place/activate/dig → 8 of 15 lost (block visibly showed `stripped_oak_log` right before the dig, but only 7 landed in inventory — matches the documented crafting-void pattern). Doubled the gaps to 16 ticks between place/activate/dig (matching the "800ms settle" crafting rule) — got WORSE, 17 of 20 failed, but differently: `blockAt` after activateBlock still read plain `oak_log`, meaning the strip itself silently didn't register at all (not a collection-drop issue this time). Swapped to `lookAt`+`activateItem()` per the bucket-fill quirk's fix pattern — same failure, block stayed `oak_log`. Finally isolated it with per-step diagnostics: the actual fix was adding a short settle (~5 ticks) AFTER EVERY `bot.equip()` call too, not just between place/activate/dig — once equip(log)→wait, place→wait, equip(axe)→wait, activateBlock→wait, dig→wait was the full pattern, 6/6 then 1/1 succeeded with zero further loss. Net cost of the diagnostic process: ~30 oak_log consumed for only 17 stripped_oak_log banked.
 fix: the general "settle after every state-changing action, not just craft" rule needs to explicitly include `bot.equip()` — an immediately-following action (place/activate/dig) can race the equip and act with the PREVIOUS held item or an inconsistent inventory view server-side, even though `bot.heldItem` client-side already reports the new item. Given this is now three data points (craft, and two flavors of this), worth a `ctx.settle()` primitive in skills.js (a single named wait-and-verify helper) that every hand-rolled loop and future skill calls after equip/place/dig/craft, rather than every driver rediscovering the exact tick count by trial and error. Also: a `ctx.stripLog(pos)` or similar primitive belongs in skills.js given this is now a documented recurring need (Peter's torch_posts_1 rebuild used it too) — rule of twice.
 
@@ -694,3 +697,9 @@ status: shipped(idleguard v8 + digguard v4)
 what: Found while testing toolguard, and it is the most serious thing I have found tonight. idleguard patched bot.dig and its stop() restored the original by assignment (`obj[key] = orig`). Other payloads — digguard, reachguard, toolguard — wrap bot.dig ON TOP of that, so restoring took all of them down at once. Measured live: after one __idleguard.stop(), `bot.dig.toString()` was `function () { [native code] }` — the raw mineflayer method — while globalThis.__digguard, __reachguard, __toolguard and __idleguard ALL still reported installed. DRIVER_GUIDE tells drivers to call __idleguard.stop() for long manual travel, so this quietly stripped base-structure protection, reach limits and tool enforcement off a working bot mid-session, with every presence check saying otherwise. Same "presence is not liveness" class as the reconnect finding, different cause: patch-stack teardown rather than a swapped bot object.
 fix: SHIPPED. idleguard v8 never restores — the wrapper stays installed and goes INERT when stopped (it only timestamps activity, harmless when disabled), and re-injection REBINDS the existing wrapper to the new state object instead of stacking another layer. Verified: after __idleguard.stop(), bot.dig is still wrapped and still rejects a toolless stone dig.
 WARNING FOR ANYONE ADDING A GUARD — I tried the obvious defence (a timer that re-wraps when a guard notices it is gone) and it is a TRAP. Detecting "am I still in the chain" means walking it, and every wrapper must publish what it wraps for the walk to work; reachguard, graychat and idleguard do not. Two guards each checking only "am I outermost" re-layer over each other and form a cycle: 9.2 MILLION recursive dig calls in one live test. Both self-heals were removed. Fix the source instead. If a self-heal is ever genuinely needed, first make EVERY dig wrapper publish `__wrappedTarget` (digguard and toolguard now do), then walk that.
+
+### 2026-09-01 engine-dev-2 — ctx.gotoFar multi-leg waypointing (SYNTHESIS P2.8 / issue #31)
+type: feature-request
+status: picked-up(engine-dev-2) 2026-09-01
+what: Long hauls fail not because the movement engine is bad but because one A* over 200+ blocks of broken terrain can't finish inside the think budget, and the far chunks aren't loaded so the geometry is unknown. Hand-driven as "loop it, multi-leg" more than twice (rule-of-twice met).
+fix: ctx.gotoFar per research/movement-engines.md ss2.7 — ground-snapped legs every ~80 blocks, GoalNearXZ fallback for unloaded columns, re-snap each leg after chunks load, HAUL profile, abort after 2 consecutive legs making <10 blocks of progress.
