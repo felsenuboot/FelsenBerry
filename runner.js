@@ -256,7 +256,13 @@ async function applyPayloadStack(bot) {
   // registers the `produce` skill, and its mining consults __digguard for protected regions —
   // so it too must come after both. The agenda's RESTOCK rung calls it as its produce-fallback,
   // which is the difference between a bot that can only withdraw and a self-sufficient one.
-  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js', 'farmskills.js', 'basekeeping.js', 'producer.js']) {
+  // digchain.js is the single bot.dig wrap point (#55) and MUST come before the three guards,
+  // so they have a registry to register their checks into. Ordering it FIRST rather than last
+  // is deliberate and is the safe direction: at spawn it installs a passthrough over a pristine
+  // bot.dig and the guards then wrap or register on top, so there is never an unguarded window.
+  // The reverse (guards before coordinator) would leave a reconnecting bot briefly holding
+  // guards with nothing to register into — and these bots protect a real base on a live server.
+  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digchain.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js', 'farmskills.js', 'basekeeping.js', 'producer.js']) {
     const r = await injectPayload(bot, f);
     report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
   }
