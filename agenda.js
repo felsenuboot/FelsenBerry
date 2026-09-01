@@ -179,6 +179,10 @@ const runSkill = (name, args, why) => {
     const r = S.start(bot, name, args || {});
     if (r && r.ok) { A.activeTaskId = r.taskId; note(`${why}: started ${name}`); A.metrics.acts++; }
     else note(`${why}: ${name} refused (${r && r.error && r.error.code})`);
+    // `busy` means the engine is running something else RIGHT NOW — transient, so retry on
+    // the next tick rather than serving this rung a 30s backoff for a two-second condition.
+    // Everything else (kit_missing, bad_args, unknown_skill) is a real refusal.
+    if (r && !r.ok && r.error && r.error.code === 'busy') r._transient = true;
     return r;
   } catch (e) { A.metrics.errors++; return { ok: false, error: { code: 'threw', message: e.message } }; }
 };
@@ -243,7 +247,8 @@ const RUNGS = [
     act: async (s) => {
       if (oursRunning(s)) return 'running';
       const pos = Array.isArray(DEPOT.minerals) ? { x: DEPOT.minerals[0], y: DEPOT.minerals[1], z: DEPOT.minerals[2] } : undefined;
-      return runSkill('depositToChest', pos ? { pos } : {}, 'DEPOSIT').ok ? 'started' : 'refused';
+      const r = runSkill('depositToChest', pos ? { pos } : {}, 'DEPOSIT');
+      return r.ok ? 'started' : (r._transient ? 'busy' : 'refused');
     } },
 
   { id: 'EAT', prio: 4,
@@ -332,7 +337,26 @@ const RUNGS = [
       if (f.food) needs.bread = f.food;
       if (f.filler) needs.cobblestone = f.filler;
       if (!Object.keys(needs).length) return 'none';
-      return runSkill('restock', { needs }, 'RESTOCK').ok ? 'started' : 'refused';
+
+      // PRODUCE what the depot cannot supply. A bot that can only acquire by withdrawing is
+      // not self-sufficient — which is the phase-1 bar itself — and on a fresh world with no
+      // depot the filler floor is simply unmeetable, so the project's kit gate refuses
+      // forever. If the last restock came back short on filler and we hold a pickaxe, go mine
+      // it instead of asking an empty chest again.
+      const shortFiller = A._restockShort && A._restockShort.cobblestone;
+      const havePick = (bot.inventory.items() || []).some((i) => /_pickaxe$/.test(i.name));
+      if (shortFiller && havePick) {
+        A._restockShort = null;
+        // force: mineLane's own kit tier wants 16 filler, which is exactly what we are here
+        // to obtain — the one sanctioned exception, same shape as ensureTool's bootstrap
+        // wood digs. Gathering stone at the surface is not the deep excursion that gate
+        // exists to protect.
+        note(`depot short ${shortFiller} filler — mining it instead`);
+        const rm = runSkill('mineLane', { target: 'stone', count: Math.min(shortFiller, 24), maxDist: 24, force: true }, 'RESTOCK/mine');
+        return rm.ok ? 'started' : (rm._transient ? 'busy' : 'refused');
+      }
+      const rr = runSkill('restock', { needs }, 'RESTOCK');
+      return rr.ok ? 'started' : (rr._transient ? 'busy' : 'refused');
     } },
 
   { id: 'LIGHT', prio: 7,
@@ -348,6 +372,7 @@ const RUNGS = [
       const p = A.project;
       if (!p || !p.skill) return 'none';
       const r = runSkill(p.skill, p.args, 'PROJECT');
+      if (!r.ok && r._transient) return 'busy';
       if (!r.ok) {
         p.attempts = (p.attempts || 0) + 1;
         p.lastError = r.error ? r.error.code : 'unknown';
@@ -367,7 +392,8 @@ const RUNGS = [
       if (oursRunning(s)) return 'running';
       if (s.now - (A._idleAt || 0) < 30000) return 'cooldown';   // don't spam the sweep
       A._idleAt = s.now;
-      return runSkill('collectDrops', { radius: 16, timeoutMs: 15000 }, 'IDLE').ok ? 'sweeping' : 'refused';
+      const ri = runSkill('collectDrops', { radius: 16, timeoutMs: 15000 }, 'IDLE');
+      return ri.ok ? 'sweeping' : (ri._transient ? 'busy' : 'refused');
     } },
 ];
 const RUNG_BY_ID = RUNGS.reduce((o, r) => (o[r.id] = r, o), {});
@@ -463,6 +489,12 @@ const tick = () => {
         else if (repairable) { p.attempts = 0; }
       }
     }
+    // remember what the depot could not supply, so RESTOCK can switch to producing it
+    try {
+      const raw = s.task._raw;
+      if (raw && raw.name === 'restock' && raw.result && raw.result.short) A._restockShort = raw.result.short;
+    } catch (e) {}
+
     // GENERAL "completed but did not achieve" detector. A rung whose skill finishes cleanly
     // while its own fire() is still true has not moved the world — RESTOCK did exactly this,
     // starting a restock every cycle on a world with no depot and never standing down,
@@ -508,12 +540,13 @@ const tick = () => {
   const acted = Promise.resolve(target.act(s));
   Promise.race([acted, new Promise((res) => setTimeout(() => res('act_timeout'), ACT_TIMEOUT_MS))])
     .then((r) => {
-      if (r && r !== 'running' && r !== 'cooldown' && r !== 'hold') A.lastAction = { rung: target.id, r, at: now() };
+      if (r && r !== 'running' && r !== 'cooldown' && r !== 'hold' && r !== 'busy') A.lastAction = { rung: target.id, r, at: now() };
       if (r === 'act_timeout') {
         A.busyStuck++;
         note(`${target.id} act exceeded ${ACT_TIMEOUT_MS / 1000}s — releasing the loop and standing it down`);
         standDown(target.id); A.owner = null; A.activeTaskId = null;
-      } else if (r && NO_PROGRESS.has(r)) { standDown(target.id); A.owner = null; }
+      } else if (r === 'busy') { /* engine occupied — retry next tick, no backoff */ }
+      else if (r && NO_PROGRESS.has(r)) { standDown(target.id); A.owner = null; }
       else if (r && r !== 'running' && r !== 'cooldown') { A.standDownCount[target.id] = 0; delete A.standDown[target.id]; }
     })
     .catch((e) => { A.metrics.errors++; note(`act ${target.id}: ${e.message}`); standDown(target.id); A.owner = null; })
