@@ -65,7 +65,8 @@ closing — `roster.json` doesn't exist on disk yet, verified).
   second escalation (accepting CAVECREW's tailnet-mailbox offer) is queued
   if silence outlasts a few more hours.
 - #8 CLAIM interop protocol — mirrors `ZetOmega/cavecrew-mcp#1`, awaiting
-  their schema draft or ours.
+  their schema draft or ours. **DEPRIORITIZED to Phase 2** per the GOAL.md
+  correction above (cooperation-heavy, explicitly named).
 - `ZetOmega/cavecrew-mcp` #2, #3, #4 — all filed by us, all awaiting a
   CAVECREW reply. #3 (fair-play pact) is the same ask as felcrew#1 item (a);
   #2 (chunk regen) is cross-linked from felcrew#17's escalation AND #20's
@@ -99,16 +100,42 @@ closing — `roster.json` doesn't exist on disk yet, verified).
   `ashDig`) — needs a look next cycle.
 - #27 disconnect-mid-loop false success — new this cycle.
 
-**Engine features / roadmap** (5)
-- #4 spawnProof sweep + BASE-vs-reality diff (safety, no dependencies)
-- #5 farmCycle autonomous harvest/replant/bake loop
-- #6 chatlisten.js FLEET/1 protocol — **briefed**: top roadmap priority per
-  GOAL.md. Spec fully implementation-ready, skeleton code included. Gate:
-  spoof-rejection test before building on top.
+**Engine features / roadmap** (6)
+- **#28 autonomous agenda / needs-selector — NEW TOP PRIORITY (Phase 1
+  capstone, see correction above).** No brief yet, needs design work first.
+- #4 spawnProof sweep + BASE-vs-reality diff (safety, no dependencies) —
+  briefed, and arguably Phase-1-relevant too (self-maintenance rung of #28's
+  ladder needs to know a structure is damaged before it can react)
+- #5 farmCycle autonomous harvest/replant/bake loop — also Phase-1-relevant
+  (this IS a "project advance" rung example for #28's ladder)
+- #6 chatlisten.js FLEET/1 protocol — **briefed, DEPRIORITIZED to Phase 2**
+  per the correction above. Spec stays implementation-ready for when Phase 2
+  starts.
 - #13 tillFarmland skill + farmland-reverting bug — **briefed**: two
   deliverables (skill itself, S effort; `blocksToAvoid` routing fix for the
-  likely-trampling cause, XS effort).
+  likely-trampling cause, XS effort). Phase-1-relevant (food production is a
+  named single-player pillar).
 - #16 cave-mapping/sealing skill (rule-of-twice, no safety urgency)
+
+## PRIORITY CORRECTION (2026-09-01, mid-cycle) — GOAL.md phasing directive
+
+Felix issued a fresh phasing directive via `/goal`: **PHASE 1 = single-player
+completeness first** (one fully self-sufficient, DRIVERLESS bot surviving
+hours unattended on the autonomy-soak benchmark). **Cooperation-heavy work —
+FLEET/1 chatlisten (#6) and CLAIM interop (#8) explicitly named — is
+deferred to PHASE 2.** This directly reverses the priority framing given to
+#6 in this same document and in the brief posted on the issue earlier this
+cycle; corrected both #6 and #8 with follow-up comments (the briefs
+themselves stay valid for whenever Phase 2 starts, just not next-up).
+
+**New top priority: #28, "AUTONOMOUS AGENDA / needs-selector"** — GOAL.md's
+own words call this the Phase-1 capstone: a deterministic priority ladder
+(survival > self-maintenance > project advance > idle fallback; LLM sets
+only the project, the ladder runs it). Nothing tracked this before; filed
+fresh this cycle. No implementation brief yet — this needs real design work
+first (the ladder's exact trigger conditions per rung aren't specified in
+GOAL.md, unlike #6/#13/#26/#4 which had implementation-ready specs to draw
+on). Flagged to team-lead as a material roadmap shift.
 
 ## Implementation briefs on file (ready for engine-dev-2, no re-research
 needed)
