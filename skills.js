@@ -360,6 +360,19 @@ function makeCtx(bot, task) {
 
     async sleep(ms) { ctx.step(); await new Promise((r) => setTimeout(r, ms)); ctx.step(); },
 
+    // Settle after a state-changing action (equip / place / dig / activate / craft) before the
+    // next action or a verifying blockAt read. NOT just cosmetic latency: bot.heldItem updates
+    // client-side the instant an equip resolves, but the SERVER has not necessarily applied it,
+    // so an action fired immediately after can race the equip and act with the PREVIOUS held
+    // item or a stale inventory view. friedrich-driver lost ~30 oak_log rediscovering this the
+    // hard way — a place/activate/dig right after equip silently no-op'd or voided the item, and
+    // the fix that finally held was a short settle after EVERY such action, EQUIP INCLUDED (not
+    // only between place/activate/dig, and not the crafting-only 800ms rule). Default ~2-3 ticks;
+    // pass more (300-800ms) before trusting a confirming read (blockAt right after place/dig is
+    // unreliable in both directions — karl-driver). Never bring it up as a manual driver step;
+    // skills and hand-rolled loops call this so the discipline is the default, not tribal lore.
+    async settle(ms = 120) { ctx.step(); await new Promise((r) => setTimeout(r, ms)); ctx.step(); },
+
     say(msg) { say(bot, msg); },
 
     // Exactly one chat per phase transition (house rule: per phase, not per block).
@@ -3242,6 +3255,81 @@ S.define('buildStaircase', {
     return { startY: start.y, endY: pos.y, steps, placedStairs, placedRail, torches, stoppedBecause };
   },
   doneMsg: (t) => `Staircase built: y=${t.result.startY} -> y=${t.result.endY} in ${t.result.steps} steps (${t.result.stoppedBecause}), ${t.result.torches} torches.`,
+});
+
+// ---------- stripLog (FEEDBACK #35: recurring hand-rolled place+strip for aesthetic posts) ----------
+// Strip placed logs into their stripped_ variant (an axe right-click, no dig) for torch/wall
+// posts. Recurring hand-driven need (friedrich's wall posts, peter's torch_posts_1 rebuild).
+// Uses ctx.settle around the equip+activate — that was the actual fix for the ~30 logs friedrich
+// lost — and ctx.ensureTool for the axe so it inherits acquisition instead of failing bare-handed.
+S.define('stripLog', {
+  description: 'Strip placed logs into their stripped_ variant (axe right-click) for aesthetic posts. Never strips protected structure or non-logs; acquires an axe if needed.',
+  tool: 'axe',
+  params: { pos: 'a single {x,y,z}', cells: 'or an array [{x,y,z}]', rect: 'or a box {from:{x,y,z},to:{x,y,z}} (inclusive)' },
+  validate: (a) => (a.pos || (Array.isArray(a.cells) && a.cells.length) || (a.rect && a.rect.from && a.rect.to)) ? null : 'need pos:{x,y,z}, cells:[...], or rect:{from,to}',
+  fn: async (ctx) => {
+    const { bot, args } = ctx;
+    // resolve the target cells (single pos, explicit list, or an inclusive box; capped)
+    let cells = [];
+    if (args.pos) cells = [args.pos];
+    else if (Array.isArray(args.cells)) cells = args.cells.slice(0, 512);
+    else if (args.rect) {
+      const a = args.rect.from, b = args.rect.to; const CAP = 512;
+      for (let x = Math.min(a.x, b.x); x <= Math.max(a.x, b.x); x++)
+        for (let y = Math.min(a.y, b.y); y <= Math.max(a.y, b.y); y++)
+          for (let z = Math.min(a.z, b.z); z <= Math.max(a.z, b.z); z++) { cells.push({ x, y, z }); if (cells.length >= CAP) break; }
+    }
+    cells = cells.filter((c) => c && [c.x, c.y, c.z].every((n) => typeof n === 'number')).map((c) => new Vec3(Math.floor(c.x), Math.floor(c.y), Math.floor(c.z)));
+    if (!cells.length) return { stripped: 0, cells: 0 };
+
+    ctx.setPhase('preparing', 'Grabbing an axe for some stripping.');
+    const tr = await ctx.ensureTool('axe');
+    if (!tr.ok) return { ok: false, error: { code: 'no_axe', message: 'could not acquire an axe (depot/craft failed)', steps: tr.steps } };
+
+    const STRIPPABLE = /(_log|_wood|_stem|_hyphae)$/;
+    const stripOne = async (pos) => {
+      ctx.step();
+      let b = bot.blockAt(pos);
+      if (!b) { try { await ctx.gotoNear(pos, 3, 15000); } catch (_) {} b = bot.blockAt(pos); }
+      if (!b) return { ok: false, reason: 'unloaded' };
+      if (/^stripped_/.test(b.name)) return { ok: true, already: true };
+      if (!STRIPPABLE.test(b.name)) return { ok: false, reason: 'not_a_log', block: b.name };
+      if (ctx.isProtected(pos, b.name)) return { ok: false, reason: 'protected' };   // never strip registered structure
+      const eye = () => bot.entity.position.offset(0, 1.6, 0);
+      if (pos.offset(0.5, 0.5, 0.5).distanceTo(eye()) > 4.0) {
+        try { await ctx.gotoNear(pos, 2, 15000); } catch (_) {}
+        if (pos.offset(0.5, 0.5, 0.5).distanceTo(eye()) > 4.6) return { ok: false, reason: 'unreachable' };
+      }
+      // re-equip the axe right before acting: a gotoNear may have dug a nuisance block and
+      // swapped the held item. Then settle so the server has the axe before the right-click.
+      const axe = bot.inventory.items().find((i) => /_axe$/.test(i.name));
+      if (!axe) return { ok: false, reason: 'no_axe' };
+      try { await withTimeout(bot.equip(axe, 'hand'), 5000, 'equip_timeout'); } catch (_) {}
+      await ctx.settle();
+      b = bot.blockAt(pos);
+      try {
+        await bot.lookAt(pos.offset(0.5, 0.5, 0.5), true);
+        await withTimeout(bot.activateBlock(b), 4000, 'strip_timeout');
+      } catch (_) { /* verify below rather than trust the call */ }
+      await ctx.settle(300);
+      const now = bot.blockAt(pos);
+      return (now && /^stripped_/.test(now.name)) ? { ok: true, block: now.name } : { ok: false, reason: 'no_effect', block: now && now.name };
+    };
+
+    ctx.setPhase('stripping', `Stripping ${cells.length} log${cells.length === 1 ? '' : 's'}.`);
+    let stripped = 0, already = 0, skipped = 0; const reasons = {};
+    let i = 0;
+    for (const pos of cells) {
+      ctx.step();
+      ctx.progress(++i, cells.length, 'logs');
+      const r = await stripOne(pos);
+      if (r.ok && !r.already) stripped++;
+      else if (r.already) already++;
+      else { skipped++; reasons[r.reason] = (reasons[r.reason] || 0) + 1; }
+    }
+    return { cells: cells.length, stripped, already, skipped, ...(Object.keys(reasons).length ? { reasons } : {}) };
+  },
+  doneMsg: (t) => `Stripped ${t.result.stripped} log${t.result.stripped === 1 ? '' : 's'}${t.result.skipped ? ` (${t.result.skipped} skipped)` : ''}.`,
 });
 
 G.__skills = S;
