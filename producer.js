@@ -17,12 +17,15 @@
 //   - ONE-SHOT, no internal retry loop. The ladder owns retry cadence + backoff (two stacked
 //     retry policies is how you get the churn we just fixed).
 //
-// It is an S-level method (like ensureTool/craftToolChain), run INLINE within an agenda act
-// (the 180s ACT_TIMEOUT exists for exactly this). Reuses S.craftSafe + S.ensureTool, and the
-// DISCIPLINE from craftToolChain (bill via planks + logs*4; the Δy<=5 surface filter on wood;
-// the sanctioned force:true hand-on-log bootstrap) WITHOUT calling it — that chain is skills.js-
-// internal and tool-specific, and the whole torch line (torch/stick/planks are all 2x2-or-
-// smaller) needs NO crafting table, so it sidesteps the table/head-planks bill bug entirely.
+// SHAPES: the AGENDA starts the `produce` SKILL (S.define below) via runSkill — that's the shape
+// with the task mutex, telemetry, clean preemption, and no act-cap collision (see the wrapper's
+// own comment for why a blocking-method-in-act is the wrong shape). `S.produce(bot,...)` is the
+// implementation, for calling from INSIDE another skill's fn where a ctx already exists (pass
+// {ctx} so it cancels at a step boundary). Reuses S.craftSafe + S.ensureTool, and the DISCIPLINE
+// from craftToolChain (bill via planks + logs*4; the Δy surface filter on wood; the sanctioned
+// force:true hand-on-log bootstrap) WITHOUT calling it — that chain is skills.js-internal and
+// tool-specific, and the whole torch line (torch/stick/planks are all 2x2-or-smaller) needs NO
+// crafting table, so it sidesteps the table/head-planks bill bug entirely.
 //
 // Remove: __producer.restore()
 if (!globalThis.__skills || typeof globalThis.__skills.define !== 'function') {
@@ -33,7 +36,11 @@ const S = globalThis.__skills;
 const SPECIES = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cherry', 'pale_oak', 'mangrove'];
 const LOG_NAMES = SPECIES.map((s) => s + '_log');
 const COAL_ORE = ['coal_ore', 'deepslate_coal_ore'];
-const MAX_BELOW = 5;                 // wood is a surface feature — never chase it down a ravine
+const MAX_BELOW = 5;                 // wood: never chase it DOWN a ravine (the Grog anti-descent rule)
+const MAX_ABOVE = 10;                // ...and BOUND IT ABOVE too — matches engine-dev-2's v31 fix to
+                                     // craftToolChain: a one-sided filter let a bot at y73 "find" trees
+                                     // at y113, then spend 36s failing to path up to each before
+                                     // reporting no_wood — a reachability failure masquerading as supply.
 const MINE_RADIUS = 20;
 // Ore/stone IS underground, so no surface filter — but an unbounded 3D findBlocks would let
 // produce chase a deep vein straight down a ravine to the stranded-and-mobbed death engine-dev-2
@@ -118,8 +125,9 @@ async function mineProduct(bot, oreNames, product, want, steps, chk) {
 // sanctioned force dig) until `wantLogs` are held or no reachable surface wood remains
 async function gatherLogs(bot, wantLogs, steps, chk) {
   if (invRe(bot, /_log$/) >= wantLogs) return true;
+  const myY = Math.floor(bot.entity.position.y);
   const found = bot.findBlocks({ matching: idsOf(bot, LOG_NAMES), maxDistance: 48, count: 16 })
-    .filter((p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW && !isProt(bot, p));
+    .filter((p) => p.y >= myY - MAX_BELOW && p.y <= myY + MAX_ABOVE && !isProt(bot, p));
   if (found.length) {
     steps.push('gather:wood');
     for (const p of found) {
@@ -269,4 +277,4 @@ return { installed: true, version: 2,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
   resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks'],
-  reasons: ['no_pickaxe', 'no_coal_nearby', 'no_wood', 'no_space', 'partial', 'unproduceable'] };
+  reasons: ['no_pickaxe', 'no_coal_nearby', 'no_ore_nearby', 'no_wood', 'no_space', 'partial', 'unproduceable'] };
