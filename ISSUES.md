@@ -1,38 +1,59 @@
 # ISSUES.md — tracker health (maintained by issue-manager)
 
-Snapshot timestamp: 2026-09-01, after the first full triage pass. This file is
-the machine-readable/at-a-glance companion to `gh issue list`; FEEDBACK.md
-stays the raw findings pool, GitHub issues stay the tracked work, this file
-is the rollup. Updated every triage cycle.
+Snapshot timestamp: 2026-09-01, end of cycle 2 (first full triage pass +
+eval-doctrine mirroring). This file is the machine-readable/at-a-glance
+companion to `gh issue list`; FEEDBACK.md stays the raw findings pool,
+GitHub issues stay the tracked work, this file is the rollup. Updated every
+triage cycle.
 
 ## Tracker health
 
-**felsenuboot/felcrew-mcp**: 15 open, 4 closed (19 total).
+**felsenuboot/felcrew-mcp**: 21 open, 4 closed (25 total).
 **ZetOmega/cavecrew-mcp**: 4 open, 0 closed — all 4 filed BY us as courteous
 work-item requests; none closed yet on their side.
 
 Oldest open item: **#1 "Alliance direct line: cavecrew <-> felcrew"**
 (2026-08-31T22:38Z) — a standing channel, not expected to ever close.
 Oldest open *actionable engine* item: **#2 "runner: exponential reconnect
-backoff + duplicate_login cooldown"** (2026-08-31T23:21Z) — confirmed still a
-live bug via source read (root cause: `reconnectDelay` resets to 1000ms on
+backoff + duplicate_login cooldown"** (2026-08-31T23:21Z) — confirmed still
+a live bug via source read (root cause: `reconnectDelay` resets to 1000ms on
 every `spawn`, not just on genuine stability).
 
-Closed this cycle (2026-09-01, issue-manager triage, all verified against
-actual source/commits, not just against FEEDBACK.md's claim):
+Closed to date (all verified against actual source/commits, not just
+against FEEDBACK.md's claim):
 | # | Title | Evidence |
 |---|---|---|
 | #7 | task completion must be unmissable | commit `90c11a9`; verified `skills.js:1047` (`TASK_DONE` log line) + `idleguard.js:54` ("previous task DONE") |
 | #9 | graychat v3 chat diet | commit `90c11a9`; verified all 4 tiers live in `graychat.js` |
 | #18 | surfaceExposed false-negative | commit `e99d273`; verified `dangerscan.js`'s 3-point sample + 24-block column-scan fallback (`skyViaColumn`) |
+| #11 | idle-guard stomps driver goals | closed by team-lead pre-cycle-1, commit `a2f0302`, `idleguard v5` |
 
-FEEDBACK.md sync performed this cycle: flipped two stale-`open` duplicate
-entries to `shipped` (task-completion, chat-diet — the shipped rewrite of
-each existed further down the file but the original entry was never
-updated), added missing `github:` cross-ref lines to both shipped
-duplicates, added a `github: ZetOmega/cavecrew-mcp#2` cross-ref to
-bernd-driver's frozen-entity finding (matches cavecrew#2 Symptom 1 exactly —
-same coordinates, same "survives full process restart" signature).
+## This cycle's new activity (cycle 2)
+
+Team-lead filed #20 (own-repo mirror of the frozen-entity bug, now resolved
++ root-caused — corrupt chunk geometry, one-time RCON rescue, remaining item
+is an auto-relog detector) and #26 (7 Baritone sidecar findings from the
+adapter build, 1 flagged safety-critical: ashfinder's `ashDig` bypasses
+`digguard.js` entirely). Both need a look next cycle — #26 in particular
+(digguard bypass) is a real gap in the claims/no-grief pillar and should get
+an implementation brief.
+
+Mirrored the EVALUATION.md eval-doctrine implementation plan (E1-E6
+telemetry layer, C1-C3 benchmark harness, plus 4 standalone follow-up items)
+as 5 new tracking issues, created the `regression`/`bench` labels the
+doctrine's own text asked for, and filed one new issue from a fresh
+FEEDBACK.md finding (#27, disconnect-mid-loop false success). Commented on
+#3 cross-referencing the `roster.json` fix now planned in #21's E2 (not
+closing — `roster.json` doesn't exist on disk yet, verified).
+
+| # | Title | Labels | Notes |
+|---|---|---|---|
+| #21 | Telemetry layer + metrics.mjs (E1-E6) | enhancement, bench | engine-dev-2's implementation plan, one pass, 6 items |
+| #22 | Benchmark harness + baseline suite (C1-C3) | enhancement, bench | curator's plan; `ALGO.md` already committed, seeded, waiting on this |
+| #23 | `__survival.drill(branch)` test hook | enhancement, bench | blocks `ALGO.md`'s survival bench row |
+| #24 | Queue loop/onEmpty re-seed for AS soak | enhancement, bench | workaround (soak-watch.sh) explicitly OK per the doctrine, not blocking |
+| #25 | runner.js logs goto requests but never responses | bug, bench | small, independently shippable, ~10 lines |
+| #27 | Disconnect-mid-loop false success (harvest/plant) | bug | same failure class as the craft-void bug (shipped v12) and #19 |
 
 ## Open issues by theme
 
@@ -40,77 +61,85 @@ same coordinates, same "survives full process restart" signature).
 - #1 Alliance direct line (standing channel — CAVECREW is actively engaged:
   traded, integrated our patches per their commit `5cabc86`, proposed a
   GitHub collab upgrade). **Five yes/no items (a-e) from our 2026-08-31 reply
-  are still unanswered** — fair-play pact confirm, chopper-bug intel ack,
-  TNT-in-plaza report, glass-row removal ask, restart-heads-up ask.
+  are still unanswered.** Team-lead's call: no further nudge for now — a
+  second escalation (accepting CAVECREW's tailnet-mailbox offer) is queued
+  if silence outlasts a few more hours.
 - #8 CLAIM interop protocol — mirrors `ZetOmega/cavecrew-mcp#1`, awaiting
   their schema draft or ours.
 - `ZetOmega/cavecrew-mcp` #2, #3, #4 — all filed by us, all awaiting a
   CAVECREW reply. #3 (fair-play pact) is the same ask as felcrew#1 item (a);
-  #2 (chunk regen) is now cross-linked from felcrew#17's escalation.
+  #2 (chunk regen) is cross-linked from felcrew#17's escalation AND #20's
+  resolution note.
 
-**Engine safety / bugs** (8)
-- #2 reconnect backoff (confirmed live bug, root cause known, fix is a
-  one-line change to when `reconnectDelay` resets)
-- #3 idleguard role-per-port map (partial — `--role` flag works, the
-  fallback map doesn't exist)
+**Engine safety / bugs** (11)
+- #2 reconnect backoff (confirmed live bug, root cause known)
+- #3 idleguard role-per-port map (partial — fix now planned as #21's E2)
 - #10 openContainer furnace whitelist gap (confirmed still raw
-  `bot.openContainer` in `skills.js`, no furnace routing)
+  `bot.openContainer`, no furnace routing)
 - #12 collectDrops/huntAnimals chase phases have no light/hazard filter
 - #14 autoTorch consumption far exceeds interval-only prediction
 - #15 dirt/leaf_litter unbounded depot accumulation (confirmed no
-  ignore-list/discard logic exists in `depositToChest`)
-- #17 torch light not propagating + confirmed-broken block-update events in
-  one zone — **re-triaged this cycle**: this is a cross-repo, likely
-  server-side chunk corruption issue (see `ZetOmega/cavecrew-mcp#2`), not a
-  client-fixable lighting bug. No engine fix expected; tracking moved to the
-  cross-repo ops escalation.
-- #19 placeBlock hitbox no-op — **briefed this cycle**: the real fix
+  ignore-list/discard logic exists)
+- #17 torch light + broken block-update events in one zone — **re-triaged**:
+  likely server-side chunk corruption, cross-linked to
+  `ZetOmega/cavecrew-mcp#2`. No engine fix expected. **Update**: karl-driver's
+  own follow-up correction narrowed this — the placement-failure half was
+  actually the #19 hitbox-overlap bug (Peter re-diagnosed it live, placed 30
+  cells successfully once he stepped back first), NOT a zone-wide
+  block-update bug. Only the LIGHTING half (skyLight 0 in open sky) remains
+  a confirmed, unexplained bug.
+- #19 placeBlock hitbox no-op — **briefed**: the real fix
   (`ctx.placeBlockAt`'s sidestep ladder) already shipped and covers all 4
   build skills; only `autoTorch` and `chopTrees`' replant step still bypass
-  it with raw `bot.placeBlock`. Effort S, two call sites.
+  it. Effort S, two call sites, named exactly.
+- #20 frozen-entity / corrupt-chunk-geometry — resolved+root-caused by
+  team-lead; kept open for the auto-relog detector (the actionable engine
+  item).
+- #26 Baritone: 7 findings, 1 safety-critical (digguard bypass via
+  `ashDig`) — needs a look next cycle.
+- #27 disconnect-mid-loop false success — new this cycle.
 
 **Engine features / roadmap** (5)
-- #4 spawnProof sweep + BASE-vs-reality diff (safety, user-requested via
-  peter-driver, no dependencies, could ship anytime)
+- #4 spawnProof sweep + BASE-vs-reality diff (safety, no dependencies)
 - #5 farmCycle autonomous harvest/replant/bake loop
-- #6 chatlisten.js FLEET/1 protocol — **briefed this cycle**: top roadmap
-  priority per GOAL.md (now carries the "human players" and "CLAIM" pillars).
-  Spec is fully implementation-ready (`research/chat-protocol.md`), skeleton
-  code included. Gate: run the spoof-rejection test before building on top.
-- #13 tillFarmland skill + farmland-reverting bug — **briefed this cycle**:
-  two deliverables (the skill itself, S effort; a `blocksToAvoid` routing fix
-  for the likely-trampling cause, XS effort). One sub-bug (dirt→grass_block
-  flip with no nearby entity) stays genuinely unexplained.
+- #6 chatlisten.js FLEET/1 protocol — **briefed**: top roadmap priority per
+  GOAL.md. Spec fully implementation-ready, skeleton code included. Gate:
+  spoof-rejection test before building on top.
+- #13 tillFarmland skill + farmland-reverting bug — **briefed**: two
+  deliverables (skill itself, S effort; `blocksToAvoid` routing fix for the
+  likely-trampling cause, XS effort).
 - #16 cave-mapping/sealing skill (rule-of-twice, no safety urgency)
 
-## Implementation briefs on file (top open engine issues, ready for
-engine-dev-2 to pick up with no re-research)
+## Implementation briefs on file (ready for engine-dev-2, no re-research
+needed)
 
-1. **#6 FLEET/1** — full brief posted with exact file/line targets, skeleton
-   location in `research/chat-protocol.md`, required changes outside the new
-   payload (`skills.js`/`graychat.js`/`runner.js`/new `fleet.json`), and the
+1. **#6 FLEET/1** — exact file/line targets, skeleton location in
+   `research/chat-protocol.md`, required changes outside the new payload,
    mandatory first test (spoof rejection).
-2. **#19 placeBlock hitbox** — brief identifies this is mostly ALREADY FIXED
-   (`ctx.placeBlockAt`); remaining work is swapping 2 raw-`bot.placeBlock`
-   call sites (`autoTorch`, `chopTrees` replant) to the existing primitive.
-3. **#13 tillFarmland** — brief has the exact interaction call pattern
-   (top-face `activateBlock`, NOT `activateItem`), the settle/verify
-   discipline, the protected-crop guard, and the hydration check, all
-   sourced from two drivers' independent field verification.
+2. **#19 placeBlock hitbox** — mostly ALREADY FIXED; remaining work is 2
+   named call sites.
+3. **#13 tillFarmland** — exact interaction call pattern, settle/verify
+   discipline, protected-crop guard, hydration check.
+
+Next candidates for a brief: **#26** (digguard/ashDig bypass — safety, small
+scope, exact fix already known: move the ashDig wrapper from `goto2.patch.js`
+into `digguard.js` permanently) and **#4** (spawnProof — safety, no
+dependencies, two sub-skills already scoped in the FEEDBACK entry).
 
 ## Alliance watch
 
 CAVECREW (`ZetOmega/cavecrew-mcp`) is technically capable and responsive on
-code (parallel-evolved near-identical fixes to ours multiple times, e.g. the
-reach-law/depth-gate/net-descent trio and the placeBlock hitbox sidestep) but
-slow on the five outstanding diplomacy yes/no items in felcrew#1. Nothing
-urgent blocking either side technically; the ask is just "answer the five
-letters."
+code (parallel-evolved near-identical fixes to ours multiple times — the
+reach-law/depth-gate/net-descent trio and the placeBlock hitbox sidestep)
+but slow on the five outstanding diplomacy yes/no items in felcrew#1.
+Read-only watch continues; outbound diplomacy stays with team-lead/curator/
+kevin-driver per the channel-restriction rule.
 
-## Not yet issues (FEEDBACK.md entries below the significance bar, or
-duplicate/superseded)
+## Not yet issues (below the significance bar, or process/doctrine rather
+than engine work)
 
-`harvestGrass` skill (rule-of-twice, minor), the two-drivers-deadlock process
-note, and the driver-rendezvous process note are all process/doctrine items
-better suited to DRIVER_GUIDE.md than a tracked engine issue — flagging for
-awareness, not filing.
+`harvestGrass` skill (rule-of-twice, minor — though #27 adds a third data
+point to the broader "shared harvest/plant loop" need), the
+two-drivers-deadlock process note, and the driver-rendezvous process note
+are all process/doctrine items better suited to DRIVER_GUIDE.md than a
+tracked engine issue.
