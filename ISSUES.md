@@ -11,7 +11,9 @@ rollup + burndown. Updated every triage cycle.
 
 ## Tracker health
 
-**felsenuboot/felcrew-mcp**: 31 open, 4 closed (35 total).
+**felsenuboot/felcrew-mcp**: 29 open, 6 closed (35 total, net +2 this
+mid-cycle update — filed #36 and closed it same-motion since the fix had
+already shipped).
 **ZetOmega/cavecrew-mcp**: 4 open, 0 closed — all 4 filed BY us; no reply
 yet. Five outstanding yes/no items on felcrew#1 remain unanswered; team-lead's
 call is no further nudge for now.
@@ -23,17 +25,24 @@ Closed to date, all with cited evidence:
 | #9 | graychat v3 chat diet | commit `90c11a9` |
 | #11 | idle-guard stomps driver goals | commit `a2f0302` |
 | #18 | surfaceExposed false-negative | commit `e99d273` |
+| #30 | TOOLGUARD + ensureTool | commit `1bcab7b`, 33s empty-inventory-to-equipped-axe live test |
+| #36 | idleguard.stop() stripped every dig guard | shipped idleguard v8 + digguard v4, same-session fix — filed+closed together |
 
-**Fresh evidence this cycle** (from GOAL.md's live engine-status update,
-verified against actual commits/source, not just the claim):
-- `toolguard.js` v2 + `ensureTool`'s craft branch **shipped and live-verified**
-  (commit `1bcab7b`) — #30 updated, kept open pending the depot-withdrawal
-  branch's real-base test.
+**#30's close retires DRIVER_GUIDE.md's right-tool-always interim law** —
+flagged to engine-dev (law-lifecycle owner) to mark it RETIRED per the
+lifecycle doctrine's own format, alongside a standing-convention ask (no
+self-healing guard timers, ever — the 9.2M-recursive-call story from #36).
+
+**Other fresh evidence this cycle** (from GOAL.md's live engine-status
+update, verified against actual commits/source, not just the claim):
 - `survival.js` v2's **CREEPER branch confirmed live** (10.9-block GoalInvert
   retreat measured) — #32 updated, narrowed to just BREAK_LOS's
   arrow-shadow-wall path (corner-step keeps succeeding first in testing).
 - `digguard.js` v4 (uncommitted) has #26's fix **scaffolded but not wired** —
   handoff note posted so engine-dev-3 doesn't have to rediscover this.
+- **#31 (gotoFar) picked up by engine-dev-2** per a fresh FEEDBACK.md entry.
+- **#22's Tier-0 fixture environment identified**: localhost:25599 (seed
+  felcrewtest) — already used for #30's own verification.
 
 ## Three-engineer routing (Felix's directive via team-lead, 2026-09-01)
 
@@ -58,17 +67,17 @@ issues. **PHASE-2 — cooperation (deprioritized).** #1, #6, #8 only.
 
 | # | Title | Phase | Priority | Owner | Status |
 |---|---|---|---|---|---|
-| 28 | AUTONOMOUS AGENDA — Phase 1 capstone | 1 | high | engine-dev-2 | **BLOCKED ON DESIGN** — research/AGENDA-DESIGN.md workflow running, do not start early |
-| 30 | TOOLGUARD + ensureTool | 1 | high | engine-dev-2 | craft branch shipped+verified (`1bcab7b`); depot-withdrawal branch needs a real-base test |
-| 21 | Telemetry layer + metrics.mjs (E1-E6) | 1 | high | engine-dev-2 | briefed |
-| 33 | Generation counter (movement promises) | 1 | medium | engine-dev-2 | briefed, new this cycle |
-| 34 | 3-signal stall watchdog | 1 | medium | engine-dev-2 | briefed, new this cycle |
+| 28 | AUTONOMOUS AGENDA — Phase 1 capstone | 1 | high | engine-dev-2 | **BLOCKED ON DESIGN** — research/AGENDA-DESIGN.md workflow running (4 architecture docs already landed), do not start early |
+| 21 | Telemetry layer + metrics.mjs (E1-E6) | 1 | high | engine-dev-2 | briefed; queued behind #28 per engine-dev-2's own sequencing |
+| 31 | ctx.gotoFar multi-leg waypointing | 1 | medium | engine-dev-2 | **picked up** |
+| 33 | Generation counter (movement promises) | 1 | medium | engine-dev-2 | briefed |
+| 34 | 3-signal stall watchdog | 1 | medium | engine-dev-2 | briefed |
 | 2 | reconnect backoff | 1 | medium | engine-dev-2 | confirmed live bug |
 | 3 | idleguard role-per-port map | 1 | medium | engine-dev-2 | fix planned in #21's E2 |
 | 20 | frozen-entity / corrupt chunk (auto-relog) | 1 | medium | engine-dev-2 | root-caused, incident resolved |
 | 24 | queue loop/onEmpty re-seed | 1 | medium | engine-dev-2 | workaround OK, not blocking |
 | 25 | runner.js goto response logging | 1 | low | engine-dev-2 | small, independent |
-| 31 | ctx.gotoFar multi-leg waypointing | 1 | medium | engine-dev-2 | briefed |
+| ~~30~~ | ~~TOOLGUARD + ensureTool~~ | — | — | — | **CLOSED** `1bcab7b` |
 | 26 | Baritone: 7 findings, 1 safety-critical | 1 | high | engine-dev-3 | item 1 briefed; digguard.js v4 has it SCAFFOLDED, not wired — handoff note posted |
 | 4 | spawnProof + BASE-vs-reality diff | 1 | high | engine-dev-3 | briefed |
 | 5 | farmCycle | 1 | high | engine-dev-3 | spec-ready |
@@ -97,7 +106,8 @@ the rule starts biting from next cycle.
 
 ## Owner load
 
-engine-dev-2: 13 (2 blocked/pending-verification, rest active).
+engine-dev-2: 11 (1 blocked-on-design [#28], 1 picked-up [#31], rest active;
+#30 closed this cycle).
 engine-dev-3: 11 (one safety-critical, four priority-high).
 engine-dev: 5 (curator lane — intentionally lighter, QA/fixtures/docs scope).
 

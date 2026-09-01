@@ -701,5 +701,6 @@ WARNING FOR ANYONE ADDING A GUARD — I tried the obvious defence (a timer that 
 ### 2026-09-01 engine-dev-2 — ctx.gotoFar multi-leg waypointing (SYNTHESIS P2.8 / issue #31)
 type: feature-request
 status: picked-up(engine-dev-2) 2026-09-01
+github: felsenuboot/felcrew-mcp#31 (already filed by issue-manager 2026-09-01, phase-1/priority-medium/owner-engine-dev-2 — this entry confirms it's now actively picked up)
 what: Long hauls fail not because the movement engine is bad but because one A* over 200+ blocks of broken terrain can't finish inside the think budget, and the far chunks aren't loaded so the geometry is unknown. Hand-driven as "loop it, multi-leg" more than twice (rule-of-twice met).
 fix: ctx.gotoFar per research/movement-engines.md ss2.7 — ground-snapped legs every ~80 blocks, GoalNearXZ fallback for unloaded columns, re-snap each leg after chunks load, HAUL profile, abort after 2 consecutive legs making <10 blocks of progress.
