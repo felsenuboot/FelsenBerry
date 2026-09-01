@@ -462,7 +462,7 @@ status: open (instance resolved via one-time RCON rescue; engine auto-detect/aut
 what: BuddelBernd got completely stuck at (-11.063464664282362, 70, -2.3) mid-return-trip from the diamond run (8 diamonds banked in inventory, not at risk since server-side inventory persists). Symptoms: 'come'/goto fails with alternating "stuck: no movement despite an active path" and "path_GoalChanged"; bot.entity.position is BIT-FOR-BIT IDENTICAL across many seconds of raw `bot.setControlState('forward'/'jump', true)` calls — not just pathfinder failing to plan, the physics tick itself produces zero position delta, confirmed with jump (pure vertical, no obstruction — I'd already dug the ceiling clear) also producing zero y movement. onGround stays true, isCollidedHorizontally false, no effects/vehicle/nearby entities. Escalation attempted: (1) bot.quit()+auto-reconnect (worked ONCE earlier this session at a different stuck spot, documented in LEARNING_HANDOFF, but did NOT fix this occurrence — one hop succeeded then it re-froze at a nearby coord); (2) full process restart (./stop.sh + ./spawn.sh, ~20s gap for "server session cleanup") — bot reconnected with the EXACT SAME frozen position and is still stuck. Since a full process restart (brand new mineflayer Bot object, brand new TCP connection, brand new physics engine instance) reproduces the identical freeze at the identical coordinate, this cannot be a client-side bug — the SERVER's own entity/session state for this player is pinned at this position.
 fix: needs server-side investigation (this is beyond anything a driver or the mineflayer client stack can fix — no combination of relog/reconnect/process-restart touches server state). Possible causes worth checking server-side: a stuck/duplicate player session for BuddelBernd's UUID that the server thinks still owns movement authority (note: "duplicate_login" kicks were also observed on this bot during the same general timeframe, see the server-instability report — may be related, a session zombie holding the real movement channel while our reconnects get a read-only view), a chunk/region the server has stopped ticking, or an anti-cheat/movement-validation rule silently rejecting all packets from this session. Until fixed: bot is unable to leave (-11,70,-2) and the fleet's only miner is stranded ~150 blocks underground holding 8 diamonds. No client-side workaround found after extensive attempts (~10+ relog/hop cycles, manual bot.dig to clear obstructions, tried multiple target directions/distances).
 github: felsenuboot/felcrew-mcp#20 (also cited as supporting evidence in ZetOmega/cavecrew-mcp#2, the joint chunk-regen request)
-github: ZetOmega/cavecrew-mcp#2 (issue-manager sync, 2026-09-01 — filed cross-repo as an ops/chunk-regen request, since this reads as world/chunk state rather than an engine bug; groups with UngaBunga's suffocation death and the plaza lighting anomaly as one 3-chunk incident, chunks (0,-1)(0,0)(-1,-1))
+github: ZetOmega/cavecrew-mcp#2 (issue-manager sync, 2026-09-01 — filed cross-repo as an ops/chunk-regen request, since this reads as world/chunk state rather than an engine bug; groups with UngaBunga's suffocation death and the plaza lighting anomaly as one 3-chunk incident, chunks (0,-1)(0,0)(-1,-1)); felsenuboot/felcrew-mcp#20 (own-repo mirror, tracks the remaining actionable item — auto-relog on the air/air/air-below+onGround:true signature — now that the resolution/root-cause is confirmed)
 RESOLUTION (bernd-driver, 2026-09-01 23:5x): root cause confirmed by team-lead's direct
 block diagnostic — CORRUPT CHUNK GEOMETRY, not the earlier "stuck at one exact coord"
 symptom I chased first. The DETECTABLE PRECONDITION/signature: `bot.blockAt` reads AIR
@@ -552,6 +552,7 @@ what: Dumped all ~300 Baritone settings: no exclusion-area/protected-region
   the plaza, it would dig there. Only adapter.mjs (127.0.0.1:3109) enforces the
   150-block mine fence / 60-block break-goto fence / allowBreak-false default.
 fix: Never drive the sidecar raw for break-enabled jobs; keep all driving through
+github: felsenuboot/felcrew-mcp#26 (consolidated Baritone sidecar findings)
   the adapter. Long-term: consider a server-side region plugin or adapter-side
   position watchdog that #stops on fence breach mid-job.
 
@@ -563,6 +564,7 @@ what: digguard wraps bot.dig (digguard.js:96) but ashfinder's executor calls
   through BASE.md structures with no guard firing. goto2.patch.js closes it
   locally (corridor pre-check + ashDig wrapper) but that only protects /goto2.
 fix: Move the ashDig wrapper into digguard.js permanently so ANY future
+github: felsenuboot/felcrew-mcp#26 (consolidated Baritone sidecar findings)
   ashfinder use is covered, before wider adoption.
 
 ### 2026-09-01 team-lead-workflow — "No process in control" fires on give-up same as arrival
@@ -574,6 +576,7 @@ what: Baritone prints NOTHING on arrival; polling #proc is the only completion
   path). Adapter now grades every /goto against real position (arrived:false,
   distanceToGoal). Anyone else polling #proc raw has this bug.
 fix: Always verify position after any Baritone job; trust adapter `arrived`,
+github: felsenuboot/felcrew-mcp#26 (consolidated Baritone sidecar findings)
   never `state:"done"`.
 
 ### 2026-09-01 team-lead-workflow — HMC stdin turn-stealing worse than parity; bcmd.sh 6 tries not enough
@@ -585,6 +588,7 @@ what: SMOKE.md's strict-parity model is wrong: the launcher context swallowed
   digging enabled. Adapter fixed (14 tries escalating + #set confirmed against
   "Successfully set", throws otherwise).
 fix: Port the adapter's retry+confirm logic into bcmd.sh.
+github: felsenuboot/felcrew-mcp#26 (consolidated Baritone sidecar findings)
 
 ### 2026-09-01 team-lead-workflow — never drive Baritone with `.#`, only `msg #`
 type: quirk
@@ -594,6 +598,7 @@ what: `.` (DotMessageCommand) runs on the HeadlessMc-CommandLine thread; #mine
   constructed on the main thread". `msg` is a ScheduledCommand on the MC main
   thread and is safe. `.#goto` only survives by accident.
 fix: Documented in BARITONE.md/DRIVER_GUIDE.md; adapter uses msg exclusively.
+github: felsenuboot/felcrew-mcp#26 (consolidated Baritone sidecar findings)
 
 ### 2026-09-01 team-lead-workflow — movement-engines.md documents fictional ashfinder API
 type: bug
@@ -603,6 +608,7 @@ what: §1.3 repeats README events (goal-reach, goal-reach-partial,
   `pathStarted` are emitted. Also §3.6's "no programmatic inventory access" for
   the sidecar is partially wrong: `gui` works under -lwjgl (slot-by-slot dump).
 fix: Correct both sections so future engineers don't build on fake events.
+github: felsenuboot/felcrew-mcp#26 (consolidated Baritone sidecar findings)
 
 ### 2026-09-01 team-lead-workflow — Baritone waypoint position reads return stale coords
 type: quirk
@@ -612,6 +618,7 @@ what: home.mp4 accumulates records across sessions, unordered; a per-run tag
   Adapter fixed (per-process tag prefix, newest-wins, reject records older than
   request). Anyone else parsing waypoint files inherits this.
 fix: Reuse the adapter's parsing; never trust name-only waypoint lookups.
+github: felsenuboot/felcrew-mcp#26 (consolidated Baritone sidecar findings)
 
 ### 2026-09-01 team-lead (user feature) — THE CHAT DIET + Discord sink
 type: feature-request
@@ -636,7 +643,8 @@ fix: driver-side, worth building a habit of checking `bot.entity`/connection liv
 
 ### 2026-09-01 research-synthesis — EVALUATION DOCTRINE adopted (EVALUATION.md + ALGO.md)
 type: feature-request
-status: open
+status: picked-up — issue-manager 2026-09-01, tracking issues filed (mirrors the E1-E6/C1-C3 plan and all 4 follow-up FEEDBACK entries; still needs the actual implementation)
+github: felsenuboot/felcrew-mcp#21 (telemetry layer + metrics.mjs, E1-E6), #22 (benchmark harness + baseline suite, C1-C3), #23 (__survival.drill hook), #24 (queue loop/onEmpty re-seed), #25 (runner.js goto response logging); labels `regression`/`bench` created per the doctrine's own ask
 what: Four research tracks (literature, methodology, instrumentation, benchmarks)
   synthesized into bots/EVALUATION.md — the binding eval doctrine: verifier-graded
   16-value outcome enum (FSR/trust_gap, target 0), Tier-0 FEEDBACK-indexed fixture
