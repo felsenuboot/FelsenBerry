@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 27;
+const ENGINE_VERSION = 28;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -82,6 +82,9 @@ const S = {
   queue: [],                 // [{qid, name, args}]
   queueOpts: { onError: 'halt' },
   onEmptySpec: null,         // {name, args, everyMs, maxRuns, runs}
+  queueLoop: null,           // {items:[{name,args}], maxLoops, loops} — re-seeds the ORIGINAL
+                              // item list when it drains, distinct from onEmpty's single
+                              // repeating fallback task (issue #24)
   queueState: 'idle',        // idle | running | draining | halted | paused | stopped
   queuePausedBecause: null,
   queueHalt: null,           // {code, message, task, pending}
@@ -1682,7 +1685,7 @@ S.status = function (bot, since = 0) {
     } : null,
     // null while the queue is unused -> a plain-start driver's poll keeps its v5 size.
     // Full args / per-task history / gapMs live in queueInfo(), not in the hot poll.
-    queue: (S.queue.length || S.onEmptySpec || S.queueState !== 'idle') ? {
+    queue: (S.queue.length || S.onEmptySpec || S.queueLoop || S.queueState !== 'idle') ? {
       state: S.queueState,
       n: S.queue.length,
       next: S.queue.length ? S.queue[0].name : null,
@@ -1690,6 +1693,7 @@ S.status = function (bot, since = 0) {
       done: S.queueDone, total: S.queueTotal,
       runId: S.runId,
       onEmpty: S.onEmptySpec ? S.onEmptySpec.name : null,
+      loop: S.queueLoop ? { n: S.queueLoop.items.length, loops: S.queueLoop.loops, maxLoops: S.queueLoop.maxLoops || null } : null,
       halted: S.queueHalt,
     } : null,
     log: S.log.filter((e) => e.seq > since).slice(-LOG_SLICE).map((e) => [e.seq, e.lvl, e.msg]),
@@ -1704,7 +1708,7 @@ S.stop = function (reason, opts) {
   const cleared = keepQueue ? 0 : S.queue.length;
   S._cancelIntent = 'stop';
   if (!keepQueue) {
-    S.queue.length = 0; S.onEmptySpec = null; S.queueHalt = null; S.queuePausedBecause = null;
+    S.queue.length = 0; S.onEmptySpec = null; S.queueLoop = null; S.queueHalt = null; S.queuePausedBecause = null;
     S.queueState = 'stopped'; S._queueGen++; killTimers(); S._fallbackRuns = 0;
   }
   if (!S.currentTask || !S.currentTask.running) return { ok: true, note: 'no task running', clearedQueue: cleared };
@@ -1760,6 +1764,26 @@ function _pump(bot) {
 
 function _onDrain(bot) {
   if (S.queueState === 'stopped' || S.queueState === 'halted' || S.queueState === 'paused') return;
+  // loop:true (issue #24) re-seeds the ORIGINAL item list before falling through to
+  // onEmpty — distinct from onEmpty, which repeats a single fallback task instead of the
+  // whole list. Checked first: a caller with BOTH loop and onEmpty wants the real work to
+  // keep cycling, with onEmpty as the sweep that only ever runs between real cycles if the
+  // loop itself is capped and eventually stops.
+  if (S.queueLoop && S.queueLoop.items.length) {
+    const lp = S.queueLoop;
+    if (!lp.maxLoops || lp.loops < lp.maxLoops) {
+      lp.loops++;
+      for (const it of lp.items) {
+        const v = normalizeItem(bot, it, 0);
+        if (!v.error) S.queue.push(v.item);       // re-validated fresh each loop, never trusted stale
+      }
+      S.queueTotal += S.queue.length;
+      pushLog('task', `queue loop ${lp.loops}${lp.maxLoops ? '/' + lp.maxLoops : ''}: re-seeded ${S.queue.length} job(s)`);
+      _pump(bot);
+      return;
+    }
+    pushLog('info', `queue loop finished after ${lp.loops} run(s) — maxLoops reached`);
+  }
   if (!S.onEmptySpec) {
     if (S.queueState !== 'idle') { S.queueState = 'idle'; say(bot, 'Queue empty. Standing by for orders.', true); }
     return;
@@ -1874,6 +1898,16 @@ S.enqueue = function (bot, items, opts = {}) {
     S.queueOpts.onError = opts.onError;
   }
   if ('onEmpty' in opts) { const r = S.setFallback(bot, opts.onEmpty); if (!r.ok) return r; }
+  // loop:true (issue #24) — re-seed THIS list when it drains, rather than falling straight
+  // to onEmpty/idle. 'in' so loop:false explicitly clears a previously-set loop (matches
+  // onEmpty's own opt-out shape); omitting it entirely leaves any existing loop untouched.
+  if ('loop' in opts) {
+    if (!opts.loop) { S.queueLoop = null; }
+    else {
+      if (!norm.length) return { ok: false, error: { code: 'bad_args', message: 'loop:true needs at least one {name,args} to re-seed' } };
+      S.queueLoop = { items: norm.map((it) => ({ name: it.name, args: it.args })), maxLoops: opts.maxLoops || 0, loops: 0 };
+    }
+  }
   if (opts.mode === 'replace') { S.queue.length = 0; S.queueDone = 0; S.queueTotal = 0; S._queueGen++; killTimers(); }
   if (S.queue.length + norm.length > QUEUE_MAX) {
     return { ok: false, error: { code: 'queue_full', max: QUEUE_MAX, len: S.queue.length } };
