@@ -49,8 +49,11 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const NAME = args.name;
 const CONTROL_PORT = parseInt(args.port, 10);
-const MC_HOST = args.host || '100.101.197.44';
-const MC_PORT = parseInt(args.mcport || '25565', 10);
+// Host/port: --host / --mcport win, then MC_HOST / MC_PORT env, then the fleet default.
+// The env fallback exists so a whole shell can be pointed at a local test server
+// (MC_HOST=127.0.0.1 MC_PORT=25599) without threading flags through every spawn.
+const MC_HOST = args.host || process.env.MC_HOST || '100.101.197.44';
+const MC_PORT = parseInt(args.mcport || process.env.MC_PORT || '25565', 10);
 const MC_VERSION = args.version || undefined; // let mineflayer auto-detect unless pinned
 const ROLE = args.role || null; // optional: 'lumberjack'|'miner'|'hunter'|'builder' — enables auto-injected role-templated idleguard on spawn
 
@@ -224,7 +227,7 @@ async function applyPayloadStack(bot) {
   // subscribes to __danger's state changes — so skills -> dangerscan -> survival.
   // survival.js REPLACES panicguard.js (context-aware branches vs flee-home-only);
   // panicguard is no longer injected.
-  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'graychat.js', 'reachguard.js']) {
+  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js']) {
     const r = await injectPayload(bot, f);
     report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
   }
@@ -493,6 +496,7 @@ const server = http.createServer(async (req, res) => {
         dangerscan: ver(globalThis.__danger),
         survival: ver(globalThis.__survival),
         digguard: ver(globalThis.__digguard),
+        toolguard: ver(globalThis.__toolguard),
         graychat: ver(globalThis.__graychat),
         idleguard: ver(globalThis.__idleguard),
         reachguard: ver(globalThis.__reachguard),

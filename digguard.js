@@ -1,12 +1,18 @@
-// digguard v2 payload (inject via POST /eval, idempotent).
+// digguard v4 payload (inject via POST /eval, idempotent).
 //
-// Makes registered base infrastructure undiggable at TWO levels:
+// Makes registered base infrastructure undiggable at THREE levels:
 //   1. bot.dig  — covers chopTrees, idle-guard, skills, manual evals (everything
 //      that removes a block goes through bot.dig).
 //   2. pathfinder movements.exclusionAreasBreak — the PLANNER refuses to route a
 //      path THROUGH protected blocks, so it never digs the plaza floor out from
 //      under a build loop (FEEDBACK: "repeated GoalNear calls can dig the floor out").
 //      exclusionBreak >= 100 makes safeToBreak() false in mineflayer-pathfinder.
+//   3. bot.ashDig — ashfinder (/goto2) issues its own block breaks through bot.ashDig,
+//      which NEVER pass through bot.dig, so levels 1+2 miss them entirely (GitHub #26,
+//      the safety-critical Baritone finding). goto2.patch.js used to guard this per-run
+//      via guardAshDig; v4 folds that coverage in here permanently, reusing g.hit so
+//      there is ONE protected-region lookup, not two. typeof-guarded: a no-op on the
+//      normal fleet (bot.ashDig doesn't exist there), live only where ashfinder is loaded.
 // Also disables pathfinder self-scaffolding (scafoldingBlocks=[]) so bots stop
 // building dirt towers/bridges.
 //
@@ -23,8 +29,8 @@ const FILE = nodePath.join(nodePath.dirname(process.mainModule.filename), 'prote
 const RELOAD_MS = 10000;
 
 const g = {
-  enabled: true, version: 2, file: FILE,
-  blocked: 0, blockedByRegion: {}, plannerHits: 0,
+  enabled: true, version: 4, file: FILE,
+  blocked: 0, blockedByRegion: {}, plannerHits: 0, ashBlocked: 0,
   regions: [], neverProtect: new Set(), loadedAt: 0, mtime: 0, error: null, reloads: 0,
 };
 globalThis.__digguard = g;
@@ -94,7 +100,7 @@ g.hit = (pos, name) => {
 
 // ---- level 1: bot.dig ----
 const orig = bot.dig.bind(bot);
-bot.dig = (block, ...rest) => {
+const guardedDig = (block, ...rest) => {
   try {
     if (g.enabled && block && block.position) {
       const r = g.hit(block.position, block.name);
@@ -110,47 +116,25 @@ bot.dig = (block, ...rest) => {
   } catch (e) {}
   return orig(block, ...rest);
 };
-
-// ---- level 2: pathfinder planner ----
-// Returned cost >= 100 makes mineflayer-pathfinder treat the block as unbreakable.
-g.exclusionBreak = (block) => {
-  try {
-    if (block && block.position && g.hit(block.position, block.name)) { g.plannerHits++; return 100; }
-  } catch (e) {}
-  return 0;
-};
-// runner.js's baseMovements() already installs a late-binding hook (tagged
-// __digguardBound) that calls straight into us, so every profile it builds is covered
-// from birth. Only wire ourselves in when that hook is absent — an older runner.js
-// process, or a Movements object built by something else.
-const alreadyBound = (arr) => Array.isArray(arr) && arr.some((f) => f && (f.__digguardBound || f === g.exclusionBreak));
-const wireMovements = () => {
-  try {
-    const mv = bot.pathfinder && bot.pathfinder.movements;
-    if (!mv) return false;
-    if (!Array.isArray(mv.exclusionAreasBreak)) mv.exclusionAreasBreak = [];
-    if (!alreadyBound(mv.exclusionAreasBreak)) mv.exclusionAreasBreak.push(g.exclusionBreak);
-    if (!Array.isArray(mv.exclusionAreasPlace)) mv.exclusionAreasPlace = [];
-    if (!alreadyBound(mv.exclusionAreasPlace)) mv.exclusionAreasPlace.push(g.exclusionBreak);
-    mv.scafoldingBlocks = [];
-    return true;
-  } catch (e) { return false; }
-};
-g.wired = wireMovements();
-
-// Re-wire periodically: a reconnect (or any setMovements call) installs a fresh
-// Movements object that has never heard of us. Same timer polls protected.json.
-g.timer = setInterval(() => {
-  if (globalThis.__digguard !== g || !g.enabled) { clearInterval(g.timer); return; }
-  load(false);
-  wireMovements();
-}, RELOAD_MS);
+guardedDig.__digguardWrapper = true;
+guardedDig.__wrappedTarget = orig;
+bot.dig = guardedDig;
+// NOTE — no self-heal here, deliberately. A payload below us restoring its own bot.dig
+// patch by assignment would drop every guard above it, and the obvious defence (a timer
+// that re-wraps when we notice we're gone) is a TRAP: detecting "am I still in the chain"
+// requires walking it, every wrapper must publish what it wraps for that walk to work, and
+// reachguard/graychat/idleguard don't. Built it anyway, and it re-layered on top of a
+// wrapper it couldn't see through, forming a cycle: 9.2 MILLION recursive dig calls in one
+// test. The real fix is at the source — idleguard v8 disables in place instead of
+// restoring, which removes the only documented trigger. If a self-heal is ever genuinely
+// needed, first make EVERY dig wrapper publish __wrappedTarget, then walk it.
 
 g.reload = () => { const changed = load(true); wireMovements(); return { changed, regions: g.regions.length, error: g.error }; };
 g.restore = () => {
   g.enabled = false;
   if (g.timer) clearInterval(g.timer);
   try { bot.dig = orig; } catch (e) {}
+  try { if (g.origAsh && bot.ashDig === guardedAshDig) bot.ashDig = g.origAsh; } catch (e) {}
   try {
     const mv = bot.pathfinder && bot.pathfinder.movements;
     if (mv) {
@@ -166,13 +150,13 @@ g.restore = () => {
 // the DEAD bot and protects nothing. Bind to our own bot's 'end' and mark ourselves stale
 // so drivers and GET /state see the truth instead of a phantom install.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.digguard = { version: 2, boundAt: Date.now(), stale: false };
+REG.digguard = { version: 4, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try { REG.digguard.stale = true; g.enabled = false; if (g.timer) clearInterval(g.timer); } catch (e) {}
 });
 
 return {
-  installed: true, version: 2, file: FILE, regions: g.regions.length,
-  ids: g.regions.map((r) => r.id), plannerWired: g.wired,
+  installed: true, version: 4, file: FILE, regions: g.regions.length,
+  ids: g.regions.map((r) => r.id), plannerWired: g.wired, ashWired: g.ashWired,
   neverProtect: g.neverProtect.size, error: g.error, scaffoldingDisabled: true,
 };

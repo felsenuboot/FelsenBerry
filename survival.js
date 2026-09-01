@@ -1,4 +1,4 @@
-// survival v1 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v2 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
 //
 // The tick-speed survival reflex from research/survival-doctrine.md section 4. panicguard
 // had exactly one answer to everything ("run home"), which is why BuddelBernd died: it
@@ -39,7 +39,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 1,
+  enabled: true, version: 2,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -296,7 +296,14 @@ const branchBreakLOS = async (t) => {
   // (c) healthy and armed -> take it out around the wall; otherwise seal in
   const sword = bestSword();
   const live = entOf(t);
-  if (placed >= 1 && bot.health >= g.cfg.rushHp && sword && live) {
+  // `t.name !== 'creeper'` is defence in depth, not redundancy. pick() dispatches creepers
+  // to branchCreeper before BREAK_LOS can ever see one, so today this is unreachable — but
+  // that safety lives entirely in a DIFFERENT function, and the failure mode here is a bot
+  // walking into fuse range with a sword. One condition is cheaper than that outcome, and it
+  // keeps the guarantee local to the code that would do the damage.
+  // (engine-dev QA, 2026-09-01: verified no live path reaches this with a creeper, and
+  // verified this line was missing — belt and suspenders on the safety-critical branch.)
+  if (placed >= 1 && bot.health >= g.cfg.rushHp && sword && live && t.name !== 'creeper') {
     try {
       await bot.equip(sword, 'hand');
       shieldDown();
@@ -541,7 +548,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 1, boundAt: Date.now(), stale: false };
+REG.survival = { version: 2, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -552,7 +559,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 1, home: g.home,
+  installed: true, version: 2, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),

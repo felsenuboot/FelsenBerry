@@ -1,21 +1,37 @@
-// Idle-guard v7 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
+// Idle-guard v8 payload: body of a POST /eval call. Role substituted per bot: __ROLE__
 // v2 fixes the yield bug found by BuddelBernd's driver: v1 treated "no pathfinder goal"
 // as idle and hijacked the bot between driver commands. v2 wraps setGoal/goto/dig to
 // timestamp EXTERNAL activity (anything issued while the guard isn't working), engages
 // only after 60s of driver silence, and aborts its own work the moment a driver acts.
 // Idempotent: re-injection restores originals then replaces. Disable: __idleguard.stop()
 if (globalThis.__idleguard) { try { globalThis.__idleguard.stop(); } catch (e) {} }
-const g = { version: 7, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
+const g = { version: 8, role: "__ROLE__", busy: false, idleTicks: 0, enabled: true, lastChat: 0, timer: null,
             runs: 0, errors: 0, lastExternal: Date.now(), workStarted: 0, patched: [], pausedUntil: 0 };
 globalThis.__idleguard = g;
 // pause(ms): drivers call __idleguard.pause(120000) at the start of long monitoring
 // evals so the guard never mistakes an in-flight eval for silence.
 g.pause = (ms) => { g.pausedUntil = Date.now() + (ms || 60000); return g.pausedUntil; };
+// v8 — DO NOT restore a patched method by assignment. Other payloads (digguard,
+// reachguard, toolguard) wrap bot.dig ON TOP of ours; restoring `orig` blew all of them
+// away at once and left bot.dig as raw native code while every globalThis presence check
+// still reported "installed". Since DRIVER_GUIDE tells drivers to call __idleguard.stop()
+// for long manual travel, that quietly stripped base-structure protection, reach limits
+// and tool enforcement off a bot mid-session. Measured live on the local server.
+// The wrapper is therefore permanent and INERT when stopped, and re-injection rebinds the
+// existing wrapper to the new state object instead of stacking another layer on it.
 const patch = (obj, key) => {
   if (!obj || typeof obj[key] !== "function") return;
+  const existing = obj[key].__idleguardPatch;
+  if (existing) { existing.g = g; return; }           // rebind, never re-wrap
   const orig = obj[key].bind(obj);
-  g.patched.push(() => { obj[key] = orig; });
-  obj[key] = (...args) => { if (!g.busy) g.lastExternal = Date.now(); return orig(...args); };
+  const holder = { g };
+  const wrapped = (...args) => {
+    const cur = holder.g;
+    if (cur && cur.enabled && !cur.busy) cur.lastExternal = Date.now();
+    return orig(...args);
+  };
+  wrapped.__idleguardPatch = holder;
+  obj[key] = wrapped;
 };
 patch(bot.pathfinder, "setGoal");
 patch(bot.pathfinder, "goto");
@@ -24,7 +40,8 @@ patch(bot, "equip");
 patch(bot, "craft");
 patch(bot, "openContainer");
 patch(bot, "activateBlock");
-g.stop = () => { g.enabled = false; if (g.timer) clearInterval(g.timer); g.patched.forEach(fn => { try { fn(); } catch (e) {} }); g.patched = []; };
+// stop() disables in place — see the patch() note. Restoring would break the guard chain.
+g.stop = () => { g.enabled = false; if (g.timer) clearInterval(g.timer); return { stopped: true, note: "wrappers left installed and inert so other dig guards survive" }; };
 // v5: a RUNNING __skills task is external activity by definition. The guard used to only
 // count its own patched methods, so a long phase that didn't call setGoal/dig for 25s
 // looked like driver silence and the guard hijacked the bot mid-task (FEEDBACK:
@@ -142,4 +159,4 @@ g.timer = setInterval(() => {
     try { await work(); } catch (e) { g.errors++; } finally { g.busy = false; g.idleTicks = 0; }
   })().catch(() => {});
 }, 5000);
-return { installed: true, version: 7, role: g.role };
+return { installed: true, version: 8, role: g.role };

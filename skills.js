@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 15;
+const ENGINE_VERSION = 16;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -531,6 +531,17 @@ function makeCtx(bot, task) {
       } catch (_) { return false; }
     },
 
+    // Acquire the right tool before working: equip -> depot -> craft. Skills call this up
+    // front so a task never starts wrong-handed; toolguard enforces the same rule at the
+    // dig itself for anything that bypasses a skill.
+    async ensureTool(spec, opts = {}) {
+      ctx.step();
+      const r = await S.ensureTool(bot, spec, opts);
+      if (r.ok) { if (r.how !== 'held') ctx.log(`tool ${r.how}: ${r.item}`); }
+      else ctx.log(`tool acquisition failed for ${r.need && r.need.want}: ${(r.steps || []).join(' | ')}`);
+      return r;
+    },
+
     // one batch per call, settle + count-verify between each — see S.craftSafe
     async craftSafe(itemName, times = 1, opts = {}) {
       ctx.step();
@@ -869,6 +880,260 @@ function makeCtx(bot, task) {
 // So: one batch per call, 800ms settle, inventory re-count after every single craft, and
 // abort the moment a craft produces nothing or an ingredient loss doesn't add up.
 // opts: {table: Vec3|null (default: search 4 blocks), settleMs (default 800)}
+// ---------- right tool, always: resolution + acquisition ----------
+// toolguard.js enforces at the bot.dig choke point; this is the other half — GETTING the
+// tool. Deliberately not inside toolguard: acquisition needs travel, chests and a crafting
+// table, and a bare monkey-patch must never call pathfinder (same reasoning that keeps
+// reachguard from auto-approaching).
+const TIER_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, copper: 2.5, golden: 2, wooden: 1 };
+const TOOL_CLASS_RE = /_(pickaxe|axe|shovel|hoe|sword)$/;
+const toolClassOf = (n) => { const m = TOOL_CLASS_RE.exec(n || ''); return m ? m[1] : null; };
+const toolTierOf = (n) => TIER_RANK[String(n || '').split('_')[0]] || 0;
+
+// Resolve what a block (or a bare class name) demands. Prefers toolguard's resolver when
+// it's installed so the two halves can never disagree about what "the right tool" means.
+function needSpec(bot, spec) {
+  try {
+    if (!spec) return null;
+    if (typeof spec === 'object' && spec.cls) return { cls: spec.cls, required: spec.required ? new Set(spec.required) : null };
+    const s = String(spec);
+    if (/^(pickaxe|axe|shovel|hoe|sword)$/.test(s)) return { cls: s, required: null };
+    const tg = globalThis.__toolguard;
+    if (tg && typeof tg.need === 'function') {
+      const n = tg.need(s);
+      return n ? { cls: n.cls, required: n.required ? new Set(n.required) : null } : null;
+    }
+    const def = bot.registry.blocksByName[s];
+    if (!def || def.hardness === 0) return null;
+    let required = null;
+    if (def.harvestTools) {
+      required = new Set(Object.keys(def.harvestTools).map((id) => (bot.registry.items[id] || {}).name).filter(Boolean));
+      if (!required.size) required = null;
+    }
+    const m = /^mineable\/(\w+)$/.exec(def.material || '');
+    const cls = m ? m[1] : (required ? toolClassOf([...required][0]) : null);
+    return (cls || required) ? { cls, required } : null;
+  } catch (_) { return null; }
+}
+const satisfiesNeed = (name, need) => {
+  if (!name) return false;
+  if (need.required) return need.required.has(name);
+  return need.cls ? toolClassOf(name) === need.cls : true;
+};
+function bestOwned(bot, need) {
+  let best = null, score = -1;
+  for (const it of bot.inventory.items()) {
+    if (!satisfiesNeed(it.name, need)) continue;
+    const s = toolTierOf(it.name) + (toolClassOf(it.name) === need.cls ? 10 : 0);
+    if (s > score) { best = it; score = s; }
+  }
+  return best;
+}
+// cheapest craftable tool that satisfies the need — never craft iron for a job wood can do
+function cheapestSatisfying(need) {
+  const tiers = ['wooden', 'stone', 'iron', 'diamond'];
+  for (const t of tiers) {
+    const name = `${t}_${need.cls}`;
+    if (satisfiesNeed(name, need)) return name;
+  }
+  return need.cls ? `stone_${need.cls}` : null;
+}
+
+// Bounded goto for the acquisition path. A raw bot.pathfinder.goto() never times out —
+// the first live ensureTool run hung indefinitely on one, stalling the whole chain with
+// two logs in the bag. Always clear the goal on the way out so the loser can't poison the
+// next call (same reasoning as ctx.goto's owned-token handling).
+async function gotoT(bot, x, y, z, range = 2, ms = 20000) {
+  let timer;
+  try {
+    await Promise.race([
+      bot.pathfinder.goto(new goals.GoalNear(x, y, z, range)),
+      new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('goto_timeout')), ms); }),
+    ]);
+    return true;
+  } catch (e) {
+    try { bot.pathfinder.setGoal(null); } catch (_) {}
+    return false;
+  } finally { clearTimeout(timer); }
+}
+
+// ensureTool(bot, spec) -> {ok, how, item, steps[], error}
+// spec: a block name ('stone'), a tool class ('axe'), or {cls, required[]}.
+// Chain: hold/equip -> depot withdrawal -> craft -> acquisition_failed.
+S.ensureTool = async function (bot, spec, opts = {}) {
+  const steps = [];
+  const need = needSpec(bot, spec);
+  if (!need) return { ok: true, how: 'not_needed', steps };
+
+  // 1. already in the bag
+  const owned = bestOwned(bot, need);
+  if (owned) {
+    if (!bot.heldItem || bot.heldItem.name !== owned.name) {
+      try { await bot.equip(owned, 'hand'); } catch (e) { /* held is close enough */ }
+      return { ok: true, how: 'equipped', item: owned.name, steps };
+    }
+    return { ok: true, how: 'held', item: owned.name, steps };
+  }
+
+  const cfg = readCfg();
+  const want = cheapestSatisfying(need);
+
+  // 2. depot withdrawal — the fleet banks spares; use them before burning fresh wood
+  if (opts.depot !== false && cfg.depot) {
+    for (const chestKey of ['minerals', 'wood']) {
+      const c = cfg.depot[chestKey];
+      if (!Array.isArray(c)) continue;
+      try {
+        const got = await ctxlessWithdrawTool(bot, new Vec3(c[0], c[1], c[2]), need);
+        steps.push(`depot:${chestKey}:${got ? got : 'none'}`);
+        if (got) {
+          const it = bot.inventory.items().find((i) => i.name === got);
+          if (it) { try { await bot.equip(it, 'hand'); } catch (_) {} }
+          say(bot, `DEPOT -1 ${got}`);
+          return { ok: true, how: 'depot', item: got, steps };
+        }
+      } catch (e) { steps.push(`depot:${chestKey}:${String(e.message).slice(0, 40)}`); }
+    }
+  }
+
+  // 3. craft it
+  if (opts.craft !== false && want) {
+    try {
+      const r = await craftToolChain(bot, want, cfg, steps);
+      if (r.ok) {
+        const it = bot.inventory.items().find((i) => i.name === want);
+        if (it) { try { await bot.equip(it, 'hand'); } catch (_) {} }
+        return { ok: true, how: 'crafted', item: want, steps };
+      }
+      steps.push('craft:' + r.reason);
+    } catch (e) { steps.push('craft:' + String(e.message).slice(0, 60)); }
+  }
+
+  pushLog('warn', `acquisition_failed: need ${want || need.cls} — ${steps.join(' | ')}`);
+  return { ok: false, error: 'acquisition_failed', need: { cls: need.cls, want }, steps };
+};
+
+function readCfg() {
+  try {
+    const fs = process.mainModule.require('fs');
+    const np = process.mainModule.require('path');
+    return JSON.parse(fs.readFileSync(np.join(np.dirname(process.mainModule.filename), 'protected.json'), 'utf8'));
+  } catch (_) { return {}; }
+}
+
+async function ctxlessWithdrawTool(bot, chestPos, need) {
+  const b = bot.blockAt(chestPos);
+  if (!b || !CONTAINERS.has(b.name)) {
+    if (!await gotoT(bot, chestPos.x, chestPos.y, chestPos.z, 2, 25000)) return null;
+  }
+  const blk = bot.blockAt(chestPos);
+  if (!blk || !CONTAINERS.has(blk.name)) return null;
+  if (chestPos.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.6, 0)) > 4.5) {
+    if (!await gotoT(bot, chestPos.x, chestPos.y, chestPos.z, 2, 25000)) return null;
+  }
+  const win = await withTimeout(bot.openContainer(bot.blockAt(chestPos)), 8000, 'chest_open_timeout');
+  try {
+    const hit = win.containerItems()
+      .filter((i) => satisfiesNeed(i.name, need))
+      .sort((a, b2) => toolTierOf(b2.name) - toolTierOf(a.name))[0];
+    if (!hit) return null;
+    await win.withdraw(hit.type, null, 1);
+    return hit.name;
+  } finally { try { win.close(); } catch (_) {} }
+}
+
+// planks -> sticks -> tool, gathering wood (and cobble for stone tier) if needed.
+// The bootstrap digs pass {force:true}: logs drop by hand, so toolguard would otherwise
+// deadlock us — no axe means no wood means no axe.
+async function craftToolChain(bot, want, cfg, steps) {
+  const count = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+  const anyPlanks = () => bot.inventory.items().find((i) => /_planks$/.test(i.name));
+  const tier = String(want).split('_')[0];
+  const headMat = tier === 'wooden' ? 'planks' : tier === 'stone' ? 'cobblestone' : null;
+  if (!headMat) return { ok: false, reason: `cannot craft ${want} (only wooden/stone tiers are bootstrappable)` };
+
+  // Materials, computed from the real bill rather than guessed. A wooden tool costs 3
+  // planks for the head PLUS 2 planks worth of sticks — five planks, not three. Two live
+  // runs failed here: the first converted a fixed number of logs and came up short, the
+  // second skipped gathering entirely because it already had *some* planks. So: work out
+  // the bill, count planks AND the planks still locked up in logs, and only gather when
+  // that total can't cover it.
+  const countPlanks = () => bot.inventory.items().filter((i) => /_planks$/.test(i.name)).reduce((a, i) => a + i.count, 0);
+  const countLogs = () => bot.inventory.items().filter((i) => /_log$/.test(i.name)).reduce((a, i) => a + i.count, 0);
+  const headPlanks = headMat === 'planks' ? 3 : 0;
+  const plankBill = () => headPlanks + (count('stick') >= 2 ? 0 : 2);
+  const plankSupply = () => countPlanks() + countLogs() * 4;   // one log = four planks
+
+  if (plankSupply() < plankBill()) {
+    const logIds = SPECIES.map((sp) => bot.registry.blocksByName[sp + '_log']).filter(Boolean).map((d) => d.id);
+    const found = bot.findBlocks({ matching: logIds, maxDistance: 48, count: 12 })
+      .filter((p) => p.y >= Math.floor(bot.entity.position.y) - MAX_BELOW);
+    if (!found.length) return { ok: false, reason: `need ${plankBill()} planks, have ${plankSupply()} worth, and no wood in reach` };
+    steps.push('gather:wood');
+    for (const p of found) {
+      if (plankSupply() >= plankBill()) break;
+      const blk = bot.blockAt(p);
+      if (!blk) continue;
+      if (!await gotoT(bot, p.x, p.y, p.z, 2, 20000)) continue;
+      // bootstrap: logs drop by hand, and toolguard would otherwise deadlock us here —
+      // no axe means no wood means no axe. This is the one sanctioned hand-on-log.
+      try { await bot.dig(blk, true, { force: true }); } catch (_) {}
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  // logs -> planks until the bill is covered
+  let guard = 0;
+  while (guard++ < 10 && countPlanks() < plankBill()) {
+    const lg = bot.inventory.items().find((i) => /_log$/.test(i.name));
+    if (!lg) break;
+    const r = await S.craftSafe(bot, lg.name.replace(/_log$/, '_planks'), 1);
+    if (!r.made) break;
+  }
+  steps.push(`planks:${countPlanks()}`);
+  if (count('stick') < 2) { await S.craftSafe(bot, 'stick', 1); steps.push(`sticks:${count('stick')}`); }
+  if (headMat === 'planks' && countPlanks() < 3) {
+    return { ok: false, reason: `short on planks (${countPlanks()}/3 after sticks) — need more logs` };
+  }
+  // the tool itself is a 3x3 recipe: it needs a real crafting table in reach
+  const tablePos = Array.isArray(cfg.craftingTable) ? cfg.craftingTable
+    : (cfg.depot && Array.isArray(cfg.depot.craftingTable) ? cfg.depot.craftingTable : null);
+  let table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
+  if (!table && tablePos) {
+    try {
+      await gotoT(bot, tablePos[0], tablePos[1], tablePos[2], 2, 25000);
+      table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
+    } catch (_) {}
+  }
+  if (!table) {
+    // no table anywhere: craft and place our own, that's what a player would do
+    if (!bot.inventory.items().some((i) => i.name === 'crafting_table')) {
+      await S.craftSafe(bot, 'crafting_table', 1);
+      steps.push('craft:table');
+    }
+    const ct = bot.inventory.items().find((i) => i.name === 'crafting_table');
+    if (ct) {
+      const feet = bot.entity.position.floored();
+      for (const off of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+        const at = feet.offset(off[0], 0, off[1]);
+        const ref = bot.blockAt(at.offset(0, -1, 0));
+        const spot = bot.blockAt(at);
+        if (!ref || ref.boundingBox !== 'block' || !spot || !AIR.has(spot.name)) continue;
+        try {
+          await bot.equip(ct, 'hand');
+          await bot.placeBlock(ref, new Vec3(0, 1, 0));
+          steps.push('place:table');
+          break;
+        } catch (_) {}
+      }
+      table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
+    }
+  }
+  if (!table) return { ok: false, reason: 'no crafting table in reach and could not place one' };
+  const r = await S.craftSafe(bot, want, 1, { table: table.position });
+  steps.push(`craft:${want}:${r.made || 0}`);
+  return r.made > 0 ? { ok: true } : { ok: false, reason: r.reason || 'craft produced nothing' };
+}
+
 S.craftSafe = async function (bot, itemName, times = 1, opts = {}) {
   const settleMs = opts.settleMs || 800;
   const want = Math.max(1, Math.min(64, times || 1));
@@ -990,6 +1255,12 @@ S.start = function (bot, name, args = {}, _q = null) {
 
   // KIT PREFLIGHT (P1.6) — fail BEFORE the task exists, so a half-kitted bot never departs.
   // Escape hatch: args.force = true (logged, so a shortcut is always visible after the fact).
+  // declared tool: a WARNING, not a block — the skill calls ctx.ensureTool() up front and
+  // will withdraw or craft one. Blocking here would refuse work the engine can fix itself.
+  if (skill.tool) {
+    const tn = needSpec(bot, skill.tool);
+    if (tn && !bestOwned(bot, tn)) pushLog('warn', `no ${skill.tool} on hand for ${name} — will try to acquire one`);
+  }
   const tier = kitTierFor(skill, args, bot);
   if (tier) {
     const kit = S.kitCheck(bot, tier);
@@ -1840,6 +2111,7 @@ S.define('collectDrops', {
 // ---------- chopTrees ----------
 S.define('chopTrees', {
   kit: 'excursion',
+  tool: 'axe',
   description: 'Fell whole trees (flood-filled connected logs, bottom-up), collect all drops, replant saplings when held.',
   params: { types: "'any' or array of species (oak, spruce, birch, jungle, acacia, dark_oak, cherry, pale_oak, mangrove)", count: 'trees to fell (default 1)', maxDist: 'search radius (default 64)', replant: 'bool (default true)' },
   validate: (a) => {
@@ -1862,6 +2134,11 @@ S.define('chopTrees', {
     const blacklist = new Set();
     let felled = 0, logsDug = 0, stranded = 0, replanted = 0, protectedSkipped = 0;
     ctx.progress(0, count, 'trees');
+    ctx.setPhase('gearing', 'Making sure I have an axe before I start swinging.');
+    {
+      const t = await ctx.ensureTool('axe');
+      if (!t.ok) throw fatal('tool_missing', 'no axe and could not acquire one', 'put an axe in depot chest B, or give the bot logs to craft from');
+    }
     ctx.setPhase('searching', `Off to chop ${count} tree${count > 1 ? 's' : ''} (${types.join('/')}). Timber incoming.`);
 
     while (felled < count) {
@@ -1968,6 +2245,7 @@ S.define('chopTrees', {
 
 // ---------- mineLane ----------
 S.define('mineLane', {
+  tool: 'pickaxe',
   // underground by definition; 'deep' once the bot is already below y=0
   kit: (a, bot) => { try { return bot.entity.position.y < 0 ? 'deep' : 'underground'; } catch (_) { return 'underground'; } },
   description: 'Mine N blocks of a type (deepslate-aware ore aliases, vein following), verify drops landed in inventory.',
@@ -1994,6 +2272,10 @@ S.define('mineLane', {
     const torchState = {};
     let stoppedBecause = 'complete';
     ctx.progress(0, count, want[0] || target);
+    {
+      const t = await ctx.ensureTool(want[0] || target);
+      if (!t.ok) throw fatal('tool_missing', `no tool that mines ${target} and could not acquire one`, 'stock a pickaxe in depot chest B, or craft one first');
+    }
     ctx.setPhase('scanning', `Mining ${count}x ${target}. Best tool out, off I go.`);
 
     // depth gate: laneY (an explicit lane) or allowDeep:true opt out; otherwise targets more
@@ -2097,6 +2379,7 @@ S.define('mineLane', {
 // ---------- huntAnimals ----------
 S.define('huntAnimals', {
   kit: 'excursion',
+  tool: 'sword',
   description: 'Hunt N animals of given species, attack on the weapon damage cooldown, collect all drops. NEVER targets players.',
   params: { species: "array, e.g. ['cow','pig'] (default ['cow'])", count: 'kills (default 1)', radius: 'search radius (default 32)', anyMob: 'allow non-animal mobs like zombie (default false; players never allowed)' },
   validate: (a, bot) => {
@@ -2268,6 +2551,7 @@ S.define('depositToChest', {
 
 // ---------- safeDescend ----------
 S.define('safeDescend', {
+  tool: 'pickaxe',
   // keyed on the TARGET depth: descending to y<0 needs the deep kit BEFORE setting off
   kit: (a) => (typeof a.toY === 'number' && a.toY < 0 ? 'deep' : 'underground'),
   description: 'Dig a 45-degree staircase down to a target Y. Never digs straight down; stops at lava/voids; places torches if held.',
