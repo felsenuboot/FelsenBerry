@@ -271,6 +271,18 @@ every single action; an engine gate costs once, at build time, and then it's
 free forever after. Check this section before assuming an "interim"/"until X
 ships" law is still active — it may already be retired.
 
+**What NOT to gate** — the codicil's other, equally-principled half (recorded
+2026-09-01 after engine-dev-2's LAWS_AUDIT.md deliberately declined to gate several
+rules): deterministic-where-possible has an edge. Routine, mechanical, per-action
+safety checks become engine gates. Genuine JUDGMENT does not — encoding it would make
+bots worse, not better. Not gate candidates: aesthetics (tidy builds, no scars, looking
+human-made), chat manners and ledger honesty, crew etiquette and "don't be a bad
+neighbour" beyond the mechanical protected-region check, when to escalate to Felix and
+what counts as a milestone, and the `@`/`!` chat-tier convention (a writing decision per
+message). When you're about to propose a gate, ask which half of the codicil the rule
+actually belongs to — LLM judgment where judgment is required, engine everywhere else.
+See LAWS_AUDIT.md's own "Not gate candidates" section for the full reasoning.
+
 **RETIRED — reach-discipline interim rule** (was: "before any manual/eval dig,
 place, activate, or attack, move within ~3 blocks of the target first — never
 trust a distant target is reachable"). Enforced by `reachguard.js` since engine
@@ -293,31 +305,79 @@ dig/chop/harvest/build call; the engine won't let a bad one through silently.
 The cheap-tool-for-travel exception noted in the original law is a driver
 choice, not something the gate makes for you, so it still stands.
 
-## Resource-harvest distance law (user, 2026-09-01, AMENDED 2026-09-01)
+## Resource-harvest distance law (RETIRED 2026-09-01)
 Original law: resource gathering (chopTrees, mining sweeps, grass beyond the farm)
 >=50 blocks from the plaza center (-3,111,4), because chopTrees couldn't tell a
-structure's logs from a tree's (house frames and fences got eaten near base).
+structure's logs from a tree's (house frames and fences got eaten near base). Amended
+once already (v10, `ctx.isProtected()` at target selection killed the structure-eating
+root cause and relaxed the distance to >=25, purely aesthetic from that point on) —
+this was the LAST ungated behavioral harvest law, and it is now fully retired.
 
-**Amendment: the law relaxes to >=25 blocks from the plaza for any bot on engine
-v10+.** Rationale: v10's `ctx.isProtected()` target filter fixed the root cause
-structurally (chopTrees now consults digguard's protected.json at target
-selection, not just at the dig-reject level) — engine enforcement superseded
-this behavioral rule, exactly as designed. The residual 25-block buffer is now
-purely aesthetic (keep the base's immediate treescape intact, don't crater the
-view up close), not a safety backstop. Check `payloads.digguard` reports v2 (or
-just trust GET /state's `payloads` field being present at all, since v10+
-always ships with it) before relying on the relaxed distance — a bot still on a
-pre-v10 process should keep the old >=50 rule until it restarts.
-Designated harvest zones unchanged: NW forest (~-60..-30, z<0), SE scrub (x>25,
-z>40 — clear of CAVECREW), N slopes past z<-20 — those remain fine choices, the
-amendment just means you don't have to walk that far if there's a legitimate
-non-structure tree closer in.
+**RETIRED — enforced by `protected.json.harvestExclusion` + `S.harvestAllowed()` since
+engine v18** (LAWS_AUDIT.md, engine-dev-2): a 25-block-radius cylinder around home,
+consulted at target selection inside chopTrees and idle-guard's mineNearest, the same
+place `ctx.isProtected()` already runs. Verified: blocked at 24 blocks from center,
+allowed at 26. No more manual distance-checking before chopping or letting idle-work
+harvest near base — the engine won't select a target inside the buffer.
+**Scope note — `mineLane` is deliberately NOT gated by this**, because a driver-issued
+mining task at e.g. quarry_lane_1 is meant to be at the base; the aesthetic buffer
+applies to chopping and idle work, not to deliberate mining. If you hand-issue a
+mineLane near home, that's still your call to make, not the engine's.
+Designated harvest zones remain fine, unforced choices for chopping: NW forest
+(~-60..-30, z<0), SE scrub (x>25, z>40 — clear of CAVECREW), N slopes past z<-20.
+
+## Engineering conventions (standing rules, 2026-09-01)
+
+Two named rules from real incidents, kept here so they outlive the FEEDBACK.md entries
+that discovered them.
+
+**Cross-verify means READ THE DIFF, not just re-run the other engineer's live test.**
+Incident: an edit silently deleted digguard's entire level-2 planner block; `node
+--check` passed clean (it was a syntax-valid deletion, just of runtime-referenced code),
+and no live test the author ran would have caught it, because the missing block only
+bites through a late-bound runtime reference on a path that test didn't happen to
+exercise. engine-dev-3 caught it by reading the actual diff, not by re-running anything.
+A passing live test proves the happy path works; it says nothing about a silent deletion
+of an adjacent block. This is the same "presence is not liveness" family of bug as the
+idleguard-reconnect and payload-staleness findings, one level further upstream — at the
+source rather than at runtime. When two engineers cross-verify each other's work, that
+means actually reading the other's diff, every time, not treating a green test run as
+sufficient.
+
+**A payload timer MAY re-arm a subscription or re-assert a config/flag value; it MUST
+NEVER re-assign a bot method it also wraps.** The precise form of the "no self-healing
+guard timers" rule, replacing an earlier cruder version that would have wrongly banned
+safe patterns too (survival.js's own danger-listener re-subscribe is legitimate and
+stays fine under this wording). What it forbids: a timer that notices its wrapper is
+"missing" and tries to defensively re-wrap the method — engine-dev-2 tried exactly this
+as the obvious fix for a stripped guard, and it is a TRAP. Detecting "am I still in the
+chain" means walking it, and every wrapper has to publish what it wraps for that walk to
+mean anything; two guards each checking only "am I outermost" re-layer over each other
+and form a cycle — 9.2 MILLION recursive dig calls in one live test before it was
+killed. Both self-heals were removed; the guard-stripping bug itself was fixed at the
+source instead (see the SUSPENDING IDLEGUARD note above). engine-dev-2 audited all 8
+owned payloads against this exact wording and found zero violations — every timer in
+the current stack touches flags, listener arrays, or Movements arrays, never a wrapped
+method. If a self-heal is ever genuinely needed later: every dig wrapper must first
+publish `__wrappedTarget` (digguard and toolguard already do this) before anything
+attempts to walk the chain.
 
 ## Server-drop doctrine + completion truth (user, 2026-09-01)
 - If the SERVER drops or crashes: everyone REJOINS, always. Runner processes
   auto-reconnect (v9 auto-injects the payload stack on every spawn); drivers just
   verify /state afterward and resume the queue. Never wind a bot down because the
   server blinked.
+- **ONE-TIME EXCEPTION for the main server's NEXT return** (fold this into the
+  return broadcast, then this note can retire itself once every bot has actually
+  restarted): a bare reconnect is not enough this time. Any bot that ever had
+  `__idleguard.stop()` called on it before it was running idleguard v8 is currently
+  operating with digguard/reachguard/toolguard silently stripped off `bot.dig` (the
+  guard-stripping bug — see SUSPENDING IDLEGUARD above), and a reconnect alone does
+  NOT fix that; only a full process restart (`./stop.sh` + `./spawn.sh`) forces
+  auto-inject to rebuild the wrapper chain clean on v8+. Every driver must do a full
+  process restart when the main server comes back, not just wait for auto-reconnect,
+  to guarantee the guard chain is actually intact rather than reporting installed
+  while doing nothing.
 - Task-state truth is status.task.done from __skills.status — NEVER infer from
   watching the bot move or chat: idle-guard picks up finished bots and makes them
   look busy, which has fooled multiple drivers into waiting on already-finished
