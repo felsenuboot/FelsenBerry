@@ -20,6 +20,8 @@ const pathfinderPlugin = require('mineflayer-pathfinder');
 const { pathfinder, Movements, goals } = pathfinderPlugin;
 const { Vec3 } = require('vec3');
 // metrics ledger (EVALUATION.md E1-E2). Optional: a telemetry failure must never stop a bot.
+let goto2 = null;
+try { goto2 = require('./goto2.patch.js'); } catch (err) { console.log('goto2.patch.js not loaded: ' + err.message); }
 let telemetry = null;
 try { telemetry = require('./telemetry.js'); } catch (err) { console.log('telemetry.js not loaded: ' + err.message); }
 
@@ -376,6 +378,16 @@ function createBot() {
 
   bot.loadPlugin(pathfinder);
 
+
+  // ashfinder MUST load before the first spawn: its plugin builds the path executor
+
+  // inside its own bot.on('spawn') handler, so loading it into an already-spawned bot
+
+  // leaves PathExecutor null and every /goto2 fails. Guarded — a missing or broken
+
+  // ashfinder must leave /goto and the rest of the bot completely untouched.
+
+  if (goto2) { try { goto2.loadAshfinder(bot, log); } catch (err) { log('ashfinder load failed: ' + err.message); } }
   // optional plugins — each guarded so one bad plugin never breaks the bot
   for (const [label, plugin] of Object.entries(optionalPlugins)) {
     try {
@@ -473,6 +485,17 @@ function createBot() {
   if (telemetry) {
     try { telemetry.install(bot, { name: NAME, role: ROLE, host: MC_HOST }); }
     catch (err) { log(`telemetry install failed: ${err.message}`); }
+  }
+  // /goto2's handler, once per bot instance. app=null because runner dispatches on
+  // url.pathname rather than express routes, so we call ash.handle() ourselves below.
+  if (goto2) {
+    try {
+      bot._goto2 = goto2.install(bot, null, {
+        log, announce, send,
+        getTask: () => currentTask,
+        setTask: (t) => { currentTask = t; },
+      });
+    } catch (err) { log(`goto2 install failed: ${err.message}`); bot._goto2 = null; }
   }
 
   bot.on('end', (reason) => {
@@ -602,6 +625,14 @@ const server = http.createServer(async (req, res) => {
         })(),
         payloads,
         stalePayloads,
+        // 'load-after-spawn' means the plugin was attached too late and its executor is
+        // null — the GOTCHA-0 failure, worth seeing in /state rather than as a run error.
+        ash: (() => {
+          try {
+            if (!bot || !bot.ashfinder) return false;
+            return bot.ashfinder.waypointPlanner ? 'ready' : 'load-after-spawn';
+          } catch (_) { return false; }
+        })(),
         movements,
         orphanedGoto,
         pathStuckRecent,
@@ -640,6 +671,13 @@ const server = http.createServer(async (req, res) => {
         bot.chat(body.message);
         log(`<api> sent chat: ${body.message}`);
         return send(res, 200, { ok: true });
+      }
+
+      if (url.pathname === '/goto2') {
+        // Opt-in second movement engine (ashfinder). pathfinder stays the default —
+        // pvp and collectblock are hard-welded to bot.pathfinder and would break.
+        if (!bot._goto2) return send(res, 501, { ok: false, error: 'goto2 not available (ashfinder missing or failed to load)' });
+        return bot._goto2.handle(req, res, body, url);
       }
 
       if (url.pathname === '/goto') {

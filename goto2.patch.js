@@ -366,7 +366,7 @@ function distToBox(p, box) {
  * ashfinder does NOT expose its planned path before it starts moving, so we sample the
  * straight line start->goal every 4 blocks and require every sample to clear every
  * protected box by `clearance`. This is an approximation — a real path can detour off
- * the segment — which is exactly why guardAshDig() below also checks EVERY individual
+ * the segment — which is exactly why digguard's level-3 ashDig wrap checks EVERY individual
  * break at the moment it happens. This check is the cheap early refusal; that one is
  * the actual enforcement.
  *
@@ -542,41 +542,31 @@ function startPathfinderGuard(bot, counter) {
 // dig audit + enforcement (GOTCHA 9)
 // ---------------------------------------------------------------------------
 /**
- * Wrap bot.ashDig for the duration of one run: count every break, and refuse any block
- * inside a protected region. This is the ONLY thing standing between ashfinder's raw
- * block_dig packets and BASE.md's structures — digguard.js cannot see them at all.
+ * guardAshDig() USED TO LIVE HERE AND HAS BEEN DELETED ON PURPOSE. Do not restore it.
  *
- * A refusal throws inside the executor, which surfaces as a failed leg rather than a
- * destroyed chest. That is the correct trade.
+ * It wrapped bot.ashDig per run to refuse breaks inside protected regions — correct when
+ * written, because digguard could not see ashfinder's raw block_dig packets at all. That
+ * gap is now closed at the source: digguard v5 wraps bot.ashDig permanently and resolves
+ * through g.hit(), the same authority levels 1 and 2 use. Its resolver is strictly better
+ * than the flat box list here — it honours neverProtect, per-region `match` regexes and
+ * carved `exclude` gaps, so a parallel list could only drift out of agreement with it.
  *
- * @returns {{restore:()=>void, counter:{n:number,refused:number}}}
+ * Keeping it as "cheap defence in depth" would have been actively dangerous, for two
+ * reasons we have both been bitten by tonight:
+ *
+ *   1. It restored by ASSIGNMENT (`bot.ashDig = orig`). Any guard layered on top in the
+ *      meantime is silently discarded by that line. That is exactly how idleguard.stop()
+ *      stripped digguard, reachguard and toolguard off live bots while every payload still
+ *      reported installed.
+ *   2. It made a SECOND bot.ashDig wrapper. digguard's ensureAshWrapped re-wraps whatever
+ *      it does not recognise, so: goto2 wraps -> digguard's timer re-wraps over it and
+ *      captures goto2's wrapper as its origAsh -> goto2's wrapper still points at
+ *      digguard's -> the two call each other. That is the 9.2-million-call recursion that
+ *      took bot.dig down, reproduced on bot.ashDig.
+ *
+ * The audit numbers this used to produce now come from digguard (`__digguard.ashBlocked`),
+ * which counts refusals across every caller rather than only inside a /goto2 run.
  */
-function guardAshDig(bot, boxes, counter) {
-  const orig = typeof bot.ashDig === 'function' ? bot.ashDig.bind(bot) : null;
-  if (!orig) return { restore: () => {}, counter };
-  bot.ashDig = async (block, opts) => {
-    try {
-      const p = block && block.position;
-      if (p) {
-        for (const box of boxes) {
-          if (distToBox(p, box) === 0) {
-            counter.refused += 1;
-            throw new Error(
-              `goto2: refusing to break ${block.name} at ${p} — inside protected ` +
-              `region '${box.id}' (FLEET LAW / BASE.md)`,
-            );
-          }
-        }
-      }
-    } catch (err) {
-      // rethrow only our own refusal; never let a probe bug block movement
-      if (err && /refusing to break/.test(err.message)) throw err;
-    }
-    counter.n += 1;
-    return orig(block, opts);
-  };
-  return { restore: () => { bot.ashDig = orig; }, counter };
-}
 
 // ---------------------------------------------------------------------------
 // arrival assertion (GOTCHA 2 + 3)
@@ -739,9 +729,8 @@ function install(bot, app, opts = {}) {
 
     const hp0 = typeof bot.health === 'number' ? bot.health : null;
     const pfCounter = { n: 0 };
-    const digCounter = { n: 0, refused: 0 };
+    const digCounter = { before: 0 };   // digguard owns the counting now
     let stopPfGuard = () => {};
-    let digGuard = { restore: () => {} };
     let timer = null;
 
     announce(
@@ -756,7 +745,10 @@ function install(bot, app, opts = {}) {
       stopPfGuard = startPathfinderGuard(bot, pfCounter);
 
       if (dig) {
-        digGuard = guardAshDig(bot, boxes, digCounter);
+        // No per-run dig wrapper: digguard v5 guards bot.ashDig permanently (see the note
+        // where guardAshDig used to be). Snapshot its refusal counter so this run can still
+        // report how many breaks were refused.
+        digCounter.before = (globalThis.__digguard && globalThis.__digguard.ashBlocked) || 0;
         bot.ashfinder.enableBreaking();
       } else {
         bot.ashfinder.disableBreaking();
@@ -795,8 +787,7 @@ function install(bot, app, opts = {}) {
       metrics.arrived = arrival.arrived;
       metrics.dist = arrival.dist;
       metrics.ms = Date.now() - t0;
-      metrics.blocksBroken = digCounter.n;
-      metrics.digsRefused = digCounter.refused;
+      metrics.digsRefused = ((globalThis.__digguard && globalThis.__digguard.ashBlocked) || 0) - digCounter.before;
       metrics.pfInterference = pfCounter.n;
       metrics.hpDelta =
         hp0 != null && typeof bot.health === 'number' ? +(bot.health - hp0).toFixed(1) : 0;
@@ -821,8 +812,7 @@ function install(bot, app, opts = {}) {
       // own latch disagrees with ours (a zombie run, GOTCHA 5). Hammer stop() and
       // report honestly rather than leaving two engines half-owning the body.
       metrics.ms = Date.now() - t0;
-      metrics.blocksBroken = digCounter.n;
-      metrics.digsRefused = digCounter.refused;
+      metrics.digsRefused = ((globalThis.__digguard && globalThis.__digguard.ashBlocked) || 0) - digCounter.before;
       metrics.pfInterference = pfCounter.n;
       try { await cancelAsh(bot, { forMs: 1500 }); } catch (_) {}
       log(`[goto2] error: ${err.message}`);
@@ -831,7 +821,6 @@ function install(bot, app, opts = {}) {
       clearTimeout(timer);
       stopPfGuard();
       try { bot.ashfinder.disableBreaking(); } catch (_) {}
-      digGuard.restore();
       releaseBody(bot);
       // Re-assert thinkTimeout: an abandoned run's zombie finally may have left the
       // 1000 ms unloaded-chunk clamp in place (GOTCHA 6).

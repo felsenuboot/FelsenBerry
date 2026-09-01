@@ -51,7 +51,7 @@ const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 3, enabled: true,
+  version: 4, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -129,6 +129,12 @@ const sense = (inject) => {
 
     const sv = globalThis.__survival;
     s.survivalActive = Boolean(sv && sv.active);
+    // /goto2 (ashfinder) drives the body directly, outside the task engine, so the ladder
+    // cannot see it as a running task and would happily issue pathfinder goals straight
+    // into it. Measured: a /goto2 hop logged 35 pathfinder interferences and moved zero
+    // blocks while the agenda kept working underneath it.
+    try { s.externalNav = Boolean(bot._goto2 && bot._goto2.state && bot._goto2.state().inFlight); }
+    catch (e) { s.externalNav = false; }
 
     const S = globalThis.__skills;
     s.task = S && S.currentTask ? {
@@ -471,6 +477,18 @@ const tick = () => {
   const s = sense();
   A.lastSense = s;
   if (!s.alive) return;
+  // ONE thing drives the body at a time. This is the same rule that made the agenda subsume
+  // idleguard; /goto2 is simply a third driver the ladder cannot see as a task.
+  if (s.externalNav) {
+    if (!A._yieldedToNav) {
+      A._yieldedToNav = true;
+      if (oursRunning(s)) { try { globalThis.__skills.stop('agenda:external-nav'); } catch (e) {} }
+      A.activeTaskId = null; A.owner = null;
+      note('yielding — /goto2 owns the body');
+    }
+    return;
+  }
+  if (A._yieldedToNav) { A._yieldedToNav = false; note('/goto2 released the body — resuming'); }
   if (s.dangerState === 'calm' && A.calmSince === 0) A.calmSince = s.now;
   if (s.dangerState !== 'calm') A.calmSince = 0;
 
@@ -613,11 +631,11 @@ try {
 } catch (e) {}
 
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.agenda = { version: 3, boundAt: now(), stale: false };
+REG.agenda = { version: 4, boundAt: now(), stale: false };
 bot.once('end', () => { try { REG.agenda.stale = true; A.enabled = false; if (A.timer) clearInterval(A.timer); } catch (e) {} });
 
 A.timer = setInterval(tick, TICK_MS);
 
-return { installed: true, version: 3, rungs: RUNGS.length, tickMs: TICK_MS,
+return { installed: true, version: 4, rungs: RUNGS.length, tickMs: TICK_MS,
   subsumedIdleguard: subsumed, role: A.role, home: HOME,
   api: ['setProject', 'step', 'sense', 'rung', 'snapshot', 'stop'] };
