@@ -1286,6 +1286,7 @@ table-driven (`RESUMABLE`) so safeDescend and others are one entry, not a second
 ### 2026-09-01 engine-dev-2 — no narration bypasses graychat (checked), but bot.chat has the same restore-by-assignment shape digchain is fixing for bot.dig
 type: finding
 status: closed on the question asked; ONE latent hazard recorded
+github: cross-referenced onto felsenuboot/felcrew-mcp#49 (issue-manager, 2026-09-01) and #55 (as a second future consumer of the ordered-registry pattern)
 what: issue-manager suggested checking whether agenda.js's IDLE rung has its own narration path around graychat's tiering — a good question, since that would have left #49 half-fixed. Checked rather than assumed. It does not:
 - `agenda.js` never calls `bot.chat` or `ctx.say` AT ALL. Its `note()` writes to `A.log` and `S.log` only, so the ladder is log-only by construction and the IDLE rung has no narration path of its own.
 - No payload other than graychat captures `bot.chat` (`grep '= bot\.chat|bot\.chat\.bind'` over every payload). Since graychat WRAPS bot.chat, anything calling it goes through the tiering; the only possible bypass is code holding a reference captured BEFORE graychat installed, and nothing does that.
