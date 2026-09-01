@@ -40,6 +40,8 @@ const TICK_MS = 2000;              // deliberative only — safety never depends
 const MIN_SWITCH_MS = 1500;        // anti-flap floor (safety rungs exempt)
 const PREEMPT_DEBOUNCE = 2;        // ticks a non-safety rung must hold to preempt a running task
 const POSTURE_DWELL_MS = 3000;
+const RESTOCK_BUFFER = 1.5;        // resupply target as a multiple of the floor (the hysteresis gap)
+const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never mine a 1-block gap
 // A single act() that never settles freezes the WHOLE ladder: tick() returns early on
 // A.busy, so one hung await silently ends autonomy. Found live — a TOOL act stalled and the
 // brain sat at busy:true with zero ticks for minutes, owner null, timer alive, looking
@@ -49,7 +51,7 @@ const POSTURE_DWELL_MS = 3000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 2, enabled: true,
+  version: 3, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -321,10 +323,21 @@ const RUNGS = [
       if (f.filler && s.filler < f.filler) return true;
       return false;
     },
+    // RESTOCK was the ONE rung breaking this file's own hysteresis invariant (see the header:
+    // "fire() and clear() are deliberately different thresholds on every rung; that gap IS
+    // the hysteresis"). fire and clear both used the bare floor, and act topped up to exactly
+    // the floor — so the floor doubled as the operating level with no buffer anywhere. Against
+    // a project that CONSUMES the resource, the result is a boundary bounce: safeDescend
+    // places a torch, dips one below the floor, RESTOCK (prio 6) preempts the running PROJECT
+    // (prio 8), tops back to exactly the floor, clears, PROJECT resumes, burns one, repeat —
+    // chopping the descent every few seconds. Found by engine-dev-3 reading this file.
+    // Clearing at floor*BUFFER (and restocking to it) restores the gap: resupply overshoots,
+    // so ordinary consumption no longer re-crosses the trigger.
     clear: (s) => {
       const f = activeFloors(s); if (!f) return true;
-      return (!f.torches || s.torches >= f.torches) && (!f.food || s.foodCount >= f.food)
-        && (!f.filler || s.filler >= f.filler);
+      const up = (n) => Math.ceil(n * RESTOCK_BUFFER);
+      return (!f.torches || s.torches >= up(f.torches)) && (!f.food || s.foodCount >= up(f.food))
+        && (!f.filler || s.filler >= up(f.filler));
     },
     act: async (s) => {
       if (oursRunning(s)) return 'running';
@@ -332,10 +345,13 @@ const RUNGS = [
       if (!f) return 'none';
       // floors are category-level; the skill wants concrete items. bread and cobblestone are
       // the fleet's standard stand-ins for "food" and "filler" (DEPOT.md chests C and B).
+      // Restock to the BUFFERED target, not the bare floor — topping up to exactly the
+      // trigger level guarantees the next unit consumed re-fires this rung.
+      const up = (n) => Math.ceil(n * RESTOCK_BUFFER);
       const needs = {};
-      if (f.torches) needs.torch = f.torches;
-      if (f.food) needs.bread = f.food;
-      if (f.filler) needs.cobblestone = f.filler;
+      if (f.torches) needs.torch = up(f.torches);
+      if (f.food) needs.bread = up(f.food);
+      if (f.filler) needs.cobblestone = up(f.filler);
       if (!Object.keys(needs).length) return 'none';
 
       // PRODUCE what the depot cannot supply. A bot that can only acquire by withdrawing is
@@ -352,7 +368,10 @@ const RUNGS = [
         // wood digs. Gathering stone at the surface is not the deep excursion that gate
         // exists to protect.
         note(`depot short ${shortFiller} filler — mining it instead`);
-        const rm = runSkill('mineLane', { target: 'stone', count: Math.min(shortFiller, 24), maxDist: 24, force: true }, 'RESTOCK/mine');
+        // Mine a BATCH, never the bare gap. Mining the exact shortfall (often 1) is the same
+        // no-buffer mistake as topping to the floor, with a whole mining trip as its cost.
+        const batch = Math.max(RESTOCK_MINE_BATCH, Math.min(shortFiller, 24));
+        const rm = runSkill('mineLane', { target: 'stone', count: batch, maxDist: 24, force: true }, 'RESTOCK/mine');
         return rm.ok ? 'started' : (rm._transient ? 'busy' : 'refused');
       }
       const rr = runSkill('restock', { needs }, 'RESTOCK');
@@ -594,11 +613,11 @@ try {
 } catch (e) {}
 
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.agenda = { version: 2, boundAt: now(), stale: false };
+REG.agenda = { version: 3, boundAt: now(), stale: false };
 bot.once('end', () => { try { REG.agenda.stale = true; A.enabled = false; if (A.timer) clearInterval(A.timer); } catch (e) {} });
 
 A.timer = setInterval(tick, TICK_MS);
 
-return { installed: true, version: 2, rungs: RUNGS.length, tickMs: TICK_MS,
+return { installed: true, version: 3, rungs: RUNGS.length, tickMs: TICK_MS,
   subsumedIdleguard: subsumed, role: A.role, home: HOME,
   api: ['setProject', 'step', 'sense', 'rung', 'snapshot', 'stop'] };
