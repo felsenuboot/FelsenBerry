@@ -56,7 +56,7 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v39** · `agenda.js` v12 · `producer.js` v3 · `telemetry.js` v1 (ledger
+Live versions: `skills.js` **v39** · `agenda.js` v12 · `producer.js` v4 · `telemetry.js` v1 (ledger
 schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
 · `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
 (superseded by survival.js).
@@ -75,6 +75,15 @@ safeDescends fell from 15 in the churn run to 1 in the fixed run, then it comple
 **This is acceptance criterion #4 only, and the descent was FIXTURED** (torches and
 cobblestone were given via RCON). It proves the ladder and verification MECHANICS. It cannot
 show from-nothing self-sufficiency, and must not be read as doing so.
+
+**The depot-less deep loop SUSTAINS, verified driverless.** ~275 blocks mined with every torch
+produced locally (restock fast-fails with no depot, produce supplies them), zero errors, no
+deadlock, mineLane completed and `assertTask` verified it before the ladder fell to IDLE. The
+return-to-work-site anchor was deliberately NOT built and the run settled it: the bot never
+climbed for wood, holding 26 sticks and staying in its y51-74 band, because durable-first tier
+choice plus the carried stick buffer plus producer's partial-craft fix removed the wood
+dependency that caused the original drift. Cause gone, backstop unnecessary — measured, not
+argued.
 
 **THE PHASE-1 DONE-SIGNAL REMAINS THE UN-FIXTURED SOAK** — all five criteria, on a stable
 version, with nothing handed to the bot.
