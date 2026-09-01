@@ -15,7 +15,35 @@
 //
 // Re-inject after every bot process restart (like idleguard). Remove: __graychat.restore()
 if (globalThis.__graychat && globalThis.__graychat.restore) { try { globalThis.__graychat.restore(); } catch (e) {} }
-const g = { version: 3, enabled: true, sent: 0, passthrough: 0, logged: 0, logFailed: 0 };
+const g = { version: 4, enabled: true, sent: 0, passthrough: 0, logged: 0, logFailed: 0,
+  deduped: 0, rateLimited: 0 };
+// CHAT THROTTLE (v4). Five idle bots narrating a no-op every 30s put 20+ identical lines
+// into public chat back to back, in front of players and an allied crew. The no-op messages
+// themselves are fixed at the source, but a chat layer that will relay ANY repetition given
+// to it is the reason a narration bug becomes a public incident — so the floor belongs here,
+// where it covers every future caller rather than the two we just found.
+// Two independent guards, both deliberately dumb and deterministic:
+//   DEDUP     — the same exact line from the same bot inside DEDUP_MS is dropped.
+//   RATE CAP  — at most RATE_MAX chat-tier lines per RATE_MS, whatever they say.
+// Applies ONLY to the human-facing tiers. PROTOCOL lines are a machine-readable ledger that
+// other crews parse (a dropped DEPOT line is a lost transaction) and "/" is a command, so
+// both bypass this entirely.
+const DEDUP_MS = 60000;
+const RATE_MS = 30000;
+const RATE_MAX = 8;
+const recent = new Map();          // text -> last-sent ms
+let windowStart = 0, windowCount = 0;
+const throttled = (text) => {
+  const now = Date.now();
+  for (const [k, t] of recent) if (now - t > DEDUP_MS) recent.delete(k);
+  const last = recent.get(text);
+  if (last != null && now - last < DEDUP_MS) { g.deduped++; return true; }
+  if (now - windowStart > RATE_MS) { windowStart = now; windowCount = 0; }
+  if (windowCount >= RATE_MAX) { g.rateLimited++; return true; }
+  recent.set(text, now);
+  windowCount++;
+  return false;
+};
 globalThis.__graychat = g;
 const origChat = bot.chat.bind(bot);
 g.restore = () => { bot.chat = origChat; g.enabled = false; };
@@ -74,12 +102,22 @@ bot.chat = (msg) => {
   try {
     if (!g.enabled || typeof msg !== "string") return origChat(msg);
     if (msg.startsWith("/")) { g.passthrough++; return origChat(msg); }
-    if (msg.startsWith("!")) { g.passthrough++; return origChat(msg.slice(1).trim()); }
+    // PROTOCOL before the throttle: a ledger line is data, not narration
     if (PROTOCOL.test(msg)) { g.passthrough++; return origChat(msg); }
-    if (msg.startsWith("@")) { toChat(msg.slice(1).trim()); return; }
+    if (msg.startsWith("!")) {
+      const body = msg.slice(1).trim();
+      if (throttled(body)) { toLog(`[throttled] ${body}`); return; }
+      g.passthrough++; return origChat(body);
+    }
+    if (msg.startsWith("@")) {
+      const body = msg.slice(1).trim();
+      if (throttled(body)) { toLog(`[throttled] ${body}`); return; }
+      toChat(body); return;
+    }
     toLog(msg);
     return;
   } catch (e) { return origChat(msg); }
 };
-return { installed: true, version: 3, teamColor: myTeamColor(), teamTag: myTeamTag(),
+return { installed: true, version: 4, dedupMs: DEDUP_MS, rateMax: RATE_MAX, rateMs: RATE_MS,
+  teamColor: myTeamColor(), teamTag: myTeamTag(),
          tiers: { log: "(default)", interaction: "@", important: "!", protocol: "regex", command: "/" } };

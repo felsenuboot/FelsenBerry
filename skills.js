@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 39;
+const ENGINE_VERSION = 40;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1880,7 +1880,16 @@ S.start = function (bot, name, args = {}, _q = null) {
       // graychat v3 an unprefixed line is log-tier, so a plain done message would not reach
       // chat at all. The "!" prefix puts it in the IMPORTANT tier (white, in-game), and the
       // TASK_DONE log line gives Monitors something machine-greppable.
-      say(bot, '!' + String(skill.doneMsg ? skill.doneMsg(task) : `done: ${name}`));
+      // A doneMsg may return null to announce NOTHING — a no-op completion is not news, and
+      // forcing '!' onto every one of them is what flooded public chat with "picked up 0
+      // drops" from five idle bots. It may also pick its own tier by prefix; only an
+      // unprefixed message defaults to IMPORTANT. (The regex also stops a doneMsg that
+      // already starts with '!' becoming '!!'.)
+      const dm = skill.doneMsg ? skill.doneMsg(task) : `done: ${name}`;
+      if (dm != null && String(dm).trim()) {
+        const line = String(dm);
+        say(bot, /^[!@/]/.test(line) ? line : '!' + line);
+      }
       pushLog('done', `TASK_DONE ${name} ${JSON.stringify(task.result || {}).slice(0, 140)}`);
     } catch (e) {
       task.collected = invGains(task._invBefore, invSnapshot(bot));
@@ -2715,7 +2724,9 @@ S.define('collectDrops', {
     ctx.progress(r.picked, null, 'drops');
     return r;
   },
-  doneMsg: (t) => `Drop sweep done: picked up ${t.result ? t.result.picked : 0} drops.`,
+  // silent when it swept nothing: an idle bot re-checking empty ground is not an event.
+  // TASK_DONE still records it in the log either way.
+  doneMsg: (t) => ((t.result && t.result.picked) ? `Drop sweep done: picked up ${t.result.picked} drops.` : null),
 });
 
 // ---------- chopTrees ----------
@@ -3180,7 +3191,8 @@ S.define('restock', {
   },
   doneMsg: (t) => {
     const g = Object.entries(t.result.got || {});
-    return g.length ? `Restocked: ${g.map(([n, c]) => '+' + c + ' ' + n).join(', ')}.` : 'Nothing to restock.';
+    // nothing withdrawn is a no-op, not news — log-tier only (TASK_DONE carries it)
+    return g.length ? `Restocked: ${g.map(([n, c]) => '+' + c + ' ' + n).join(', ')}.` : null;
   },
 });
 
