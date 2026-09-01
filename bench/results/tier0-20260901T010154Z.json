@@ -1,0 +1,11 @@
+{
+  "runId": "tier0-20260901T010154Z",
+  "tier": 0,
+  "bot": "KaputtKuno",
+  "port": 3130,
+  "startedAt": "2026-09-01T01:01:54Z",
+  "durationSeconds": 1,
+  "passed": 0,
+  "failed": 1,
+  "rows": [{"fixture":"chop-canopy","status":"FAIL","seconds":1,"output":"FAIL chop-canopy: the real planted tree was NOT felled (treesFelled=null, errCode=not_found) -- chopTrees is over-avoiding, not just protecting structures (got 'null', want 'true')\n"}]
+}

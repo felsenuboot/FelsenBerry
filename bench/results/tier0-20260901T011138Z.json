@@ -1,0 +1,11 @@
+{
+  "runId": "tier0-20260901T011138Z",
+  "tier": 0,
+  "bot": "KaputtKuno",
+  "port": 3130,
+  "startedAt": "2026-09-01T01:11:38Z",
+  "durationSeconds": 22,
+  "passed": 1,
+  "failed": 0,
+  "rows": [{"fixture":"chop-canopy","status":"PASS","seconds":22,"output":"PASS chop-canopy\n"}]
+}

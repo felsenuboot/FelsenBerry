@@ -1,0 +1,11 @@
+{
+  "runId": "tier0-20260901T005842Z",
+  "tier": 0,
+  "bot": "KaputtKuno",
+  "port": 3130,
+  "startedAt": "2026-09-01T00:58:42Z",
+  "durationSeconds": 86,
+  "passed": 11,
+  "failed": 1,
+  "rows": [{"fixture":"chop-canopy","status":"FAIL","seconds":1,"output":"FAIL chop-canopy: the real planted tree was NOT felled (treesFelled=null, errCode=not_found) -- chopTrees is over-avoiding, not just protecting structures (got 'null', want 'true')\n"},{"fixture":"craft-void","status":"PASS","seconds":5,"output":"PASS craft-void\n"},{"fixture":"digguard-protected","status":"PASS","seconds":4,"output":"PASS digguard-protected\n"},{"fixture":"false-success-emptypath","status":"PASS","seconds":27,"output":"PASS false-success-emptypath\n"},{"fixture":"orphan-goto","status":"PASS","seconds":4,"output":"PASS orphan-goto\n"},{"fixture":"payload-persist","status":"PASS","seconds":5,"output":"PASS payload-persist\n"},{"fixture":"staircase-1level","status":"PASS","seconds":28,"output":"PASS staircase-1level\n"},{"fixture":"stop-poison","status":"PASS","seconds":3,"output":"PASS stop-poison\n"},{"fixture":"tool-break-silent","status":"PASS","seconds":1,"output":"PASS tool-break-silent\n"},{"fixture":"wedge-chest-gap","status":"PASS","seconds":4,"output":"PASS wedge-chest-gap\n"},{"fixture":"wedge-leaf-litter","status":"PASS","seconds":2,"output":"PASS wedge-leaf-litter\n"},{"fixture":"wedge-torch","status":"PASS","seconds":2,"output":"PASS wedge-torch\n"}]
+}

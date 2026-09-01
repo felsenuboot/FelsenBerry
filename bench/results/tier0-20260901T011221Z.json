@@ -1,0 +1,11 @@
+{
+  "runId": "tier0-20260901T011221Z",
+  "tier": 0,
+  "bot": "KaputtKuno",
+  "port": 3130,
+  "startedAt": "2026-09-01T01:12:21Z",
+  "durationSeconds": 89,
+  "passed": 11,
+  "failed": 1,
+  "rows": [{"fixture":"chop-canopy","status":"PASS","seconds":12,"output":"PASS chop-canopy\n"},{"fixture":"craft-void","status":"PASS","seconds":5,"output":"PASS craft-void\n"},{"fixture":"digguard-protected","status":"FAIL","seconds":2,"output":"FAIL digguard-protected: dig on an identical block type OUTSIDE any registered region was refused too (err=tool_missing: stone needs wooden_pickaxe (have wooden_axe)) -- guard is over-scoping, not just protecting what it should (got 'null')\n"},{"fixture":"false-success-emptypath","status":"PASS","seconds":27,"output":"PASS false-success-emptypath\n"},{"fixture":"orphan-goto","status":"PASS","seconds":5,"output":"PASS orphan-goto\n"},{"fixture":"payload-persist","status":"PASS","seconds":4,"output":"PASS payload-persist\n"},{"fixture":"staircase-1level","status":"PASS","seconds":22,"output":"PASS staircase-1level\n"},{"fixture":"stop-poison","status":"PASS","seconds":3,"output":"PASS stop-poison\n"},{"fixture":"tool-break-silent","status":"PASS","seconds":1,"output":"PASS tool-break-silent\n"},{"fixture":"wedge-chest-gap","status":"PASS","seconds":3,"output":"PASS wedge-chest-gap\n"},{"fixture":"wedge-leaf-litter","status":"PASS","seconds":3,"output":"PASS wedge-leaf-litter\n"},{"fixture":"wedge-torch","status":"PASS","seconds":2,"output":"PASS wedge-torch\n"}]
+}

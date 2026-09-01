@@ -1,4 +1,4 @@
-DRIVER GUIDE — Minecraft bot skill library (__skills v15)
+DRIVER GUIDE — Minecraft bot skill library (__skills v23)
 For LLM driver agents. Run commands from /home/felix/minecraft/bots. One task per bot at a time.
 
 HARD LAW: `mcp__minecraft__*` tools are kevin-driver-ONLY, even if they show up as available
@@ -685,3 +685,31 @@ You should never again wait on a task that already finished. On completion the e
 Failures are important-tier too (`!failed: <task> — <reason>`). The doctrine half still
 stands and matters more than ever: **poll `status.task.done` / `status.task.running`. Never
 infer completion from whether the bot is moving** — idle-guard makes a finished bot look busy.
+
+## Telemetry and the ship gate (v19+)
+
+Every bot now writes a metrics ledger to `logs/metrics-<bot>.jsonl`, and every task attempt
+gets exactly one `outcome` from a closed enum. The one you care about is **`false_success`**:
+the task claimed `done` and an independent assertion disagreed. Its target is zero — a bot
+that lies about finishing is worse than one that honestly fails, because the lie costs you
+the time to discover it.
+
+```sh
+node metrics.mjs                       # verified SR vs naive SR, and the trust gap between
+node metrics.mjs --by skill            # per-skill breakdown
+node metrics.mjs --goto                # movement, per route class
+node metrics.mjs --gate skills-v23     # freeze a ship-gate verdict to bench/gates/
+```
+
+**No fleet rollout until the smoke gate is green on the test bot (3110).** The gate is
+mechanical: FSR must be 0, SR must clear 70%, and n must be at least 20. It records the
+assertion set it judged under, because a changed assertion invalidates cross-version
+comparison.
+
+Two numbers worth knowing how to read. **`trust gap`** is naive SR minus verified SR — how
+much of the engine's self-reported success does not survive checking. **`DFR`** is the typed
+share of failures; engine work that converts a silent failure into a typed early error shows
+up as DFR rising even when SR is flat, and that is progress, not noise.
+
+If you see `n<5 (suppressed)`, that is deliberate — a 1-for-1 success rate reads like
+triumph and means nothing.

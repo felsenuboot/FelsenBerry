@@ -1,0 +1,64 @@
+{
+  "version": "skills-v23",
+  "at": "2026-09-01T01:16:58.268Z",
+  "pass": false,
+  "reasons": [
+    "FSR 5.4% — must be 0"
+  ],
+  "n": 130,
+  "SR": 0.7153846153846154,
+  "FSR": 0.05384615384615385,
+  "naive_SR": 0.7692307692307693,
+  "trust_gap": 0.05384615384615385,
+  "DFR": 1,
+  "outcomes": {
+    "wedge": 11,
+    "ok": 93,
+    "not_found": 9,
+    "false_success": 7,
+    "no_tool": 4,
+    "no_path": 6
+  },
+  "movement": [
+    {
+      "cls": "SHORT_LEVEL",
+      "n": 128,
+      "arrived": 98,
+      "spl": 0.9873840445269016,
+      "wedgeRate": 0.0859375,
+      "medianMs": 410,
+      "assertFails": 19
+    },
+    {
+      "cls": "UNKNOWN",
+      "n": 32,
+      "arrived": 5,
+      "spl": 0,
+      "wedgeRate": 0.5625,
+      "medianMs": 15768.5,
+      "assertFails": 0
+    },
+    {
+      "cls": "MEDIUM_LEVEL",
+      "n": 9,
+      "arrived": 0,
+      "spl": null,
+      "wedgeRate": 0,
+      "medianMs": 50,
+      "assertFails": 0
+    },
+    {
+      "cls": "HAUL_ASCENT",
+      "n": 8,
+      "arrived": 0,
+      "spl": null,
+      "wedgeRate": 0.875,
+      "medianMs": 25172,
+      "assertFails": 0
+    }
+  ],
+  "assertionSet": [
+    "come.arrived"
+  ],
+  "droppedWrites": 0
+}

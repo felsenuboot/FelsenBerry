@@ -65,7 +65,7 @@ function load() {
 }
 
 // ---------- stats ----------
-// Wilson score interval. Wald is wrong at small n (and can产 produce bounds outside [0,1]),
+// Wilson score interval. Wald is wrong at small n (and can produce bounds outside [0,1]),
 // and every cell here is small n.
 function wilson(k, n, z = 1.96) {
   if (!n) return [0, 0];
@@ -231,6 +231,38 @@ if (ab) {
   const ra = ends.filter((e) => e.run === a), rb = ends.filter((e) => e.run === b);
   printUniversal(`run ${a}`, universal(ra));
   printUniversal(`run ${b}`, universal(rb));
+}
+
+// ---------- gate report (E6) ----------
+// A version's ship gate, frozen to a file so a rollout decision is auditable after the fact
+// rather than remembered. Deliberately mechanical: FSR must be zero and SR must clear the
+// floor on a large enough sample, and the report records the assertion set it was judged
+// under — a changed assertion invalidates cross-version comparison, so the hash is part of
+// the verdict rather than a footnote.
+const gate = flag('gate');
+if (gate && typeof gate === 'string') {
+  const u = universal(ends);
+  const mv = movement(gotos);
+  const fsr = u.FSR.n ? u.FSR.k / u.FSR.n : 0;
+  const sr = u.SR.n ? u.SR.k / u.SR.n : 0;
+  const reasons = [];
+  if (u.n < 20) reasons.push(`sample too small (n=${u.n}, need 20)`);
+  if (fsr > 0) reasons.push(`FSR ${pct(fsr)} — must be 0`);
+  if (sr < 0.7) reasons.push(`SR ${pct(sr)} below the 70% floor`);
+  const report = {
+    version: gate, at: new Date().toISOString(), pass: reasons.length === 0, reasons,
+    n: u.n, SR: sr, FSR: fsr, naive_SR: u.naive_SR.k / (u.naive_SR.n || 1),
+    trust_gap: u.trust_gap, DFR: u.DFR.n ? u.DFR.k / u.DFR.n : null,
+    outcomes: u.byOutcome, movement: mv,
+    assertionSet: [...new Set(ends.map((e) => (e.assert || '').replace(/\(.*/, '')).filter(Boolean))].sort(),
+    droppedWrites: gaps.reduce((a, g) => a + g.lost, 0),
+  };
+  const out = path.join(DIR, 'bench', 'gates', `${gate}.json`);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify(report, null, 2));
+  console.log(`\n── gate ${gate}: ${report.pass ? 'PASS' : 'FAIL'} ──`);
+  for (const r of reasons) console.log(`  - ${r}`);
+  console.log(`  written -> ${path.relative(DIR, out)}`);
 }
 
 // ---------- tokens ----------
