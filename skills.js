@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 23;
+const ENGINE_VERSION = 26;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1066,6 +1066,17 @@ const buildAssert = (task) => {
 };
 for (const k of ['buildWall', 'buildFloor', 'frameStructure', 'buildSchematic']) ASSERTS[k] = buildAssert;
 
+// Exported so the AGENDA judges project completion with the SAME verifier the telemetry
+// ledger uses. Two independent notions of "done" would drift, and the whole point of the
+// ASSERTS table is that success is graded by something other than the code being graded.
+S.assertTask = (task, b) => runAssert(task, b || S._lastBot);
+
+// The kit tier table, exported so the AGENDA can aim its maintenance rungs at the SAME
+// requirement the departure gate enforces. Without this the ladder's idea of "I have a
+// pickaxe" (one, working) silently disagreed with the gate's ("two, underground"), and a
+// project could be refused forever by a shortfall no rung was trying to fix.
+S.kitTiers = () => JSON.parse(JSON.stringify(KIT_TIERS));
+
 function runAssert(task, bot) {
   try {
     const f = ASSERTS[task.name];
@@ -1206,8 +1217,10 @@ S.ensureTool = async function (bot, spec, opts = {}) {
   const need = needSpec(bot, spec);
   if (!need) return { ok: true, how: 'not_needed', steps };
 
-  // 1. already in the bag
-  const owned = bestOwned(bot, need);
+  // 1. already in the bag. opts.spare skips this: the underground kit wants a BACKUP
+  // pickaxe, and "you already hold one" is the wrong answer to "get me a second" — it made
+  // the agenda's TOOL rung latch forever on a requirement it kept reporting as satisfied.
+  const owned = opts.spare ? null : bestOwned(bot, need);
   if (owned) {
     if (!bot.heldItem || bot.heldItem.name !== owned.name) {
       try { await bot.equip(owned, 'hand'); } catch (e) { /* held is close enough */ }

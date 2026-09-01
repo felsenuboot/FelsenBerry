@@ -49,11 +49,11 @@ const POSTURE_DWELL_MS = 3000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 1, enabled: true,
+  version: 2, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
-  standDown: {}, standDownCount: {},
+  standDown: {}, standDownCount: {}, unproductive: {},
   metrics: { ticks: 0, transitions: 0, acts: 0, errors: 0, byRung: {} },
   log: [],
 };
@@ -132,6 +132,9 @@ const sense = (inject) => {
     s.task = S && S.currentTask ? {
       id: S.currentTask.id, name: S.currentTask.name, running: S.currentTask.running,
       done: S.currentTask.done, error: S.currentTask.error,
+      // the raw task, so the harvest step can grade it with __skills.assertTask. Injected
+      // test snapshots simply omit this and the grader is skipped.
+      _raw: S.currentTask,
     } : null;
     s.role = (globalThis.__idleguard && globalThis.__idleguard.role) || A.role || null;
   } catch (e) { A.metrics.errors++; }
@@ -143,10 +146,27 @@ const activeClass = (s) => {
   if (A.project && A.project.tool) return A.project.tool;
   return ROLE_TOOL[s.role] || null;
 };
+// Floors come from the KIT GATE when a project is set, because that gate is what will
+// actually refuse the departure. Using the role default instead let a project sit blocked on
+// a requirement no rung was aiming at.
 const activeFloors = (s) => {
   if (A.project && A.project.restockFloor) return A.project.restockFloor;
+  const k = projectKit();
+  if (k) return { torches: k.torches, food: k.foodItems, filler: k.filler };
   return ROLE_FLOOR[s.role] || null;
 };
+// the kit requirement for the project's skill, or null
+const projectKit = () => {
+  try {
+    const S = globalThis.__skills;
+    if (!A.project || !S || !S.kitTiers || !S.registry) return null;
+    const spec = S.registry[A.project.skill];
+    if (!spec || !spec.kit) return null;
+    const tier = typeof spec.kit === 'function' ? spec.kit(A.project.args || {}, bot) : spec.kit;
+    return tier ? (S.kitTiers()[tier] || null) : null;
+  } catch (e) { return null; }
+};
+A.projectKit = projectKit;
 const skillRunning = (s) => Boolean(s.task && s.task.running);
 const oursRunning = (s) => Boolean(s.task && s.task.running && s.task.id === A.activeTaskId);
 
@@ -233,13 +253,43 @@ const RUNGS = [
 
   { id: 'TOOL', prio: 5,
     // "a broken tool outranks the job", made mechanical
-    fire: (s) => { const c = activeClass(s); if (!c) return false; const b = s.tools[c]; return !b || b.dur <= 15; },
-    clear: (s) => { const c = activeClass(s); if (!c) return true; const b = s.tools[c]; return Boolean(b && b.dur > 25); },
+    fire: (s) => {
+      const c = activeClass(s);
+      if (!c) return false;
+      const b = s.tools[c];
+      if (!b || b.dur <= 15) return true;
+      // the departure gate may want a BACKUP (underground wants 2 pickaxes). Holding one
+      // good pickaxe satisfied this rung while the gate kept refusing — a shortfall nobody
+      // was fixing. Ask the gate directly.
+      const k = projectKit();
+      if (k && k.picks && c === 'pickaxe') {
+        const n = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
+        if (n < k.picks) return true;
+      }
+      return false;
+    },
+    clear: (s) => {
+      const c = activeClass(s);
+      if (!c) return true;
+      const b = s.tools[c];
+      if (!(b && b.dur > 25)) return false;
+      const k = projectKit();
+      if (k && k.picks && c === 'pickaxe') {
+        const n = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
+        if (n < k.picks) return false;
+      }
+      return true;
+    },
     act: async (s) => {
       const c = activeClass(s);
       if (!c) return 'none';
+      // If we already hold a working tool and the gate wants a BACKUP, ask for a spare —
+      // otherwise ensureTool answers "you have one" and the rung can never clear.
+      const k = projectKit();
+      const held = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
+      const wantSpare = Boolean(k && k.picks && c === 'pickaxe' && held >= 1 && held < k.picks);
       try {
-        const r = await globalThis.__skills.ensureTool(bot, c);
+        const r = await globalThis.__skills.ensureTool(bot, c, wantSpare ? { spare: true } : {});
         if (!r.ok) {
           // genuine handback: the ladder cannot advance a tool-gated intent
           A.blocked = { why: 'no_tool', cls: c, at: now(), steps: r.steps };
@@ -247,6 +297,12 @@ const RUNGS = [
           return 'blocked';
         }
         A.blocked = null;
+        // Success that did not move the needle is not progress: if the gate still wants more
+        // than we hold, say so and stand down rather than latch on a satisfied-looking rung.
+        if (wantSpare) {
+          const now2 = (bot.inventory.items() || []).filter((i) => /_pickaxe$/.test(i.name)).length;
+          if (now2 <= held) { note(`spare ${c} not acquired (still ${now2}) — standing down`); return 'blocked'; }
+        }
         return 'acquired:' + r.how;
       } catch (e) { A.metrics.errors++; return 'error'; }
     } },
@@ -295,7 +351,9 @@ const RUNGS = [
       if (!r.ok) {
         p.attempts = (p.attempts || 0) + 1;
         p.lastError = r.error ? r.error.code : 'unknown';
-        if (p.attempts >= 3) { p.blocked = p.lastError; note(`project blocked after 3 attempts: ${p.lastError}`); }
+        const repairable = p.lastError === 'kit_missing' || p.lastError === 'no_tool';
+        if (repairable) { p.attempts = 0; note(`project needs ${p.lastError} — the maintenance rungs own that, not a block`); }
+        else if (p.attempts >= 3) { p.blocked = p.lastError; note(`project blocked after 3 attempts: ${p.lastError}`); }
         return 'refused';
       }
       p.attempts = 0;
@@ -375,8 +433,50 @@ const tick = () => {
   if (A.activeTaskId && s.task && s.task.id === A.activeTaskId && !s.task.running) {
     const p = A.project;
     if (p && A.owner && A.owner.id === 'PROJECT') {
-      if (s.task.done) { p.completedOnce = true; note(`project task done (${p.skill})`); }
-      else if (s.task.error) { p.lastError = s.task.error.code; note(`project task failed: ${p.lastError}`); }
+      // VERIFIED completion, not claimed completion. task.done is the engine's own word for
+      // it — that is naive success, the exact thing the ledger exists to distinguish from
+      // real success. Marking a project done on task.done meant a safeDescend that ran and
+      // did NOT descend set completedOnce anyway, so PROJECT never fired again and the bot
+      // silently abandoned a goal it had never accomplished. An agenda-level false-success.
+      // So: grade with __skills.assertTask, the same independent verifier the telemetry uses.
+      let verdict = null;
+      const raw = s.task._raw;
+      try { verdict = (raw && globalThis.__skills.assertTask) ? globalThis.__skills.assertTask(raw, bot) : null; } catch (e) {}
+      const claimed = Boolean(s.task.done);
+      const refuted = Boolean(verdict && verdict.fail);
+      if (claimed && !refuted) {
+        p.completedOnce = true; p.attempts = 0;
+        note(`project VERIFIED done (${p.skill}${verdict ? ', ' + verdict.rule : ''})`);
+      } else {
+        p.lastError = refuted ? ('assert:' + verdict.rule) : (s.task.error ? s.task.error.code : 'no_progress');
+        p.attempts = (p.attempts || 0) + 1;
+        note(`project run did NOT verify (${p.lastError}) — retrying, attempt ${p.attempts}`);
+        // Route it through the same stand-down-with-backoff the rungs use, so a project that
+        // keeps failing yields the body to lower rungs instead of spinning or being abandoned.
+        standDown('PROJECT');
+        A.owner = null;
+        // kit_missing and no_tool are exactly what TOOL and RESTOCK exist to repair, so they
+        // must never permanently block a project — that is the ladder giving up on a problem
+        // it is holding the fix for. Everything else blocks after 5 unverified runs.
+        const repairable = p.lastError === 'kit_missing' || p.lastError === 'no_tool';
+        if (!repairable && p.attempts >= 5) { p.blocked = p.lastError; note(`project blocked after 5 unverified runs: ${p.lastError}`); }
+        else if (repairable) { p.attempts = 0; }
+      }
+    }
+    // GENERAL "completed but did not achieve" detector. A rung whose skill finishes cleanly
+    // while its own fire() is still true has not moved the world — RESTOCK did exactly this,
+    // starting a restock every cycle on a world with no depot and never standing down,
+    // because "task completed" is not the same as "need met". Same shape as the project
+    // false-success, one layer down: judge by the need, not by the task's own verdict.
+    if (A.owner && !A.owner.safety && safeFire(A.owner, s)) {
+      const id = A.owner.id;
+      A.unproductive[id] = (A.unproductive[id] || 0) + 1;
+      if (A.unproductive[id] >= 2) {
+        note(`${id} completed its work twice without meeting its own condition — standing down`);
+        A.unproductive[id] = 0;
+        standDown(id);
+        A.owner = null;
+      }
     }
     A.activeTaskId = null;
   }
@@ -396,6 +496,7 @@ const tick = () => {
     A._preemptTicks = 0;
     // anti-flap floor, safety rungs exempt
     if (owner && !target.safety && (s.now - A.ownerSince) < MIN_SWITCH_MS && target.prio > owner.prio) return;
+    if (owner) A.unproductive[owner.id] = 0;
     A.owner = target; A.ownerSince = s.now;
     A.metrics.transitions++;
     A.metrics.byRung[target.id] = (A.metrics.byRung[target.id] || 0) + 1;
@@ -460,11 +561,11 @@ try {
 } catch (e) {}
 
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.agenda = { version: 1, boundAt: now(), stale: false };
+REG.agenda = { version: 2, boundAt: now(), stale: false };
 bot.once('end', () => { try { REG.agenda.stale = true; A.enabled = false; if (A.timer) clearInterval(A.timer); } catch (e) {} });
 
 A.timer = setInterval(tick, TICK_MS);
 
-return { installed: true, version: 1, rungs: RUNGS.length, tickMs: TICK_MS,
+return { installed: true, version: 2, rungs: RUNGS.length, tickMs: TICK_MS,
   subsumedIdleguard: subsumed, role: A.role, home: HOME,
   api: ['setProject', 'step', 'sense', 'rung', 'snapshot', 'stop'] };
