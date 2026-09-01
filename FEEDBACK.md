@@ -528,6 +528,7 @@ fix: (1) default Δy gate at all three scan sites — skip targets more than ~5 
 ### 2026-09-01 team-lead (USER-CRITICAL) — right tool always; acquire before acting
 type: safety
 status: picked-up(engine-dev-2) 2026-09-01
+github: felsenuboot/felcrew-mcp#30 (issue-manager sync, 2026-09-01 — phase-1, priority-high)
 what: User escalation: bots MUST use the correct tool for every job — and if the
 right tool is missing, ACQUIRE it first (depot withdrawal or craft chain), never
 proceed with fist/wrong-tier/wrong-type tools. Current coverage is partial
