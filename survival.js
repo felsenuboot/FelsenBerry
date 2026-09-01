@@ -1,4 +1,4 @@
-// survival v3 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v4 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
 //
 // The tick-speed survival reflex from research/survival-doctrine.md section 4. panicguard
 // had exactly one answer to everything ("run home"), which is why BuddelBernd died: it
@@ -39,7 +39,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 3,
+  enabled: true, version: 4,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -434,9 +434,9 @@ const pick = async () => {
   return branchWallOff(nearest);
 };
 
-const enter = async (why) => {
+const enter = async (why, pickOverride) => {
   if (!g.enabled || g.active) return;
-  if (Date.now() - g.lastEnd < g.cfg.lockoutMs) return;
+  if (!pickOverride && Date.now() - g.lastEnd < g.cfg.lockoutMs) return;
   if (!bot.entity || bot.health <= 0) return;
   g.active = true; g.fires++; g.startedAt = Date.now();
   const guarded = suspendGuard();
@@ -520,19 +520,40 @@ g.trigger = (why) => enter(why || 'manual');
 // GoalFollow for real — walk the bot to within a few blocks of a bat first (perfectly safe,
 // unlike ever doing this to a real creeper), then call runBranch. Verified: gained 10.9
 // distance from a 3.7m start, real terrain, no oscillation.
-g.runBranch = async (name, threat) => {
+// shared dispatch, same fabricated-threat defaults for every caller: runBranch (bypasses
+// enter() entirely) and drill (goes through the real enter() state machine, below).
+const branchFor = async (name, threat) => {
   const t = threat || threatsNow()[0] || null;
+  switch (String(name || '').toUpperCase()) {
+    case 'ENV': return await branchEnv(envHazard() || 'fire');
+    case 'CREEPER': return await branchCreeper(t || { name: 'creeper', d: 3, id: null });
+    case 'BREAK_LOS': return await branchBreakLOS(t || { name: 'skeleton', d: 10, ranged: true, los: true, id: null });
+    case 'FLEE_HOME': return await branchFleeHome(t);
+    case 'WALL_OFF': return await branchWallOff(t);
+    default: return { error: 'unknown branch', known: ['ENV', 'CREEPER', 'BREAK_LOS', 'FLEE_HOME', 'WALL_OFF'] };
+  }
+};
+g.runBranch = async (name, threat) => {
   const guarded = suspendGuard();
-  try {
-    switch (String(name || '').toUpperCase()) {
-      case 'ENV': return await branchEnv(envHazard() || 'fire');
-      case 'CREEPER': return await branchCreeper(t || { name: 'creeper', d: 3, id: null });
-      case 'BREAK_LOS': return await branchBreakLOS(t || { name: 'skeleton', d: 10, ranged: true, los: true, id: null });
-      case 'FLEE_HOME': return await branchFleeHome(t);
-      case 'WALL_OFF': return await branchWallOff(t);
-      default: return { error: 'unknown branch', known: ['ENV', 'CREEPER', 'BREAK_LOS', 'FLEE_HOME', 'WALL_OFF'] };
-    }
-  } finally { if (guarded) resumeGuard(); shieldDown(); }
+  try { return await branchFor(name, threat); }
+  finally { if (guarded) resumeGuard(); shieldDown(); }
+};
+// SD-T1 bench hook (issue #23): unlike runBranch (which calls a branch function directly,
+// bypassing the panic state machine entirely), drill() goes through the REAL enter() —
+// same panic_enter/panic_recovered log lines, same g.branch/g.lastBranch/g.fires/
+// g.recovered bookkeeping, same metrics.panic() calls a genuine encounter produces —
+// just with the branch forced instead of picked from live threats. That's what makes its
+// result bench-row-shaped without waiting for a real encounter. Bypasses the lockoutMs
+// re-entry cooldown (this is a deliberate, manual, opt-in test call, not an accidental
+// real panic — a bench suite drilling all five branches back-to-back shouldn't eat 10s
+// per branch) but still refuses a second drill while one is already active, same as a
+// real panic would. Same threat-fabrication rules as runBranch's doc comment above:
+// prefer a real harmless entity id (a nearby bat) over `id: null` so LOS/pathing/distance
+// are exercised for real, never a player id.
+g.drill = async (name, threat) => {
+  if (g.active) return { error: 'already active', branch: g.branch };
+  await enter('drill:' + String(name || '').toUpperCase(), () => branchFor(name, threat));
+  return { ...g.lastEvent, bench: true };
 };
 g.brief = () => ({ state: g.active ? 'panic:' + (g.branch || '?') : 'ready', branch: g.lastBranch, fires: g.fires, recovered: g.recovered, failures: g.failures });
 g.snapshot = () => ({ ...g.brief(), home: g.home, cfg: g.cfg, lastEvent: g.lastEvent, active: g.active });
@@ -550,7 +571,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 3, boundAt: Date.now(), stale: false };
+REG.survival = { version: 4, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -561,7 +582,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 3, home: g.home,
+  installed: true, version: 4, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
