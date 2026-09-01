@@ -9,7 +9,8 @@ const A = globalThis.__agenda, S = globalThis.__skills;
 const out = { agenda: A.version, cases: [] };
 const R = A.rung('IDLE');
 const saved = { project: A.project, idleAt: A._idleAt, owner: A.owner,
-  barren: A._barren, backoff: A._relocateBackoff, wander: A._wander, lastIdle: A._lastIdleWork };
+  barren: A._barren, backoff: A._relocateBackoff, wander: A._wander, lastIdle: A._lastIdleWork,
+  baseChoreLit: A._baseChoreLit, baseChoreAt: A._baseChoreCheckedAt };
 const realStart = S.start;
 let started = [];
 S.start = (b, name, args) => { started.push(name); return { ok: true, taskId: 'stub' }; };
@@ -107,10 +108,35 @@ try {
   R.act({ now: before, task: done('t5', { relocated: false, reason: 'no_reachable_spot' }), role: 'lumberjack' });
   T('relocate that found nowhere sets a backoff', A._relocateBackoff > before, true);
 
+  // ---- #72: builder base-chore latch (don't re-scan an already-lit base) ----
+  T('spawnProof placed>0 -> worked', A._idleWorkOutcome('spawnProof', { placed: 3 }, null), 'worked');
+  T('spawnProof placed 0 -> barren (base already lit)', A._idleWorkOutcome('spawnProof', { placed: 0 }, null), 'barren');
+
+  // builder with a FRESH "base lit" latch gathers instead of re-scanning
+  A._baseChoreLit = true; A._baseChoreCheckedAt = Date.now();
+  T('builder gathers once base is proven lit', fire('builder', { torches: 8 }), 'chopTrees');
+  // ...but a STALE latch (>10min) re-checks lighting for new dark spots
+  A._baseChoreLit = true; A._baseChoreCheckedAt = Date.now() - 11 * 60000;
+  T('builder re-checks lighting after ~10min', fire('builder', { torches: 8 }), 'spawnProof');
+  A._baseChoreLit = false; A._baseChoreCheckedAt = 0;
+
+  // gradeIdleWork: a spawnProof no-op SETS the latch and does not disturb the barren counter
+  A._baseChoreLit = false; A._barren = 2; A._relocateBackoff = Date.now() + 1e9;   // gate relocate to isolate the grade
+  A._lastIdleWork = { id: 's1', skill: 'spawnProof' }; started = []; A._idleAt = 0;
+  R.act({ now: Date.now(), task: done('s1', { placed: 0 }), role: 'builder', torches: 8 });
+  T('spawnProof no-op sets the base-lit latch', A._baseChoreLit === true, true);
+  T('...and does NOT touch the barren/relocate counter', A._barren, 2);
+  // a productive spawnProof clears the latch (base had dark spots -> keep proofing next cycle)
+  A._baseChoreLit = true;
+  A._lastIdleWork = { id: 's2', skill: 'spawnProof' }; started = []; A._idleAt = 0;
+  R.act({ now: Date.now(), task: done('s2', { placed: 2 }), role: 'builder', torches: 8 });
+  T('a productive spawnProof clears the latch', A._baseChoreLit === false, true);
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.got}`);
   return out;
 } finally {
   S.start = realStart; A.project = saved.project; A._idleAt = saved.idleAt; A.owner = saved.owner; A.busy = false;
   A._barren = saved.barren; A._relocateBackoff = saved.backoff; A._wander = saved.wander; A._lastIdleWork = saved.lastIdle;
+  A._baseChoreLit = saved.baseChoreLit; A._baseChoreCheckedAt = saved.baseChoreAt;
 }

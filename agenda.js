@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 17, enabled: true,
+  version: 18, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -170,10 +170,14 @@ const ROLE_WORK = {
   // farmCycle needs a registered field box, so it cannot be a zero-config default; harvesting
   // grass for seeds is the honest farmer-with-no-field job.
   farmer: { skill: 'harvestGrass', args: {} },
-  // light the base if it can (the tidy-base job), else gather the wood to do it later
-  builder: (s) => ((s.torches || 0) >= 4
-    ? { skill: 'spawnProof', args: { radius: 12 } }
-    : { skill: 'chopTrees', args: { count: 2 } }),
+  // Light the base as a periodic chore, then GATHER like a player who's finished it — don't
+  // re-scan an already-lit base forever (#72). A._baseChoreLit is set when spawnProof finds
+  // nothing dark; it expires after ~10min (read-time) so new dark spots still get caught.
+  builder: (s) => {
+    if ((s.torches || 0) < 4) return { skill: 'chopTrees', args: { count: 2 } };   // gather wood to light later
+    const lit = A._baseChoreLit && (s.now - (A._baseChoreCheckedAt || 0) <= 600000);
+    return lit ? { skill: 'chopTrees', args: { count: 2 } } : { skill: 'spawnProof', args: { radius: 12 } };
+  },
 };
 const ROLE_FLOOR = { miner: { torches: 16, food: 4, filler: 16 }, lumberjack: { torches: 8, food: 2 },
   hunter: { torches: 8, food: 4 }, builder: { torches: 8, food: 2 }, farmer: { food: 2 } };
@@ -375,6 +379,7 @@ const idleWorkOutcome = (skill, result, error) => {
     harvestGrass:   () => (r.cut || 0) > 0,
     mineLane:       () => (r.dug || 0) > 0,
     safeDescend:    () => (r.endY != null && r.startY != null) ? r.endY < r.startY : true,
+    spawnProof:     () => (r.placed || 0) > 0,   // #72: 0 placed = base already lit (barren base-chore)
     relocateToWork: () => Boolean(r.relocated),
   }[skill] || (() => true))();
   return did ? 'worked' : 'barren';
@@ -402,6 +407,15 @@ const gradeIdleWork = (s) => {
         note('relocated far without finding work — settling for a bit');
       }
     } else { A._relocateBackoff = s.now + RELOCATE_BACKOFF_MS; note('relocate found nowhere new — backing off'); }
+    return;
+  }
+  if (lw.skill === 'spawnProof') {
+    // #72: base-chore latch — 0 placed means the base is already lit, so next builder cycle
+    // gathers instead of re-scanning a lit base. Deliberately does NOT touch A._barren:
+    // spawnProof isn't relocatable, and the builder's chopTrees fallthrough grades its own.
+    A._baseChoreCheckedAt = s.now;
+    A._baseChoreLit = (out === 'barren');
+    if (A._baseChoreLit) note('base already lit — builder switches to gathering');
     return;
   }
   if (out === 'worked') { if (A._barren) note(`${lw.skill} progressed — area not barren after all`); A._barren = 0; A._wander = 0; }
