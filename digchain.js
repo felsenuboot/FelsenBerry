@@ -42,25 +42,35 @@ const c = {
 };
 globalThis.__digchain = c;
 
-// Walk __wrappedTarget to the deepest function — the TRUE, un-wrapped bot.dig. Bounded so a
-// malformed cycle can never spin here (the very failure class this file exists to prevent).
-const trueOriginalOf = (fn) => {
+// The base this chain should sit on top of: walk down ONLY through OUR OWN wrappers (marked
+// __digchainWrapper) and stop at the FIRST FOREIGN function — the pristine bot.dig, OR a guard
+// still self-wrapping mid-refactor. We must NEVER walk past a wrapper we did not create.
+//
+// This is the invariant that makes a PARTIAL refactor safe (#55, eng-2): if one guard has been
+// converted to register() while the others still self-wrap, walking all the way to the pristine
+// dig would rebuild a chain that SILENTLY STRIPS the still-self-wrapping guards — unguarded digs
+// on a live base. Stopping at the first foreign wrapper instead builds ON TOP of it, so a partial
+// state degrades to one harmless extra layer (digchain(registered checks) over the still-self-
+// wrapping guards, all of which still run) rather than to an unguarded dig. Bounded so a
+// malformed cycle can never spin here.
+const baseBeneathOurs = (fn) => {
   let cur = fn, guard = 0;
-  while (cur && cur.__wrappedTarget && guard++ < 32) cur = cur.__wrappedTarget;
+  while (cur && cur.__digchainWrapper && cur.__wrappedTarget && guard++ < 32) cur = cur.__wrappedTarget;
   return cur;
 };
 
-// Build the ONE wrapper over `trueOrig`, running the ordered guard checks first.
+// Build the ONE wrapper over `base` (the function beneath our own wrappers — pristine dig, or a
+// foreign guard wrapper in a partial state), running the ordered guard checks first.
 // A check(block, forceLook, digFace, opts) returns:
 //   null / undefined  -> pass to the next check
 //   { reject: Error }  -> stop the chain; the dig rejects with this error
 //   { equip: item }    -> equip this item (toolguard's equip-first), then continue
 // opts.force short-circuits EVERY guard (a raw dig, matching the old per-guard bypass).
-const buildWrapper = (trueOrig, ordered) => {
+const buildWrapper = (base, ordered) => {
   const chained = async function (block, forceLook, digFace) {
     c.calls++;
     const opts = (digFace && typeof digFace === 'object') ? digFace : null;
-    if (!c.enabled || (opts && opts.force)) return trueOrig(block, forceLook, digFace);
+    if (!c.enabled || (opts && opts.force)) return base(block, forceLook, digFace);
     for (const gd of ordered) {
       let verdict = null;
       try {
@@ -78,22 +88,22 @@ const buildWrapper = (trueOrig, ordered) => {
         try { await bot.equip(verdict.equip, 'hand'); } catch (e) { /* dig proceeds with what's held */ }
       }
     }
-    return trueOrig(block, forceLook, digFace);
+    return base(block, forceLook, digFace);
   };
   chained.__digchainWrapper = true;
-  chained.__wrappedTarget = trueOrig;
+  chained.__wrappedTarget = base;
   return chained;
 };
 
-// Recover the true original from the CURRENT bot.dig, sort the registry, install one wrapper.
+// Recover the base beneath our own wrappers, sort the registry, install one wrapper on top.
 const rebuild = () => {
-  const trueOrig = trueOriginalOf(bot.dig);
-  c.trueOrig = trueOrig;
+  const base = baseBeneathOurs(bot.dig);
+  c.base = base;
   const ordered = [...c.guards.entries()]
     .map(([name, v]) => ({ name, order: v.order, fn: v.fn }))
     .sort((a, b) => a.order - b.order);
   c.order = ordered.map((g) => g.name);
-  bot.dig = buildWrapper(trueOrig, ordered);
+  bot.dig = buildWrapper(base, ordered);
   c.rebuilds++;
   return c.order;
 };
@@ -111,13 +121,13 @@ c.unregister = (name) => { const had = c.guards.delete(name); if (had) rebuild()
 // __detach: on re-inject, drop our wrapper back to the true original WITHOUT clearing the
 // registry (the incoming instance inherits `guards` and rebuilds). Idempotent.
 c.__detach = () => {
-  try { if (bot.dig && bot.dig.__digchainWrapper) bot.dig = trueOriginalOf(bot.dig); } catch (e) {}
+  try { if (bot.dig && bot.dig.__digchainWrapper) bot.dig = baseBeneathOurs(bot.dig); } catch (e) {}
 };
 
 // Full removal: restore the pristine bot.dig and forget every guard.
 c.restore = () => {
   c.enabled = false;
-  try { if (bot.dig && bot.dig.__digchainWrapper) bot.dig = trueOriginalOf(bot.dig); } catch (e) {}
+  try { if (bot.dig && bot.dig.__digchainWrapper) bot.dig = baseBeneathOurs(bot.dig); } catch (e) {}
   c.guards.clear();
 };
 

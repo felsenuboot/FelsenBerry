@@ -125,6 +125,29 @@ function registerAll(reachFn, toolFn, protFn) {
   ok(fakeBot.dig === p1, 'restore() returns bot.dig to the true pristine original');
   ok(globalThis.__digchain.guards.size === 0, 'restore() clears the guard registry');
 
+  // ---- PARTIAL-REFACTOR SAFETY (eng-2, #55): digchain must build ON TOP of foreign
+  // self-wrapping guards, never walk past __wrappedTarget and STRIP them. The dangerous state:
+  // one guard converted to register() while two still self-wrap. If baseBeneathOurs walked all
+  // the way to pristine, rebuild would install a chain of just the one registered check and drop
+  // the two self-wrappers — unguarded digs on a live base. ----
+  const makeForeign = (name, wrapped, rec) => {           // a still-self-wrapping guard, like digguard/toolguard
+    const w = async (block, ...rest) => { rec.push(name); return wrapped(block, ...rest); };
+    w.__wrappedTarget = wrapped;                          // publishes, exactly as the real ones do
+    return w;
+  };
+  const pp = makePristine('pp');
+  fakeBot = makeBot(pp);
+  const rec = [];
+  fakeBot.dig = makeForeign('foreignA', pp, rec);          // two un-refactored guards
+  fakeBot.dig = makeForeign('foreignB', fakeBot.dig, rec); // still self-wrapping on top
+  await reinject();                                        // digchain injects — must stop at foreignB, not walk to pristine
+  globalThis.__digchain.register('reach', 0, () => { rec.push('reach'); return null; }); // one guard refactored
+  rec.length = 0;
+  const rp = await fakeBot.dig({ name: 'stone' });
+  ok(rec.join(',') === 'reach,foreignB,foreignA', 'partial state: registered check AND both self-wrapping guards run — none stripped (got: ' + rec.join(',') + ')');
+  ok(depthOf(fakeBot.dig) === 3, 'digchain builds ON TOP of the foreign guards (depth 3: chain->foreignB->foreignA), never strips them to depth 1');
+  ok(rp === 'DUG:pp:stone', 'the dig still reaches the pristine original through the preserved guard stack');
+
   console.log('\nDIGCHAIN-TEST: ' + (failures === 0 ? 'ALL PASS' : failures + ' FAILED'));
   process.exit(failures === 0 ? 0 : 1);
 })().catch((e) => { console.error('TEST HARNESS ERROR:', e); process.exit(1); });
