@@ -20,7 +20,10 @@ const out = { version: A.version, cases: [] };
 const base = {
   alive: true, hp: 20, food: 20, foodCount: 8, torches: 20, filler: 20, freeSlots: 20,
   dangerState: 'calm', survivalActive: false, light: 15, surfaceExposed: true, dHome: 30,
-  tools: { pickaxe: { name: 'iron_pickaxe', dur: 90 } }, toolCounts: { pickaxe: 2 },
+  // a weapon is part of every excursion tier, so a "healthy at work" bot carries one —
+  // without it TOOL correctly fires and every case below would measure that instead
+  tools: { pickaxe: { name: 'iron_pickaxe', dur: 90 }, sword: { name: 'iron_sword', dur: 90 } },
+  toolCounts: { pickaxe: 2, sword: 1 },
   task: null, role: 'miner',
   pos: { x: 0, y: 60, z: 0 },
 };
@@ -44,7 +47,14 @@ try {
   T('freeSlots 1 -> DEPOSIT', { freeSlots: 1 }, 'DEPOSIT');
   T('food 15 -> EAT', { food: 15 }, 'EAT');
   T('pickaxe at 10% durability -> TOOL', { tools: { pickaxe: { name: 'iron_pickaxe', dur: 10 } } }, 'TOOL');
-  T('only ONE pickaxe but kit wants 2 -> TOOL (spare)', { toolCounts: { pickaxe: 1 } }, 'TOOL');
+  T('only ONE pickaxe but kit wants 2 -> TOOL (spare)', { toolCounts: { pickaxe: 1, sword: 1 } }, 'TOOL');
+  // the kit's WEAPON requirement had no rung aiming at it until v11: a bot could provision
+  // its entire kit and then stall forever on "weapon (any sword)"
+  T('kit wants a weapon, none held -> TOOL',
+    { tools: { pickaxe: { name: 'iron_pickaxe', dur: 90 } }, toolCounts: { pickaxe: 2 } }, 'TOOL');
+  T('an AXE satisfies the weapon requirement too',
+    { tools: { pickaxe: { name: 'iron_pickaxe', dur: 90 }, axe: { name: 'stone_axe', dur: 80 } },
+      toolCounts: { pickaxe: 2, axe: 1 } }, 'PROJECT');
   T('torches 4 (below floor 16) -> RESTOCK', { torches: 4 }, 'RESTOCK');
   T('dark + carrying torches -> LIGHT', { surfaceExposed: false, light: 3 }, 'LIGHT');
   A.project = null;

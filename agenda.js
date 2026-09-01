@@ -84,7 +84,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 10, enabled: true,
+  version: 11, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -93,6 +93,7 @@ const A = {
   // are deliberately not trusted, they go stale the moment anything is consumed), when that
   // was learned, and which resources produce has just failed to make.
   _restockShort: null, _restockShortAt: 0, _restockShortTtl: 0, _restockNeeds: null, _produceCooldown: {},
+  activeTaskRung: null, activeTaskName: null,
   metrics: { ticks: 0, transitions: 0, acts: 0, errors: 0, byRung: {} },
   log: [],
 };
@@ -205,6 +206,14 @@ const activeClass = (s) => {
   if (A.project && A.project.tool) return A.project.tool;
   return ROLE_TOOL[s.role] || null;
 };
+// Does the departure gate want a weapon we do not have? kitCheck accepts a sword OR an axe,
+// so this must too, or TOOL would keep acquiring a sword for a bot already carrying an axe.
+const weaponMissing = (s) => {
+  const k = projectKit(s);
+  if (!k || !k.weapon) return false;
+  const t = s.tools || {};
+  return !(t.sword || t.axe);
+};
 // Floors come from the KIT GATE when a project is set, because that gate is what will
 // actually refuse the departure. Using the role default instead let a project sit blocked on
 // a requirement no rung was aiming at.
@@ -239,6 +248,8 @@ A.projectKit = projectKit;
 const skillRunning = (s) => Boolean(s.task && s.task.running);
 const oursRunning = (s) => Boolean(s.task && s.task.running && s.task.id === A.activeTaskId);
 
+// Clearing the id alone would leave a stale rung/name behind, and those three are one fact.
+const clearActiveTask = () => { A.activeTaskId = null; A.activeTaskRung = null; A.activeTaskName = null; };
 // Start a skill and remember it as ours. Deliberately never throws: a rung that cannot act
 // must fall through on the next tick, not take the loop down.
 const runSkill = (name, args, why) => {
@@ -246,8 +257,13 @@ const runSkill = (name, args, why) => {
     const S = globalThis.__skills;
     if (!S || !S.start) return { ok: false, error: { code: 'no_engine' } };
     const r = S.start(bot, name, args || {});
-    if (r && r.ok) { A.activeTaskId = r.taskId; note(`${why}: started ${name}`); A.metrics.acts++; }
-    else note(`${why}: ${name} refused (${r && r.error && r.error.code})`);
+    if (r && r.ok) {
+      // Remember WHO started it and WHAT it is, not just the id. A task id alone cannot tell
+      // the harvest step whether the thing that just finished was the project's work or some
+      // other rung's — see the false-success note there.
+      A.activeTaskId = r.taskId; A.activeTaskRung = String(why).split('/')[0]; A.activeTaskName = name;
+      note(`${why}: started ${name}`); A.metrics.acts++;
+    } else note(`${why}: ${name} refused (${r && r.error && r.error.code})`);
     // `busy` means the engine is running something else RIGHT NOW — transient, so retry on
     // the next tick rather than serving this rung a 30s backoff for a two-second condition.
     // Everything else (kit_missing, bad_args, unknown_skill) is a real refusal.
@@ -286,7 +302,7 @@ const RUNGS = [
     // Yield completely. survival.js owns the body; starting anything here would fight the
     // reflex, and the falling edge is survival's documented "driver decides" handback —
     // which is now us: we simply resume the ladder next tick.
-    act: async () => { A.activeTaskId = null; return 'yield'; } },
+    act: async () => { clearActiveTask(); return 'yield'; } },
 
   { id: 'POSTURE', prio: 1, safety: true,
     fire: (s) => s.dangerState === 'alert',
@@ -300,7 +316,7 @@ const RUNGS = [
         if (sword && (!bot.heldItem || bot.heldItem.name !== sword.name)) await bot.equip(sword, 'hand');
         if (sv && sv.shieldUp) { try { await sv.shieldUp(null); } catch (e) {} }
       } catch (e) {}
-      if (oursRunning(s)) { try { globalThis.__skills.stop('agenda:posture'); } catch (e) {} A.activeTaskId = null; }
+      if (oursRunning(s)) { try { globalThis.__skills.stop('agenda:posture'); } catch (e) {} clearActiveTask(); }
       if (s.surfaceExposed === false && (s.light == null || s.light < 8) && s.torches > 0) await torchInline();
       return 'hold';
     } },
@@ -333,6 +349,14 @@ const RUNGS = [
   { id: 'TOOL', prio: 5,
     // "a broken tool outranks the job", made mechanical
     fire: (s) => {
+      // The kit gate wants a WEAPON on every excursion tier, and until now no rung aimed at
+      // it: TOOL only ever looked at the project's own tool class. Found by stripping a bot
+      // to nothing and watching the ladder provision the entire underground kit — two
+      // pickaxes, a table, sticks, 24 torches, 28 cobblestone — and then stall forever on
+      // `weapon (any sword)`, with fire() false on every rung and the project refused with
+      // kit_missing on each attempt. That is the permanent-refusal shape, on a requirement
+      // that predates all of this. An axe satisfies the gate too (see kitCheck).
+      if (weaponMissing(s)) return true;
       const c = activeClass(s);
       if (!c) return false;
       const b = s.tools[c];
@@ -348,6 +372,7 @@ const RUNGS = [
       return false;
     },
     clear: (s) => {
+      if (weaponMissing(s)) return false;
       const c = activeClass(s);
       if (!c) return true;
       const b = s.tools[c];
@@ -372,7 +397,12 @@ const RUNGS = [
       const k = projectKit(s);
       const held = (s.toolCounts || {}).pickaxe || 0;
       const wantSpare = Boolean(k && k.picks && c === 'pickaxe' && held >= 1 && held < k.picks);
-      const r = runSkill('ensureTool', { tool: c, spare: wantSpare }, 'TOOL');
+      // The project's own tool comes first — it is what the work needs — and the gate's
+      // weapon is picked up once that is satisfied. Both are this rung's business; nothing
+      // else was ever going to acquire the weapon.
+      const classDeficient = !s.tools[c] || s.tools[c].dur <= 15 || wantSpare;
+      const target = classDeficient ? c : (weaponMissing(s) ? 'sword' : c);
+      const r = runSkill('ensureTool', { tool: target, spare: target === c && wantSpare }, 'TOOL');
       if (r.ok) return 'started';
       if (r._transient) return 'busy';
       // A genuine refusal is the handback point: the ladder cannot advance a tool-gated
@@ -575,7 +605,7 @@ const tick = () => {
     if (!A._yieldedToNav) {
       A._yieldedToNav = true;
       if (oursRunning(s)) { try { globalThis.__skills.stop('agenda:external-nav'); } catch (e) {} }
-      A.activeTaskId = null; A.owner = null;
+      clearActiveTask(); A.owner = null;
       note('yielding — /goto2 owns the body');
     }
     return;
@@ -587,7 +617,17 @@ const tick = () => {
   // harvest our finished task before deciding anything
   if (A.activeTaskId && s.task && s.task.id === A.activeTaskId && !s.task.running) {
     const p = A.project;
-    if (p && A.owner && A.owner.id === 'PROJECT') {
+    // The finished task must BE the project's, not merely the last thing that finished while
+    // PROJECT happened to hold the body. Found live, and it is the worst kind of bug this
+    // file can have: RESTOCK started `produce`, produce finished, RESTOCK cleared, PROJECT
+    // took over and its own start was REFUSED (kit_missing), which leaves activeTaskId still
+    // pointing at produce's task — so the next tick graded produce's result as the project's
+    // completion, `produce.made(cobblestone,...)` passed, and mineLane was marked VERIFIED
+    // done without ever having run. Owner identity is not task identity. So check both the
+    // rung that STARTED the task and that the task's name is the project's skill; either
+    // alone would have caught this, and they are independent.
+    const ours = A.activeTaskRung === 'PROJECT' && p && s.task.name === p.skill;
+    if (p && ours && A.owner && A.owner.id === 'PROJECT') {
       // VERIFIED completion, not claimed completion. task.done is the engine's own word for
       // it — that is naive success, the exact thing the ledger exists to distinguish from
       // real success. Marking a project done on task.done meant a safeDescend that ran and
@@ -671,7 +711,7 @@ const tick = () => {
         A.owner = null;
       }
     }
-    A.activeTaskId = null;
+    clearActiveTask();
   }
 
   const { target } = choose(s);
@@ -683,7 +723,7 @@ const tick = () => {
       A._preemptTicks = (A._preemptTicks || 0) + 1;
       if (A._preemptTicks < PREEMPT_DEBOUNCE) return;
       try { globalThis.__skills.stop('agenda:' + target.id); } catch (e) {}
-      A._preemptTicks = 0; A.activeTaskId = null;
+      A._preemptTicks = 0; clearActiveTask();
       return;                                   // next tick starts the target cleanly
     }
     A._preemptTicks = 0;
@@ -711,7 +751,7 @@ const tick = () => {
       if (r === 'act_timeout') {
         A.busyStuck++;
         note(`${target.id} act exceeded ${ACT_TIMEOUT_MS / 1000}s — releasing the loop and standing it down`);
-        standDown(target.id); A.owner = null; A.activeTaskId = null;
+        standDown(target.id); A.owner = null; clearActiveTask();
       } else if (r === 'busy') { /* engine occupied — retry next tick, no backoff */ }
       else if (r && NO_PROGRESS.has(r)) { standDown(target.id); A.owner = null; }
       else if (r && r !== 'running' && r !== 'cooldown') { A.standDownCount[target.id] = 0; delete A.standDown[target.id]; }
