@@ -93,7 +93,7 @@ function classify(task, span) {
   if (task && task.cancelled && !task.error) return 'cancelled';
   if (code && BAD_INPUT_CODES.has(code)) return 'bad_input';
   if (code) return 'error';
-  if (task && task.done) return s.assert ? 'false_success' : 'ok';
+  if (task && task.done) return s.assertFail ? 'false_success' : 'ok';
   return 'error';
 }
 
@@ -313,7 +313,18 @@ function install(bot, opts = {}) {
   M.taskEnd = (task, assertResult) => {
     try {
       const sp = M.task && M.task.tid === task.id ? M.task : { moved: 0, dmg: 0, digs: 0, deaths: 0, gotos: 0, wedges: 0, unsticks: 0, retries: 0, toolBreaks: 0, crow: 0, guard0: {} };
-      sp.assert = assertResult && assertResult.fail ? assertResult.rule : null;
+      // Tri-state, not boolean-in-disguise: assert is the graded RULE NAME whenever
+      // assertTask actually graded this task (pass or fail alike), and null ONLY when
+      // genuinely ungraded (assertResult absent — no ASSERTS entry, or not enough result
+      // data to grade). Previously this held the rule on failure only, so a PASS and
+      // "never graded" both wrote null — indistinguishable from the ledger alone, which
+      // meant FSR read as a hollow 0/0 whenever nothing had ever failed, and the E6 gate's
+      // assertionSet (built from this same field) silently missed every rule that only
+      // ever passed. classify() below must NOT infer pass/fail from assert's truthiness
+      // any more (that assumption is exactly what this fix breaks) — assertFail carries
+      // pass/fail explicitly now, and assert is purely "was this graded, and by what."
+      sp.assert = assertResult ? assertResult.rule : null;
+      sp.assertFail = Boolean(assertResult && assertResult.fail);
       const outcome = classify(task, sp);
       const g1 = guardCounts();
       const gd = (k) => Math.max(0, (g1[k] || 0) - ((sp.guard0 || {})[k] || 0));
