@@ -56,7 +56,7 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v41** · `agenda.js` v12 · `producer.js` v5 · `graychat.js` v4 · `telemetry.js` v1 (ledger
+Live versions: `skills.js` **v41** · `agenda.js` v13 · `producer.js` v5 · `graychat.js` v4 · `telemetry.js` v1 (ledger
 schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
 · `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
 (superseded by survival.js).
