@@ -25,6 +25,21 @@ done that a `safeDescend` never actually descended, is this one root cause recur
 a different altitude. When auditing a NEW layer of the stack, ask first whether it's
 grading itself — if so, assume it lies under exactly the conditions that matter most.
 
+**The sharpest instance yet, and the corollary it forces (engine-dev-2, 2026-09-01):**
+`assertTask` graded EXACTLY what it was handed, honestly and correctly — `mineLane`
+was marked "VERIFIED done" against `produce`'s own passing assertion — and the
+result was still a false success, because the defect was upstream of the verifier
+itself: `A.activeTaskId` pointed at the wrong task by the time grading happened
+(§9 C4's hardening note has the full sequence). **A verifier only protects the
+layer it is actually pointed at.** Grading with something that didn't do the work
+stops that something from lying about ITS OWN result; it does nothing to stop an
+upstream defect from handing the verifier the wrong thing to look at in the first
+place. Both halves are load-bearing: an honest verifier pointed at the wrong task
+is exactly as false a success as a dishonest one pointed at the right task — so
+auditing a new layer means checking BOTH "does this grade itself" (the original
+question) AND "is what reaches the grader actually the thing that did the work"
+(this one).
+
 ---
 
 ## 0. The five laws (everything else derives from these)
@@ -487,10 +502,36 @@ executes, not hand-driven steps, so the result is reproducible.
 truth, named per criterion — never the agenda's own self-report alone (law 0's
 "grade with something that didn't do the work," §"The false-success root").**
 
+**Step 0 of launch (MANDATORY pre-flight, before any induced-stress procedure
+below): run the dry-run regression suite** — `bench/fixtures/agenda-ladder.js`
+(21 cases, includes 2 weapon cases) + `bench/fixtures/agenda-deepkit.js` (9 cases)
++ `assert-produce` (5 cases) = 35 cases total, all through `__agenda.step()`
+(dry, executes nothing, safe on a live bot, ~1 second). Confirms the current
+payload stack is genuinely clean before spending 3+ hours measuring it — this is
+the exact class of bug ("payload drift / stale injection") that has bitten this
+project four separate ways this session. All 35 must be green; a single red case
+here means fix that first, not launch around it.
+
 ### C1 — Survives (hard gate)
 
 **Pass**: zero deaths across a continuous ≥3h window on ONE stable agenda version
 (no restart mid-window; a restart resets the clock).
+
+**Difficulty (DECIDED, team-lead, revised from the original draft)**: the soak
+runs on NORMAL difficulty, not Peaceful. Found live in the C3 dry-run: Peaceful
+disables hunger depletion entirely (confirmed: 40s of a hunger effect plus 50+
+blocks of forced real movement produced zero food change), which would make this
+criterion vacuous — nothing threatens the bot, so "survives" proves nothing. Normal
+makes C1 a genuine test (real mob threats, real hunger drain) and, as a bonus,
+finally exercises the `survival.js` branches GOAL.md flags as unproven-live —
+`CREEPER` retreat is confirmed, `BREAK_LOS` has never faced a live mob. A death to
+a creeper or a fall on this run is a legitimate C1 FAIL and a real `survival.js`
+finding, not a fluke to explain away. Team-lead provisions a generous food buffer
+(~128 cooked) at launch so C1 isn't failed on ordinary starvation — this
+deliberately isolates the tool/torch self-sufficiency axis being measured
+elsewhere (food-production stays its own deferred question); if the buffer runs
+low anyway despite 128, THAT is a real, separate food-production finding worth
+its own report, not folded into C1's pass/fail.
 
 **Ground truth, two independent signals, BOTH required — corrected after checking
 telemetry.js directly rather than assuming a periodic sample would catch it**: (a)
@@ -548,7 +589,30 @@ un-blocked bot mid-PROJECT):
    threshold, `agenda.js:273` — food<=6 specifically, not merely "hungry", since
    `EAT_CRITICAL` (prio 2) sits ABOVE `DEPOSIT` (prio 3) while regular `EAT` (prio 4,
    food<=17) sits below it — the induction must hit the CRITICAL threshold or the
-   expected order below is wrong).
+   expected order below is wrong). **The bot must also carry food to eat**
+   (`s.foodCount > 0` is a SEPARATE half of `EAT_CRITICAL`'s fire condition —
+   `give <bot> minecraft:bread 4` alongside the hunger induction, or low food alone
+   will never fire it). **Peaceful-difficulty caveat, found live in the dry run**:
+   this mechanism does nothing on Peaceful (vanilla disables hunger depletion
+   entirely there — confirmed: 40s of Hunger V plus 50+ blocks of forced real
+   sprinting produced zero food/saturation change on the local bench server, which
+   runs Peaceful). It is expected to work correctly on the acceptance soak's actual
+   Normal-difficulty world (team-lead's launch decision, made partly BECAUSE of
+   this finding — see C1). Not re-verified live on Normal yet (would require
+   flipping the shared local server's difficulty ahead of team-lead's own
+   deliberately-sequenced launch, so deferred rather than done unilaterally) — spot
+   check this step specifically once Normal is live, before trusting a full run.
+   **A faster client-side alternative exists for spot-checking the WIRING only, do
+   NOT use it for the graded run**: `bot.food = 6` via `/eval` fires `EAT_CRITICAL`
+   correctly (verified: `sense()` reads `bot.food` directly, `agenda.js:132`) and is
+   difficulty-independent, but it is a purely client-side lie — the server's own
+   `foodLevel` stays untouched (confirmed: stayed 20 throughout), so eating bread
+   against it consumes the item with NO food recovery (the server thinks the player
+   is already full and has nothing to restore), meaning `EAT_CRITICAL`'s CLEAR half
+   of the hysteresis cycle (food climbing back to >=19 via real eating) cannot be
+   observed this way. Use it only to confirm a rung's fire-condition wiring in
+   isolation, matching survival.js's `runBranch`/`drill()` fabricated-input
+   convention — never as a substitute for the real induction in a scored run.
 2. Toolless (scoped to the active project's tool class, e.g. pickaxe for a mining
    project — that's what actually gates `TOOL`'s fire condition, `activeClass(s)`):
    `clear <bot> minecraft:wooden_pickaxe`, then repeat for stone/iron/golden/
@@ -591,6 +655,28 @@ for the same claim, matching C1's two-signal pattern). Followed within one tick 
 `/state.agenda.rung` reading `IDLE` (or a genuinely new project set) — the project
 must not be immediately re-picked or left dangling.
 
+**HARDENED (team-lead, after a real cross-rung false-success engine-dev-2 caught):
+a "VERIFIED done" log line is NOT sufficient evidence by itself.** Concrete
+incident: the agenda logged `"project VERIFIED done (mineLane,
+produce.made(cobblestone,made=24,held=28))"` — `mineLane` marked verified-done,
+graded by PRODUCE's own assertion, having never actually run. Sequence: RESTOCK
+started a `produce` task -> `produce` finished -> RESTOCK cleared -> PROJECT's own
+`start()` was REFUSED (`kit_missing`) -> `A.activeTaskId` still pointed at
+produce's already-finished task -> the next tick harvested THAT as the project's
+completion, because the harvest checked task OWNER identity, not task IDENTITY.
+Fixed in agenda v11: harvesting a completion now requires
+`A.activeTaskRung === 'PROJECT'` AND the completed task's name equals the
+project's own skill (`agenda.js:629`). **C4 must apply the same check when
+scoring**: don't accept the log line alone — confirm, at the moment of the
+"VERIFIED done" event, that the task actually being graded belongs to PROJECT
+specifically (`activeTaskRung === 'PROJECT'`, surfaced in `/state.agenda`'s
+snapshot per `agenda.js:789`) AND that its task name matches the project's own
+skill (mineLane/safeDescend/etc.), not merely that SOME task with a plausible
+name completed successfully nearby in time. On a v11+ run this is enforced
+upstream by the engine itself; scoring it independently anyway is the same
+"grade with something that didn't do the work" discipline applied to the
+scoring layer, not just the engine layer.
+
 **Project choice, revised per engine-dev-3's calibration (see C5's project
 scoping note for the full reasoning)**: the soak's project must be BOUNDED and
 completable within the run — e.g. `safeDescend` to a moderate, fixed depth, or a
@@ -601,13 +687,27 @@ failed.
 
 ### C5 — Self-recovery from an induced wedge, a forced relog, and a recoverable tool-break
 
-**Wedge induction**: while the bot is actively pathing (mid-`goto`/mid-skill
-travel), `setblock` a `minecraft:torch` at the bot's exact current feet position
-(the documented torch-underfoot wedge mechanism, LEARNING_HANDOFF.md). **Pass**:
-the bot's position changes again (confirmed via `/state.position` polled every 2s)
-within 30s of the torch landing, with at most ONE `"stall"`/`"wedge"`-class log line
-during that window (the engine's own bounded stall-detector clearing it once, not
-repeating).
+**Wedge induction**: on a KNOWN-SAFE, solid, hazard-free platform (same discipline
+as the Dark step above — build one via RCON `fill` rather than trusting wherever
+the bot happens to be; found live in the dry run, see below), while the bot is
+actively pathing (mid-`goto`/mid-skill travel), `setblock` a `minecraft:torch` at
+the bot's exact current feet position (the documented torch-underfoot wedge
+mechanism, LEARNING_HANDOFF.md). **Pass**: the bot's position changes again
+(confirmed via `/state.position` polled every 2s) within 30s of the torch landing,
+with at most ONE `"stall"`/`"wedge"`-class log line during that window (the
+engine's own bounded stall-detector clearing it once, not repeating).
+**Why the platform requirement is load-bearing, not cosmetic (found live)**: the
+same induction, run first at an arbitrary (not pre-verified) spot, produced a
+GENUINE unrecovered failure — three stall-and-unstick attempts, an outer retry,
+task failure after 2 full attempts, bot never moved. Investigating why: the
+nuisance-dig recovery attempts had dug into an adjacent, previously-hidden water
+pocket underground, leaving the bot floating in water — a confound from the
+TEST SITE, not a torch-wedge-recovery defect. Rerun immediately after on a
+freshly-built, verified-solid, water-free platform: the same induction cleared
+with ZERO stalls, arriving cleanly. The `at most ONE stall` threshold is correct
+for a properly-controlled induction; it is NOT safe to run this step against an
+unverified location, for the same reason the Dark step doesn't trust ambient
+darkness.
 
 **Relog induction**: `kick <bot> "induced acceptance-test relog"`. **Pass**: (a)
 `/state.connected` reads `true` again within 30s; (b) `/state.payloads` reports
@@ -616,6 +716,17 @@ guard-stripping class of bug this session's doctrine work was largely about, see
 DRIVER_GUIDE's SUSPENDING IDLEGUARD note); (c) `/state.agenda.ticks` is increasing
 again (the ladder resumed on its own) within 60s total from the kick, with no driver
 action setting a new project or restarting anything by hand.
+**Pre-flight precondition, found live in the dry run (do not skip)**: `agenda.js`
+auto-reinjects on reconnect ONLY for a process actually started with `--agenda`
+(or `AGENDA=1`) — it is its OWN conditional block in `runner.js`, gated the same
+way `idleguard` is gated behind `--role` (`runner.js:277`), not part of the
+unconditional payload list. Dry-running this on a bot that had agenda injected
+ad-hoc (not via the real spawn flag) reproduced `stalePayloads:["agenda"]` after
+the kick — a real, reproducible symptom, but traced to the TEST bot's own spawn
+config lacking `--agenda`, not a defect in the mechanism itself. **Before the
+real launch, confirm via `ps`/the spawn command that the actual soak bot process
+was started with `--agenda`** — otherwise this exact staleness would occur for
+real on the graded run and silently fail this criterion every time.
 
 **Recoverable tool-break induction (REVISED per engine-dev-3's calibration — see
 below for why the original deep-strand design was wrong)**: induce the break
