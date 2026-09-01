@@ -121,12 +121,19 @@ regen: server-op ruled NO regen, both crews route around chunks
 (0,-1)/(0,0)/(-1,-1) as elevated-risk instead) and #4 (broken main, long
 fixed). Their #1 (claims registry) is a full accept, waiting on us to
 draft the claims.json schema — real work we own, currently queued behind
-the phase-1 push, communicated honestly rather than left silent. Their #3
-(fair-play pact v2, adding a position-only last-resort unstick exception)
-is a genuine policy question escalated to team-lead rather than decided
-here — notably, our own team-lead already used exactly that exception once
-(the BuddelBernd rescue, #20), so this is really about formalizing an
-existing precedent. Responded via GitHub with team-lead's explicit
+the phase-1 push, communicated honestly rather than left silent.
+
+**Pact v2 RESOLVED**: Felix accepted the amendment (constrained last-resort
+unstick teleport — relog + process-restart both fail on a genuine
+full-wedge, own-base only, publicly logged when used), with an explicit
+framing: it's a last-resort safety net, not an unstuck strategy — the real
+goal is robust movement/recovery that almost never needs it, and how
+rarely it fires is treated as a quality signal on our own engine. Formal
+acceptance posted on `ZetOmega/cavecrew-mcp#3`, closed the loop on our own
+`felcrew-mcp#1`. This was the last open policy item on the reconnect
+thread; everything else is settled.
+
+Responded via GitHub with team-lead's explicit
 delegation this cycle (normally outbound diplomacy is
 team-lead/rollout-manager/kevin-driver only, per DRIVER_GUIDE.md); routine
 read-only watch resumes going forward unless asked again.
