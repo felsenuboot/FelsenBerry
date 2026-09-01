@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 20;
+const ENGINE_VERSION = 21;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -2733,6 +2733,61 @@ S.define('huntAnimals', {
   doneMsg: (t) => {
     const haul = Object.entries(t.collected).map(([k, v]) => `${v} ${k}`).join(', ');
     return `Hunt over: ${t.result.killed}/${t.result.of} kills. Haul: ${haul || 'nothing'}`;
+  },
+});
+
+// ---------- restock ----------
+// The departure gate the agenda's RESTOCK rung needs. Takes FLOORS (target totals), not
+// amounts to withdraw, so it is idempotent: calling it twice when already stocked is a
+// no-op rather than a double withdrawal. Routes each item to the depot chest that holds
+// its category, and reports what it could not find rather than pretending.
+S.define('restock', {
+  description: 'Top inventory up to the given floors from the depot chests. Idempotent: floors are targets, not deltas.',
+  params: {
+    needs: "{itemName: targetTotal}, e.g. {torch:16, bread:4, cobblestone:16}",
+    chests: 'optional [{x,y,z}] to try in order (default: the depot coords in protected.json)',
+  },
+  validate: (a) => (a.needs && typeof a.needs === 'object' && Object.keys(a.needs).length ? null : 'need {needs:{item:count}}'),
+  fn: async (ctx) => {
+    const { bot, args } = ctx;
+    const have = (n) => bot.inventory.items().filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+    const shortfall = () => {
+      const out = {};
+      for (const [n, target] of Object.entries(args.needs)) {
+        const gap = target - have(n);
+        if (gap > 0) out[n] = gap;
+      }
+      return out;
+    };
+    let need = shortfall();
+    if (!Object.keys(need).length) return { alreadyStocked: true, got: {}, short: {} };
+
+    const cfg = readCfg();
+    const depot = cfg.depot || {};
+    const chests = Array.isArray(args.chests) && args.chests.length ? args.chests
+      : ['minerals', 'wood', 'food'].map((k) => depot[k]).filter(Array.isArray).map((c) => ({ x: c[0], y: c[1], z: c[2] }));
+    if (!chests.length) throw fatal('not_found', 'no depot chests configured', 'add a depot block to protected.json or pass chests:[{x,y,z}]');
+
+    ctx.setPhase('restocking', `Topping up: ${Object.entries(need).map(([n, c]) => c + ' ' + n).join(', ')}.`);
+    const got = {};
+    for (const c of chests) {
+      ctx.step();
+      need = shortfall();
+      if (!Object.keys(need).length) break;
+      let r = null;
+      try { r = await ctx.withdrawFromChest(c, need); }
+      catch (e) { ctx.log(`chest ${c.x},${c.y},${c.z}: ${e.message}`); continue; }
+      for (const [n, k] of Object.entries(r.got || {})) got[n] = (got[n] || 0) + k;
+    }
+    const short = shortfall();
+    if (Object.keys(short).length) {
+      ctx.log(`still short: ${Object.entries(short).map(([n, c]) => c + ' ' + n).join(', ')} — depot is out`);
+    }
+    return { got, short, stocked: Object.keys(short).length === 0 };
+  },
+  doneMsg: (t) => {
+    const g = Object.entries(t.result.got || {});
+    return g.length ? `Restocked: ${g.map(([n, c]) => '+' + c + ' ' + n).join(', ')}.` : 'Nothing to restock.';
   },
 });
 

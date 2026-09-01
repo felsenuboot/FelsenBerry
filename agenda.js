@@ -267,11 +267,16 @@ const RUNGS = [
     },
     act: async (s) => {
       if (oursRunning(s)) return 'running';
-      // no withdraw-list skill exists yet; ctx.withdrawFromChest is task-scoped. Until a
-      // `restock` skill lands, say so once and stand down rather than pretend.
-      if (!A._restockWarned) { A._restockWarned = true; note('RESTOCK has no engine skill yet — needs a restock skill wrapping ctx.withdrawFromChest'); }
-      A.blocked = { why: 'no_restock_skill', at: now() };
-      return 'unimplemented';
+      const f = activeFloors(s);
+      if (!f) return 'none';
+      // floors are category-level; the skill wants concrete items. bread and cobblestone are
+      // the fleet's standard stand-ins for "food" and "filler" (DEPOT.md chests C and B).
+      const needs = {};
+      if (f.torches) needs.torch = f.torches;
+      if (f.food) needs.bread = f.food;
+      if (f.filler) needs.cobblestone = f.filler;
+      if (!Object.keys(needs).length) return 'none';
+      return runSkill('restock', { needs }, 'RESTOCK').ok ? 'started' : 'refused';
     } },
 
   { id: 'LIGHT', prio: 7,
