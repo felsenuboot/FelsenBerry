@@ -56,7 +56,7 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v34** · `agenda.js` v10 · `producer.js` v3 · `telemetry.js` v1 (ledger
+Live versions: `skills.js` **v36** · `agenda.js` v11 · `producer.js` v3 · `telemetry.js` v1 (ledger
 schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
 · `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
 (superseded by survival.js).
@@ -95,6 +95,17 @@ the filler cobblestone — those three are a stone pickaxe — and RESTOCK can w
 make them, so the new floor SELF-HEALS rather than being a departure-only demand no rung could
 satisfy. Verified un-fixtured: a bot stripped of both acquired them itself, table first, then
 sticks. Item 2 (reactive ascend-to-resupply) stays phase-1.5 and unbuilt.
+
+**A stripped-bare run found three blockers a fixtured run structurally cannot.** Cleared to
+nothing but food, the ladder provisioned the whole underground kit unaided — two pickaxes, a
+table, sticks, 24 torches, 28 cobblestone — and then hit, in order: nothing aimed at the kit's
+`weapon` requirement (a permanent refusal predating all of this, papered over by fixtures
+carrying a sword); a project marked VERIFIED DONE on another rung's task (`project VERIFIED
+done (mineLane, produce.made(cobblestone,...))` — owner identity is not task identity, and
+assertTask graded honestly what it was wrongly handed); and `ensureTool` placing the deep
+kit's crafting table and walking away, consuming the kit item the gate checks and leaving
+abandoned tables around the world. All three fixed and verified. `bench/preflight.sh <port>`
+runs the 35-case regression against a live bot in one command.
 
 Known honest gaps, so nothing here reads as more finished than it is:
 - **The un-fixtured soak has not been run.** Producing torches and self-healing a kit both
