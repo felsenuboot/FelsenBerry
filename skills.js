@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 31;
+const ENGINE_VERSION = 32;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1092,6 +1092,36 @@ const ASSERTS = {
     const got = r.moved != null ? r.moved : (r.deposited != null ? r.deposited : null);
     if (want == null || got == null) return null;
     return { rule: 'depositToChest.moved', fail: got === 0 && want > 0, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
+  },
+  // produce (producer.js) is graded here because this table is the one place a verdict is
+  // reached by something that did not do the work. It matters more than most: the agenda's
+  // whole self-sufficiency claim rests on produce, and RESTOCK currently believes it on the
+  // strength of `made > 0` alone.
+  //
+  // `made` is produce's OWN before/after arithmetic, so re-reading it would just be taking
+  // the skill's word twice. The independent facts are what the bot is holding NOW, and the
+  // contract itself:
+  //   - a claim to have made N must be backed by N in the bag (a full inventory that ate the
+  //     drops, or a miscount, both surface here);
+  //   - ok:true with made:0 contradicts produce's stated contract (ok means made > 0), and a
+  //     contract that quietly stops holding is exactly the kind of rot this table exists for.
+  // A partial (made < count) is NOT a failure — produce is documented as partial-success and
+  // the ladder acts on the progress — so it lands in `yield`, which is where an honest
+  // shortfall belongs.
+  produce: (task, bot) => {
+    const r = task.result; if (!r) return null;
+    const want = (task.args && task.args.count) || null;
+    const made = r.made || 0;
+    const name = task.args && task.args.resource;
+    let held = null;
+    try {
+      if (bot && name) held = bot.inventory.items().filter((i) => i.name === name).reduce((a, i) => a + i.count, 0);
+    } catch (_) {}
+    const unbacked = held != null && made > 0 && held < made;
+    const contradiction = Boolean(r.ok) && made <= 0;
+    return { rule: `produce.made(${name || '?'},made=${made}${held == null ? '' : ',held=' + held})`,
+      fail: unbacked || contradiction, want, got: made,
+      yield: want > 0 ? Math.min(1, made / want) : null };
   },
 };
 const buildAssert = (task) => {
