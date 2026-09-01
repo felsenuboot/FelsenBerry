@@ -56,7 +56,7 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v37** · `agenda.js` v11 · `producer.js` v3 · `telemetry.js` v1 (ledger
+Live versions: `skills.js` **v37** · `agenda.js` v12 · `producer.js` v3 · `telemetry.js` v1 (ledger
 schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
 · `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
 (superseded by survival.js).
@@ -95,6 +95,17 @@ the filler cobblestone — those three are a stone pickaxe — and RESTOCK can w
 make them, so the new floor SELF-HEALS rather than being a departure-only demand no rung could
 satisfy. Verified un-fixtured: a bot stripped of both acquired them itself, table first, then
 sticks. Item 2 (reactive ascend-to-resupply) stays phase-1.5 and unbuilt.
+
+**Two more blockers surfaced after that, both from letting the LADDER drive rather than
+hand-calling skills.** TOOL reached the kit's `picks` requirement only through `activeClass`, so
+a project naming no tool — on a role that maps to none — left `picks: 2` aimed at by nothing:
+fire false, clear TRUE, kitCheck still saying "pickaxes 1/2", the project refused forever. Fixed
+in agenda v12 by asking the gate's requirements before the activeClass guard, verified
+agenda-driven on both the role-less and the miner shape. The kit number was deliberately NOT
+lowered to paper over it — that would have left the requirement unaimed and merely satisfied by
+accident. The second is a doctrine rather than a defect, and it is in FEEDBACK: testing the
+CAPABILITY is not testing the CALLER, and the two isolation rules compose — stop the ladder to
+measure a skill, drive the ladder to test what the ladder does, and say which you used.
 
 **A stripped-bare run found three blockers a fixtured run structurally cannot.** Cleared to
 nothing but food, the ladder provisioned the whole underground kit unaided — two pickaxes, a
