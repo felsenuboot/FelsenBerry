@@ -56,9 +56,10 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v27** · `agenda.js` v6 · `telemetry.js` v1 (ledger schema v2)
-· `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3 · `idleguard.js` v9
-· `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED (superseded by survival.js).
+Live versions: `skills.js` **v31** · `agenda.js` v7 · `producer.js` v2 · `telemetry.js` v1 (ledger
+schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
+· `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
+(superseded by survival.js).
 `GET /state` reports live payload versions, `stalePayloads[]`, `agenda` (current rung), and
 `ash` readiness; `GET /metrics` reports the ledger's own health.
 
@@ -76,11 +77,28 @@ cobblestone were given via RCON). It proves the ladder and verification MECHANIC
 show from-nothing self-sufficiency, and must not be read as doing so.
 
 **THE PHASE-1 DONE-SIGNAL REMAINS THE UN-FIXTURED SOAK** — all five criteria, on a stable
-version, with nothing handed to the bot. That is gated on torch production landing
-(issue #37: RESTOCK can only WITHDRAW; torches are unwithdrawable on a depot-less world, not
-mineable, and restock does not craft, so a driverless deep descent cannot yet sustain).
+version, with nothing handed to the bot.
+
+**Acquire-by-producing has landed** (#37), which was the named gate on that run. RESTOCK is
+now withdraw → produce → stand down: the depot stays the cheap first answer, `produce`
+(engine-dev-3's, run as a SKILL so a from-scratch torch chain cannot outrun the 180s act cap)
+is the fallback, and a shortfall that is neither withdrawable nor produceable stands the rung
+down with backoff instead of churning. Verified on LokalLothar across eight decision cases
+plus a live driverless run. Acquiring a TOOL was fixed in the same session and the same
+spirit: `ensureTool` now picks the tier it can PAY for out of the bag rather than the one
+that is cheapest on paper, so a bot at y73 with no pickaxe and 58 cobblestone crafts a stone
+pickaxe in place in 2.2s where it previously failed after 36.6s and reported "need more logs".
 
 Known honest gaps, so nothing here reads as more finished than it is:
+- **The un-fixtured soak has not been run.** Producing torches works; that is not the same
+  claim as five criteria met for three hours with nothing handed to the bot.
+- **A second unproduceable floor is open and unassigned**: the underground kit tier requires
+  `foodItems: 4`, `produce` has no food path, and `huntAnimals`' own kit gate requires
+  `foodItems: 2` — so a bot with no food cannot hunt for food. That bootstrap paradox gates
+  departure the same way torches did.
+- Issue #43 (deep toolless strand) stays phase-1.5 and unbuilt by explicit decision. The v31
+  tool fixes are bugs in the existing path, not that deferred capability, and the kit gate is
+  unchanged.
 - survival.js CREEPER retreat is confirmed live; BREAK_LOS's arrow-shadow WALL path has still
   never run, because corner-step keeps succeeding first.
 - ashfinder / `/goto2` is merged and its security gap closed, but its MOVEMENT QUALITY is
@@ -88,5 +106,6 @@ Known honest gaps, so nothing here reads as more finished than it is:
 - Assertion COVERAGE is the metric to watch next: an FSR of 0 is only meaningful in
   proportion to how much was actually graded. metrics.mjs now reports it (0/0 until bots
   restart onto ledger schema v2) and says so outright when coverage is thin.
-- 10+ `wedge` outcomes in the soak ledger are real and unexamined.
-- The RESTOCK produce-fallback (#37) is the current blocker on sustained driverless work.
+- The soak's 10+ `wedge` outcomes were root-caused (restock hauling on a 5s search budget,
+  fixed in v29, plus a planner-scalar leak in enterHaul fixed in v30) and are no longer open.
+
