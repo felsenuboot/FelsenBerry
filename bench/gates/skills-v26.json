@@ -1,0 +1,30 @@
+{
+  "version": "skills-v26",
+  "at": "2026-09-01T01:29:06.084Z",
+  "pass": false,
+  "reasons": [
+    "sample too small (n=4, need 20)"
+  ],
+  "n": 4,
+  "SR": 1,
+  "FSR": 0,
+  "naive_SR": 1,
+  "trust_gap": 0,
+  "DFR": null,
+  "outcomes": {
+    "ok": 4
+  },
+  "movement": [
+    {
+      "cls": "SHORT_LEVEL",
+      "n": 8,
+      "arrived": 8,
+      "spl": 1,
+      "wedgeRate": 0,
+      "medianMs": 293.5,
+      "assertFails": 0
+    }
+  ],
+  "assertionSet": [],
+  "droppedWrites": 0
+}

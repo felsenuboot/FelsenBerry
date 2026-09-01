@@ -794,6 +794,11 @@ mechanical: FSR must be 0, SR must clear 70%, and n must be at least 20. It reco
 assertion set it judged under, because a changed assertion invalidates cross-version
 comparison.
 
+The gate judges **the latest process run only** — a smoke run is one run, so it self-scopes.
+That matters: old specimens stay in the ledger forever, so a cumulative gate could never go
+green again no matter what got fixed, and a permanently-red gate is one everybody learns to
+ignore. Pass `--all` when you want the historical view instead of a rollout verdict.
+
 Two numbers worth knowing how to read. **`trust gap`** is naive SR minus verified SR — how
 much of the engine's self-reported success does not survive checking. **`DFR`** is the typed
 share of failures; engine work that converts a silent failure into a typed early error shows

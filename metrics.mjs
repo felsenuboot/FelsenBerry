@@ -7,6 +7,8 @@
  *   node metrics.mjs --since 2026-09-01       # from a date
  *   node metrics.mjs --by skill|role|rung|class
  *   node metrics.mjs --goto                   # movement table (SPL, wedge rate, route class)
+ *   node metrics.mjs --gate skills-v26        # ship-gate verdict, scoped to the latest run
+ *   node metrics.mjs --gate X --all           # ...or judged over all history
  *   node metrics.mjs --baseline write|compare # freeze / diff against bench/baseline.json
  *   node metrics.mjs --ab runA runB           # compare two run ids
  *   node metrics.mjs --json                   # machine-readable
@@ -169,8 +171,8 @@ function groupKey(e, by, roles) {
 // ---------- main ----------
 const { recs, gaps } = load();
 const roles = roster();
-const ends = recs.filter((r) => r.ev === 'task_end');
-const gotos = recs.filter((r) => r.ev === 'goto');
+let ends = recs.filter((r) => r.ev === 'task_end');
+let gotos = recs.filter((r) => r.ev === 'goto');
 
 if (has('json')) {
   const by = flag('by', 'skill');
@@ -241,6 +243,17 @@ if (ab) {
 // the verdict rather than a footnote.
 const gate = flag('gate');
 if (gate && typeof gate === 'string') {
+  // SCOPE. A rollout gate must judge the version it is gating, not all of history: the
+  // pre-fix specimens in the ledger are permanent, so a cumulative FSR stays above zero
+  // forever and would block every future rollout no matter what was fixed. Default to the
+  // most recent process run — a smoke run IS one run, so this self-scopes with no date
+  // arithmetic — and offer --all for the historical view.
+  const runs = [...new Set(ends.map((e) => e.run))];
+  const latest = runs.sort().pop();
+  const scoped = has('all') ? ends : ends.filter((e) => e.run === latest);
+  const scopedGotos = has('all') ? gotos : gotos.filter((g) => g.run === latest);
+  if (!has('all')) console.log(`\n(gate scoped to run ${latest}: ${scoped.length} of ${ends.length} records — pass --all for cumulative)`);
+  ends = scoped; gotos = scopedGotos;
   const u = universal(ends);
   const mv = movement(gotos);
   const fsr = u.FSR.n ? u.FSR.k / u.FSR.n : 0;
