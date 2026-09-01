@@ -468,3 +468,142 @@ T50 headline chart (needs MTBI data to accumulate); surrogate–death validation
 - Counters that can double-count (torch re-placement) are telemetry; conservation
   invariants are the economy.
 - Never adjust for or exclude on post-treatment variables (mob attacks are outcome).
+
+---
+
+## 9. Phase-1 acceptance soak — pre-committed scoring rubric (2026-09-01)
+
+Binding thresholds for the un-fixtured acceptance run (agenda v6 + skills v28 +
+producer.js + telemetry SCHEMA_V=2, launched once RESTOCK's produce-fallback is
+wired), committed BEFORE the run per felsenuboot/felcrew-mcp#28's five criteria —
+pre-committing success is the anti-self-flattery discipline law 1 exists for, and it
+is what makes pass/fail objective the moment the run ends rather than negotiable
+after the numbers are in. Distinct from §4's general-purpose AS soak scenario (which
+this rubric supersedes for the phase-1 acceptance question specifically, though the
+harness is the same). #3 and #5 are written as deterministic procedures the soak
+executes, not hand-driven steps, so the result is reproducible.
+
+**Every criterion below is scored against a specific committed source of ground
+truth, named per criterion — never the agenda's own self-report alone (law 0's
+"grade with something that didn't do the work," §"The false-success root").**
+
+### C1 — Survives (hard gate)
+
+**Pass**: zero deaths across a continuous ≥3h window on ONE stable agenda version
+(no restart mid-window; a restart resets the clock).
+
+**Ground truth, two independent signals, BOTH required — corrected after checking
+telemetry.js directly rather than assuming a periodic sample would catch it**: (a)
+zero standalone `ev:"death"` records for the window (`telemetry.js`'s
+`bot.on('death', onDeath)` — a real mineflayer client event, fired the instant a
+death happens, structurally independent of whether any task is running; this is
+the primary signal, not the periodic `note` stream, which samples every ~10-40s and
+could miss a death that happens and respawns between two samples); (b) zero
+`outcome:"death"` `task_end` records (`classify()`'s `s.deaths > 0` branch) for
+whichever task, if any, was active at the time — a corroborating secondary signal
+when a task happens to be running, not the primary one. Disconnection/reconnection
+during the window is NOT a violation of this criterion by itself (network/server
+flakiness isn't the bot's fault) — only an actual death is.
+
+### C2 — Zero false-success, with a coverage floor
+
+**Pass**: FSR = 0 (inherits law 1's existing hard target — no new number invented)
+AND coverage ≥ 70% AND gradable n ≥ 20. **A clean FSR over thin coverage is
+explicitly NOT a pass** — 0/0 reads like triumph and means nothing (§8).
+
+**Coverage definition, and a correction to flag before scoring**: coverage =
+gradedN / gradableN where gradableN = count of `v>=2` `task_end` records **whose
+skill has an ASSERTS table entry** (currently: come, safeDescend/buildStaircase,
+mineLane, chopTrees, huntAnimals, collectDrops, depositToChest,
+buildWall/Floor/frameStructure/buildSchematic — NOT restock or ensureTool, which
+have no ASSERTS entry and are therefore structurally ungradable regardless of run
+quality). metrics.mjs's current `gradableN` (as of commit 6513682) counts ALL v≥2
+`task_end` records, not just ones with an ASSERTS entry — on THIS soak, where
+restock/ensureTool are load-bearing and ungradable by design, that looser
+denominator would understate coverage for reasons that have nothing to do with a
+real test gap. Recommend metrics.mjs scope `gradableN` to the ASSERTS-table skill
+set before this run is scored; flagging rather than changing engine-dev-2's file
+myself. 70%-floor and n≥20 are not new numbers either — they mirror the `--gate`
+mechanism's existing SR-floor and sample-floor exactly, for the same reason: an
+established, already-scrutinized bar beats a freshly-invented one.
+
+### C3 — Priority order under induced stress
+
+**Induction** (deterministic RCON/eval procedure, run once against a healthy,
+un-blocked bot mid-PROJECT):
+1. Hunger, closed-loop (not a blind single command — vanilla's hunger drain rate
+   varies, so verify rather than assume): `effect give <bot> minecraft:hunger 30 5`,
+   then poll `data get entity <bot> foodLevel` every 5s; repeat the effect if still
+   `>6` after 30s; stop once `foodLevel<=6` (this is `EAT_CRITICAL`'s own fire
+   threshold, `agenda.js:273` — food<=6 specifically, not merely "hungry", since
+   `EAT_CRITICAL` (prio 2) sits ABOVE `DEPOSIT` (prio 3) while regular `EAT` (prio 4,
+   food<=17) sits below it — the induction must hit the CRITICAL threshold or the
+   expected order below is wrong).
+2. Toolless (scoped to the active project's tool class, e.g. pickaxe for a mining
+   project — that's what actually gates `TOOL`'s fire condition, `activeClass(s)`):
+   `clear <bot> minecraft:wooden_pickaxe`, then repeat for stone/iron/golden/
+   diamond/netherite_pickaxe (six calls, one per tier) so no fallback tier survives.
+3. Full inventory, to `freeSlots<=2` (`DEPOSIT`'s exact fire threshold,
+   `agenda.js:278`): `clear <bot>` (known-empty baseline), then `give <bot> <item> 1`
+   for 35 DISTINCT non-stacking-together item ids (dirt, cobblestone, gravel, sand,
+   andesite, diorite, granite, oak_log, birch_log, stone, sandstone, red_sand, clay,
+   netherrack, ... — 35 distinct ids, not 35 calls of the same id, which would merge
+   into far fewer occupied slots) — leaves exactly 1 free slot, comfortably inside
+   the fire zone rather than sitting on the `<=2` boundary.
+4. Dark: build a small sealed stone box via RCON `fill` near the bot's current
+   position (no light source, fully enclosed — guarantees `light<8` and
+   `surfaceExposed:false` deterministically, rather than assuming ambient darkness
+   wherever the bot happens to be) and `tp` the bot inside.
+
+**Pass**: the rung sequence observed in `note` events after induction is
+`EAT_CRITICAL -> DEPOSIT -> EAT -> TOOL -> LIGHT` (RESTOCK is skipped in this
+specific induction unless the project's floor also demands it — not forced by the
+steps above) — in THIS order, each rung's own fire/clear thresholds satisfied before
+the next one is allowed to own the ladder, with **no rung firing twice
+non-consecutively** (the observable form of "hysteresis holds" — a genuine
+oscillation would show e.g. EAT, TOOL, EAT again rather than EAT once then moving
+on). Ground truth: the `note` stream's `agenda` field across the induction window,
+cross-checked against the `"agenda: -> X"` transition log lines for exact fire
+order.
+
+### C4 — Project advances to a VERIFIED completion, then clean P3 fallback
+
+**Pass**: a `task_end` record for the active project skill with `outcome:"ok"` AND
+`assert` non-null (an ASSERTS rule actually graded it, not merely `task.done` —
+`outcome:"ok"` already implies the grade passed, by construction of `classify()`;
+`assertFail` itself is an internal variable, never an emitted ledger field, so
+`outcome`+`assert` together are the correct, complete check, not a third field to
+look for) — i.e. a real `assertTask` GRANT, not a naive `done` claim (the exact
+distinction law 1 exists to enforce; a `done:true` with no grant is not a
+pass here). Ground truth: the ledger record itself, cross-checked against the
+agenda's own `"agenda: project VERIFIED done"` log line (two independent witnesses
+for the same claim, matching C1's two-signal pattern). Followed within one tick by
+`/state.agenda.rung` reading `IDLE` (or a genuinely new project set) — the project
+must not be immediately re-picked or left dangling.
+
+### C5 — Self-recovery from an induced wedge and a forced relog
+
+**Wedge induction**: while the bot is actively pathing (mid-`goto`/mid-skill
+travel), `setblock` a `minecraft:torch` at the bot's exact current feet position
+(the documented torch-underfoot wedge mechanism, LEARNING_HANDOFF.md). **Pass**:
+the bot's position changes again (confirmed via `/state.position` polled every 2s)
+within 30s of the torch landing, with at most ONE `"stall"`/`"wedge"`-class log line
+during that window (the engine's own bounded stall-detector clearing it once, not
+repeating).
+
+**Relog induction**: `kick <bot> "induced acceptance-test relog"`. **Pass**: (a)
+`/state.connected` reads `true` again within 30s; (b) `/state.payloads` reports
+every payload installed with `stalePayloads` EMPTY (not just present — the
+guard-stripping class of bug this session's doctrine work was largely about, see
+DRIVER_GUIDE's SUSPENDING IDLEGUARD note); (c) `/state.agenda.ticks` is increasing
+again (the ladder resumed on its own) within 60s total from the kick, with no driver
+action setting a new project or restarting anything by hand.
+
+### Overall verdict
+
+**Phase-1 "done"** requires ALL FIVE criteria MET on ONE continuous, stable-version
+run. Any criterion failing is a fail for that run, not a partial credit — this
+mirrors the `--gate` mechanism's own mechanical, non-negotiable rule. A run that
+fails is still valuable: score it as iteration feedback (which criterion failed,
+against which threshold, by how much) exactly as the earlier v3 scorecard entries
+did, not discarded.
