@@ -56,12 +56,13 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v16** · `dangerscan.js` v2 · `survival.js` v2 · `digguard.js` v4
-· `toolguard.js` v2 · `idleguard.js` v8 · `graychat.js` v3 · `reachguard.js` v1.
+Live versions: `skills.js` **v19** · `telemetry.js` v1 · `dangerscan.js` v3 · `survival.js` v3
+· `digguard.js` v4 · `toolguard.js` v2 · `idleguard.js` v9 · `graychat.js` v3 · `reachguard.js` v1.
 `panicguard.js` is RETIRED (superseded by survival.js). `GET /state.payloads` reports these
-numbers live, and `stalePayloads[]` names any payload bound to a bot object a reconnect
-replaced — presence has never implied liveness, and that has now bitten us three separate
-ways (reconnect swap, patch-stack teardown, stale light packets).
+numbers live, `stalePayloads[]` names any payload bound to a bot object a reconnect replaced,
+and `GET /metrics` reports the ledger's own health — presence has never implied liveness, and
+that has now bitten us four separate ways (reconnect swap, patch-stack teardown, stale light
+packets, and a guard sliced out by an over-broad edit).
 
 **Phase-1 self-sufficiency — what the engine can now do with no driver and no depot.**
 Verified on the local server from a completely empty inventory on a fresh world:

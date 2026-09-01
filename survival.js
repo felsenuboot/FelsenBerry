@@ -1,4 +1,4 @@
-// survival v2 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v3 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
 //
 // The tick-speed survival reflex from research/survival-doctrine.md section 4. panicguard
 // had exactly one answer to everything ("run home"), which is why BuddelBernd died: it
@@ -39,7 +39,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 2,
+  enabled: true, version: 3,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -453,12 +453,14 @@ const enter = async (why) => {
     const ts = threatsNow();
     const top = ts.length ? `${ts[0].name} at ${ts[0].d}` : 'no visible threat';
     pushLog('warn', `panic_enter (${why}) hp=${Math.round(bot.health)} threat=${top}`);
+    try { const m = globalThis.__metrics; if (m && m.panic) m.panic('enter', why, bot.health); } catch (e) {}
     g.branch = 'deciding';
     out = await pick();
     g.branch = out && out.branch;
     g.lastBranch = g.branch;
     g.recovered++;
     pushLog('warn', `panic_recovered branch=${g.branch} hp=${Math.round(bot.health)} — driver decides resume vs abort`);
+    try { const m = globalThis.__metrics; if (m && m.panic) m.panic('recovered', g.branch, bot.health); } catch (e) {}
     say('Stable again (' + g.branch + ', HP ' + Math.round(bot.health) + '/20). Awaiting orders.');
   } catch (e) {
     g.failures++;
@@ -548,7 +550,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 2, boundAt: Date.now(), stale: false };
+REG.survival = { version: 3, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -559,7 +561,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 2, home: g.home,
+  installed: true, version: 3, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),

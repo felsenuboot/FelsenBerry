@@ -1,4 +1,4 @@
-// dangerscan v2 payload (inject via POST /eval, idempotent).
+// dangerscan v3 payload (inject via POST /eval, idempotent).
 //
 // The 4Hz "wallhack" hostile scan from research/survival-doctrine.md section 3, plus the
 // status fields three FEEDBACK entries asked for. Pure read — it never moves the bot,
@@ -24,7 +24,7 @@
 if (globalThis.__danger && globalThis.__danger.restore) { try { globalThis.__danger.restore(); } catch (e) {} }
 
 const g = {
-  enabled: true, version: 2,
+  enabled: true, version: 3,
   score: 0, state: 'calm', threats: [], nearest: null,
   scans: 0, errors: 0, lastScan: 0, lastStateChange: 0,
   light: null, skyLight: null, surfaceExposed: null,
@@ -233,6 +233,9 @@ const tick = () => {
       const top = g.nearest ? `${g.nearest.name} at ${g.nearest.d}` : 'no visible threat';
       if (next !== 'calm') pushLog('warn', `danger ${next} (${g.score}): ${top}`);
       else pushLog('info', `danger clear (${g.score})`);
+      // metrics: threat exposure over time (EVALUATION E4). Transitions only, never per-scan —
+      // a 4Hz loop would drown the ledger in noise for no analytical gain.
+      try { const m = globalThis.__metrics; if (m && m.danger) m.danger(next, prev, g.score, g.nearest); } catch (e) {}
       for (const fn of g.listeners.slice()) { try { fn(next, prev, g); } catch (e) { g.errors++; } }
     }
   } catch (e) { g.errors++; }
@@ -299,7 +302,7 @@ g.restore = () => {
 // reports a comfortable "calm" forever — worse than not running. Stop on our bot's 'end'
 // and say so; re-injection (or P0.2 auto-inject-on-spawn) rebinds to the live bot.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.dangerscan = { version: 2, boundAt: Date.now(), stale: false };
+REG.dangerscan = { version: 3, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.dangerscan.stale = true;
@@ -312,7 +315,7 @@ g.timer = setInterval(tick, g.intervalMs);
 tick();
 
 return {
-  installed: true, version: 2, intervalMs: g.intervalMs,
+  installed: true, version: 3, intervalMs: g.intervalMs,
   statusWrapped: g.statusWrapped, skillsPresent: Boolean(S),
   weightsKnown: Object.keys(g.weights).length,
   first: g.snapshot(),
