@@ -52,8 +52,18 @@ const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never
 const PRODUCEABLE = {
   torch: (gap) => Math.min(Math.max(8, Math.ceil(gap / 4) * 4), 32),   // craft yields 4 per batch
   cobblestone: (gap) => Math.max(RESTOCK_MINE_BATCH, Math.min(gap, 24)),
+  // The makings of ONE in-place tool re-craft, for the deep kit (#43 item 1). A stone
+  // pickaxe is 3 cobblestone + 2 sticks on a table, and cobblestone is already a kit floor —
+  // so a bot that also carries sticks and a table turns "pickaxe broke at y52" from a wedge
+  // into a measured 2.2s recraft with no travel. They are here rather than only in the kit
+  // gate because a requirement no rung can satisfy is a permanent refusal: the floor has to
+  // be able to HEAL, which means RESTOCK must be able to withdraw them or make them.
+  stick: (gap) => Math.min(Math.max(4, Math.ceil(gap / 4) * 4), 16),   // craft yields 4 per batch
+  crafting_table: (gap) => Math.max(1, Math.min(gap, 2)),
 };
-const PRODUCE_ORDER = ['torch', 'cobblestone'];   // fixed order: deterministic, light first
+// Fixed order: deterministic, and cheapest-and-most-blocking first. The table and sticks
+// come before torches because they are one craft each and they are what unblocks TOOL.
+const PRODUCE_ORDER = ['crafting_table', 'stick', 'torch', 'cobblestone'];
 const PRODUCE_COOLDOWN_MS = 120000;   // after a produce that made NOTHING, stop asking that resource
 // How long "the depot could not supply this" stays believed. It must expire: another bot may
 // restock the depot, and a permanent latch would mean never withdrawing again.
@@ -67,7 +77,7 @@ const DEPOT_SHORT_TTL_MS = 600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 8, enabled: true,
+  version: 9, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -128,6 +138,12 @@ const sense = (inject) => {
     s.torches = total((i) => i.name === 'torch' || i.name === 'soul_torch');
     s.foodCount = total((i) => FOODS.has(i.name));
     s.filler = total((i) => FILLERS.has(i.name));
+    // Per-item counts, for the floors that name a concrete ITEM rather than a category
+    // (sticks and a crafting table, the deep kit's tool-repair makings). RESTOCK's
+    // predicates read these, so like everything else a predicate reads, they come through
+    // the snapshot — see bench/fixtures/agenda-ladder.js for why that rule has teeth.
+    s.counts = {};
+    for (const it of items) s.counts[it.name] = (s.counts[it.name] || 0) + it.count;
 
     // best tool per class, with durability — P1d's input
     s.tools = {};
@@ -188,7 +204,7 @@ const activeClass = (s) => {
 const activeFloors = (s) => {
   if (A.project && A.project.restockFloor) return A.project.restockFloor;
   const k = projectKit(s);          // s, not bot: this feeds RESTOCK's fire/clear
-  if (k) return { torches: k.torches, food: k.foodItems, filler: k.filler };
+  if (k) return { torches: k.torches, food: k.foodItems, filler: k.filler, sticks: k.sticks, table: k.table };
   return ROLE_FLOOR[s.role] || null;
 };
 // The kit requirement for the project's skill, or null.
@@ -364,9 +380,12 @@ const RUNGS = [
     // a DEPARTURE gate, not an emergency: only fires when the active intent consumes it
     fire: (s) => {
       const f = activeFloors(s); if (!f) return false;
+      const held = (n) => (s.counts || {})[n] || 0;
       if (f.torches && s.torches < f.torches) return true;
       if (f.food && s.foodCount < f.food) return true;
       if (f.filler && s.filler < f.filler) return true;
+      if (f.sticks && held('stick') < f.sticks) return true;
+      if (f.table && held('crafting_table') < f.table) return true;
       return false;
     },
     // RESTOCK was the ONE rung breaking this file's own hysteresis invariant (see the header:
@@ -382,8 +401,11 @@ const RUNGS = [
     clear: (s) => {
       const f = activeFloors(s); if (!f) return true;
       const up = (n) => Math.ceil(n * RESTOCK_BUFFER);
+      const held = (n) => (s.counts || {})[n] || 0;
       return (!f.torches || s.torches >= up(f.torches)) && (!f.food || s.foodCount >= up(f.food))
-        && (!f.filler || s.filler >= up(f.filler));
+        && (!f.filler || s.filler >= up(f.filler))
+        // no buffer on the table: the gate wants one, one clears it
+        && (!f.sticks || held('stick') >= up(f.sticks)) && (!f.table || held('crafting_table') >= f.table);
     },
     act: async (s) => {
       if (oursRunning(s)) return 'running';
@@ -398,6 +420,10 @@ const RUNGS = [
       if (f.torches) needs.torch = up(f.torches);
       if (f.food) needs.bread = up(f.food);
       if (f.filler) needs.cobblestone = up(f.filler);
+      // The deep kit's tool-repair makings (#43 item 1). Buffered like everything else,
+      // except the table: one is one, and 1.5 tables is not a thing.
+      if (f.sticks) needs.stick = up(f.sticks);
+      if (f.table) needs.crafting_table = f.table;
       if (!Object.keys(needs).length) return 'none';
 
       // STEP 2 — PRODUCE what the depot could not supply. Reached only after a withdraw has
@@ -409,7 +435,7 @@ const RUNGS = [
         // Recompute the gap from the inventory NOW. The recorded shortfall is a signal ("the
         // depot is out of these"), never a quantity — reusing its counts would be the same
         // unit-mismatch class of bug as grading a block distance against an entity position.
-        const held = (n) => (bot.inventory.items() || []).filter((i) => i.name === n).reduce((a, i) => a + i.count, 0);
+        const held = (n) => (s.counts || {})[n] || 0;
         let pick = null;
         for (const r of PRODUCE_ORDER) {
           if (!(r in depotShort) || !needs[r]) continue;
