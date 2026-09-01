@@ -14,15 +14,19 @@ let started = [];
 S.start = (b, name, args) => { started.push(name); return { ok: true, taskId: 'stub' }; };
 A.busy = true;
 const T = (label, got, expect) => out.cases.push({ label, got, expect, PASS: got === expect });
-const fire = (role) => { started = []; A._idleAt = 0; R.act({ now: Date.now(), task: null, role }); return started[0] || null; };
+const fire = (role, extra) => { started = []; A._idleAt = 0; R.act(Object.assign({ now: Date.now(), task: null, role, pos: { x: 0, y: 40, z: 0 }, torches: 0 }, extra)); return started[0] || null; };
 
 try {
   A.project = null;
-  T('miner idles by MINING, not sweeping', fire('miner'), 'mineLane');
+  T('miner UNDERGROUND mines a lane', fire('miner', { pos: { x: 0, y: 40, z: 0 } }), 'mineLane');
+  T('miner on the SURFACE descends first', fire('miner', { pos: { x: 0, y: 70, z: 0 } }), 'safeDescend');
   T('lumberjack chops', fire('lumberjack'), 'chopTrees');
-  T('hunter hunts', fire('hunter'), 'huntAnimals');
+  // NOT huntAnimals: its kit tier wants foodItems:2, so a foodless hunter is refused forever
+  // (#45 — you hunt to GET food). This case exists to stop that regressing.
+  T('hunter does NOT get kit-gated huntAnimals', fire('hunter'), 'harvestGrass');
   T('farmer harvests (farmCycle needs a field, so not that)', fire('farmer'), 'harvestGrass');
-  T('builder gathers', fire('builder'), 'chopTrees');
+  T('builder with torches lights the base', fire('builder', { torches: 8 }), 'spawnProof');
+  T('builder without torches gathers wood', fire('builder', { torches: 0 }), 'chopTrees');
   T('NO role -> falls back to the drop sweep', fire(null), 'collectDrops');
   T('unknown role -> sweep rather than crash', fire('astronaut'), 'collectDrops');
 

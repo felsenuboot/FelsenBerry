@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 14, enabled: true,
+  version: 15, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -151,16 +151,29 @@ const ROLE_TOOL = { miner: 'pickaxe', lumberjack: 'axe', hunter: 'sword', builde
 // needing the LLM to hand-set every project.
 // Bounded counts on purpose — each run completes and repeats, so the ladder keeps its
 // interrupt points and nothing here becomes an un-preemptable marathon.
+// Values may be a static {skill,args} or a FUNCTION (s) => ({skill,args}) that picks work the
+// bot can actually run right now — sense() already carries the state it needs (pos.y,
+// torches, toolCounts). engine-dev-3's improvement, and it fixes a real gap: a miner standing
+// on the surface asked for a stone lane there is asking for work its own kit gate and the
+// terrain will refuse.
 const ROLE_WORK = {
-  miner: { skill: 'mineLane', args: { target: 'stone', count: 16, maxDist: 24 } },
+  // descend THEN mine: get underground first, then a bounded lane
+  miner: (s) => ((s.pos && s.pos.y > 55)
+    ? { skill: 'safeDescend', args: { toY: 45, maxSteps: 40 } }
+    : { skill: 'mineLane', args: { target: 'stone', count: 16, maxDist: 24 } }),
   lumberjack: { skill: 'chopTrees', args: { count: 2 } },
-  hunter: { skill: 'huntAnimals', args: { count: 2 } },
+  // NOT huntAnimals: its kit tier requires foodItems:2, so a FOODLESS hunter is refused
+  // forever — the #45 bootstrap paradox (you hunt to GET food) biting the idle rung. Caught by
+  // engine-dev-3. harvestGrass has no kit gate and yields seeds, so it is always runnable.
+  // Revisit when #45 gates huntAnimals on a WEAPON rather than on already having food.
+  hunter: { skill: 'harvestGrass', args: {} },
   // farmCycle needs a registered field box, so it cannot be a zero-config default; harvesting
-  // grass for seeds is the honest farmer-with-no-field job and needs no configuration.
+  // grass for seeds is the honest farmer-with-no-field job.
   farmer: { skill: 'harvestGrass', args: {} },
-  // no build-project seam exists yet, so a builder gathers materials — defensible work rather
-  // than a speculative blueprint. Revisit when the roadmap places the build seam.
-  builder: { skill: 'chopTrees', args: { count: 2 } },
+  // light the base if it can (the tidy-base job), else gather the wood to do it later
+  builder: (s) => ((s.torches || 0) >= 4
+    ? { skill: 'spawnProof', args: { radius: 12 } }
+    : { skill: 'chopTrees', args: { count: 2 } }),
 };
 const ROLE_FLOOR = { miner: { torches: 16, food: 4, filler: 16 }, lumberjack: { torches: 8, food: 2 },
   hunter: { torches: 8, food: 4 }, builder: { torches: 8, food: 2 }, farmer: { food: 2 } };
@@ -597,7 +610,8 @@ const RUNGS = [
       // busy": a bot with no project should behave like a player with no orders, which means
       // working its trade rather than sweeping empty ground. The work skills collect their own
       // drops as they go, so the sweep is the FALLBACK rather than the default.
-      const work = ROLE_WORK[s.role];
+      const w = ROLE_WORK[s.role];
+      const work = typeof w === 'function' ? w(s) : w;
       if (work) {
         const rw = runSkill(work.skill, work.args, 'IDLE/work');
         if (rw.ok) return 'working';
