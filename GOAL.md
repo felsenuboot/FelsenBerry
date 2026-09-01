@@ -34,7 +34,7 @@ The bot fleet on Felix's server is the continuous field test; the ENGINE is the
 product. Every feature below should work autonomously — LLM drivers set goals
 and handle surprises, deterministic engine code does everything routine.
 
-## Pillars → current status (2026-09-01, engine v14)
+## Pillars → current status (2026-09-01, skills v46 / agenda v18)
 
 | Pillar | Status | Carried by |
 |---|---|---|
@@ -56,10 +56,11 @@ the standard.
 
 ## Engine status detail (kept current by engine-dev-2)
 
-Live versions: `skills.js` **v41** · `agenda.js` v13 · `producer.js` v5 · `graychat.js` v4 · `telemetry.js` v1 (ledger
-schema v2) · `digguard.js` v5 · `survival.js` v4 · `dangerscan.js` v3 · `graychat.js` v3
-· `idleguard.js` v9 · `toolguard.js` v2 · `reachguard.js` v1. `panicguard.js` is RETIRED
-(superseded by survival.js).
+Live versions (2026-09-01, read from the tree the fleet injects from): `skills.js` **v46** ·
+`agenda.js` v18 · `producer.js` v6 · `survival.js` v5 · `dangerscan.js` v4 · `digguard.js` v5 ·
+`digchain.js` v1 · `idleguard.js` v10 · `graychat.js` v4 · `toolguard.js` v2 · `reachguard.js` v1 ·
+`basekeeping.js` v1 · `farmskills.js` v2 · `telemetry.js` v1 (ledger schema v2). `panicguard.js` is
+RETIRED (superseded by survival.js).
 `GET /state` reports live payload versions, `stalePayloads[]`, `agenda` (current rung), and
 `ash` readiness; `GET /metrics` reports the ledger's own health.
 
@@ -95,10 +96,30 @@ passed: ~275 blocks mined driverless, every torch produced locally with no depot
 zero errors, mineLane completed and `assertTask` verified it. That result is why deploying to
 the real server was the right next step rather than another controlled run.
 
-Development is HELD pending a roadmap evaluation Felix asked for — an explicit
-continue-vs-pivot decision with filed issues, including the movement work (Baritone is a hard
-NO for a headless stack; the direction is an in-process watchdog plus a recovery ladder that
-imitates Baritone's execution-loop guarantees in JS). No movement/wedge work until that lands.
+**The roadmap evaluation landed and the decision was CONTINUE** (#51-#64, with #64 as the
+acceptance gate). Development resumed on that sequence: the movement work is an in-process
+watchdog plus a recovery ladder imitating Baritone's execution-loop guarantees in JS — Baritone
+itself stays a hard NO for a headless stack. Since then #53 (detection layer) and #55 (single
+ordered dig chain) have closed, and #54's R2 rung is built but reviewed-and-held, not deployed.
+
+**The live fleet is measured, not assumed.** `bench/playcheck.mjs` asks whether a bot looks like a
+person playing or standing around, and its before/after across the #67b deploy is 4/5 bots flat
+IDLE → 2/5 IDLE with real distance on two others. The two still-parked bots have three DISTINCT
+causes, separated by reading their own ledgers rather than the summary: an unreachable-target
+relocate flail (#70 — all `no_path`, not `path_timeout`, which matters because the two are
+different codes), a builder re-scanning an already-lit base forever (#72), and a RESTOCK torch
+deadlock one torch short (#71). Fixes for all three are on main awaiting the next reconnect
+measurement. This is the honest shape of "live": improving and instrumented, not finished.
+
+**Two quality gaps are characterized but deliberately unfixed.** (1) Felix physically moved the
+base chests, tables and furnaces; the bots do not adapt, because containers are addressed by
+hardcoded coordinate while crafting tables are found by proximity search — so crafting survives by
+luck and chest withdrawal fails silently, with the agenda misreading "no chest here" as "depot out"
+and grinding instead of withdrawing. Protection is inverted as a side effect: the moved containers
+sit outside the protected region and the emptied old coordinates are still defended. (2) Route
+scarring — the engine has not been able to place traversal blocks for some time, but `baseMovements`
+never sets `digCost`, so ordinary travel prices a dug block at three or four walked ones and tunnels
+through hills. Both are sequenced behind the base-stewardship discovery design, not patched ad hoc.
 
 **Acquire-by-producing has landed** (#37), which was the named gate on that run. RESTOCK is
 now withdraw → produce → stand down: the depot stays the cheap first answer, `produce`
