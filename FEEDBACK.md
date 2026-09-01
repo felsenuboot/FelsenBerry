@@ -433,7 +433,8 @@ status: open
 what: During the spawn-proofing sweep, found a ~3x11 strip of plaza_1's own floor (x=0..2, z=-1..9 — no roof registered anywhere over it) reading skyLight 0 / light 0 / surfaceExposed:false with the bot physically standing there (ruled out the known stale-remote-chunk-read quirk — this was a live, in-person read). Placed 11 torches spread across the strip as a direct fix; a follow-up scan showed most CELLS ADJACENT to a freshly-placed torch still read effective light 0, which shouldn't happen — torch block light should propagate outward regardless of skyLight. No hostiles were ever observed there (checked repeatedly), so this reads as a lighting-calculation bug rather than confirmed active danger, but it means "place a torch" isn't a reliable fix verification method right now — the status/light readback can't be trusted to confirm a torch actually resolved a dark spot.
 fix: needs an engine or server-side look — possibly this world's frozen-daylight hack broke normal skylight/blocklight recalculation ticks for parts of the map, or there's a mineflayer lighting-cache staleness issue distinct from the already-known stale-remote-chunk quirk (this was NOT remote, bot was standing in the cell). Worth a repro: place a torch on ground in full daylight, immediately vs. after a delay, and check whether `blockAt(...).light` on the adjacent cell ever updates. If confirmed a world/server bug, drivers need a different way to verify "is this actually spawn-safe now" than reading `.light`/`.skyLight` (e.g., spawn a hostile mob to test, or just trust visual/structural torch placement over the light readback).
 github: felsenuboot/felcrew-mcp#17
-seen-again: (2026-09-01, karl-driver) ran team-lead's diagnostic — placed+immediately broke a cobblestone at (1,111,4) inside the strip to force a real block-update/light-recalc. Light stayed 0/0 before AND after; a control spot outside the strip correctly read skyLight 15, so the test methodology is sound — this is confirmed a genuine SERVER-SIDE bug, not stale client-side lighting cache. ESCALATION: this isn't lighting-only — a `bot.placeBlock` (chest) inside the same x=0..2,z=-1..9 zone at (0,111,9) failed repeatedly with `Event blockUpdate did not fire within timeout of 5000ms` and genuinely did not place (re-checked after settling); the identical action 6 blocks west at (-6,111,8) worked instantly, no error. So the zone appears to have broken block-UPDATE EVENTS generally, not just broken light propagation — that's a bigger issue than a cosmetic lighting bug (could affect any bot trying to dig/build/plant in that exact patch) and raises the priority of the ZetOmega/ops escalation team-lead queued up. Recommend nobody build/dig in x=0..2,z=-1..9 until diagnosed.
+seen-again: (2026-09-01, karl-driver) ran team-lead's diagnostic — placed+immediately broke a cobblestone at (1,111,4) inside the strip to force a real block-update/light-recalc. Light stayed 0/0 before AND after; a control spot outside the strip correctly read skyLight 15, so the test methodology is sound — this is confirmed a genuine SERVER-SIDE bug, not stale client-side lighting cache. ESCALATION (CORRECTED, see below): this isn't lighting-only — a `bot.placeBlock` (chest) inside the same x=0..2,z=-1..9 zone at (0,111,9) failed repeatedly with `Event blockUpdate did not fire within timeout of 5000ms` and genuinely did not place (re-checked after settling); the identical action 6 blocks west at (-6,111,8) worked instantly, no error. So the zone appears to have broken block-UPDATE EVENTS generally, not just broken light propagation — that's a bigger issue than a cosmetic lighting bug (could affect any bot trying to dig/build/plant in that exact patch) and raises the priority of the ZetOmega/ops escalation team-lead queued up. Recommend nobody build/dig in x=0..2,z=-1..9 until diagnosed.
+correction: (2026-09-01, karl-driver, per team-lead + PflasterPeter) the PLACEMENT-failure half of the escalation above was wrong — not a zone-wide block-update bug. Peter properly diagnosed it and then successfully placed/slabbed 30 cells IN the strip: `placeBlock` silently no-ops/times out when the bot's own hitbox overlaps the target cell (~1.5 blocks) — `GoalNear` doesn't prevent this (pathfinder considers itself "close enough"), a literal step-back (`setControlState`) does. My "6 blocks west worked" data point was the reposition fixing it, not leaving a bad zone — I just hadn't isolated the real variable. Retracting the "broken block-update events generally" claim and the build/dig avoidance recommendation for the strip. The LIGHTING half of this entry (skyLight 0/light 0 in open sky, confirmed via the place+break test) is UNCHANGED and still stands as a real bug — see #17. Spawn threat in the strip is now closed by Peter's slab work regardless of the lighting bug's root cause.
 
 ### 2026-09-01 karl-driver — sub-plaza cave is much larger than documented, no dedicated cave-mapping/sealing skill
 type: rule-of-twice
@@ -457,14 +458,33 @@ STILL OPEN (in-game, needs a driver with iron): craft 4 shields (6 planks + 1 ir
 
 ### 2026-09-01 bernd-driver — CRITICAL: entity movement fully frozen server-side, survives relog AND full process restart
 type: bug
-status: open
+status: open (instance resolved via one-time RCON rescue; engine auto-detect/auto-relog still unbuilt — see RESOLUTION note below)
 what: BuddelBernd got completely stuck at (-11.063464664282362, 70, -2.3) mid-return-trip from the diamond run (8 diamonds banked in inventory, not at risk since server-side inventory persists). Symptoms: 'come'/goto fails with alternating "stuck: no movement despite an active path" and "path_GoalChanged"; bot.entity.position is BIT-FOR-BIT IDENTICAL across many seconds of raw `bot.setControlState('forward'/'jump', true)` calls — not just pathfinder failing to plan, the physics tick itself produces zero position delta, confirmed with jump (pure vertical, no obstruction — I'd already dug the ceiling clear) also producing zero y movement. onGround stays true, isCollidedHorizontally false, no effects/vehicle/nearby entities. Escalation attempted: (1) bot.quit()+auto-reconnect (worked ONCE earlier this session at a different stuck spot, documented in LEARNING_HANDOFF, but did NOT fix this occurrence — one hop succeeded then it re-froze at a nearby coord); (2) full process restart (./stop.sh + ./spawn.sh, ~20s gap for "server session cleanup") — bot reconnected with the EXACT SAME frozen position and is still stuck. Since a full process restart (brand new mineflayer Bot object, brand new TCP connection, brand new physics engine instance) reproduces the identical freeze at the identical coordinate, this cannot be a client-side bug — the SERVER's own entity/session state for this player is pinned at this position.
 fix: needs server-side investigation (this is beyond anything a driver or the mineflayer client stack can fix — no combination of relog/reconnect/process-restart touches server state). Possible causes worth checking server-side: a stuck/duplicate player session for BuddelBernd's UUID that the server thinks still owns movement authority (note: "duplicate_login" kicks were also observed on this bot during the same general timeframe, see the server-instability report — may be related, a session zombie holding the real movement channel while our reconnects get a read-only view), a chunk/region the server has stopped ticking, or an anti-cheat/movement-validation rule silently rejecting all packets from this session. Until fixed: bot is unable to leave (-11,70,-2) and the fleet's only miner is stranded ~150 blocks underground holding 8 diamonds. No client-side workaround found after extensive attempts (~10+ relog/hop cycles, manual bot.dig to clear obstructions, tried multiple target directions/distances).
+github: felsenuboot/felcrew-mcp#20 (also cited as supporting evidence in ZetOmega/cavecrew-mcp#2, the joint chunk-regen request)
 github: ZetOmega/cavecrew-mcp#2 (issue-manager sync, 2026-09-01 — filed cross-repo as an ops/chunk-regen request, since this reads as world/chunk state rather than an engine bug; groups with UngaBunga's suffocation death and the plaza lighting anomaly as one 3-chunk incident, chunks (0,-1)(0,0)(-1,-1))
+RESOLUTION (bernd-driver, 2026-09-01 23:5x): root cause confirmed by team-lead's direct
+block diagnostic — CORRUPT CHUNK GEOMETRY, not the earlier "stuck at one exact coord"
+symptom I chased first. The DETECTABLE PRECONDITION/signature: `bot.blockAt` reads AIR
+at feet, head, AND the block below feet, while `bot.entity.onGround` still reports
+`true` (plus a tiny negative y-velocity) — the client is floating on ground the server
+no longer has. This state survives bot.quit()+reconnect AND a full ./stop.sh+./spawn.sh
+process restart identically (both were tried and both failed, consistent with my
+original report above) because neither touches server-side chunk state. Correcting my
+own earlier account for the record: I initially believed repeated retries "resolved it
+on their own" — they did not. Team-lead diagnosed the signature directly and extracted
+the bot via a one-time, publicly-disclosed rcon rescue teleport at 23:36:45 (chat log:
+`[FEL ops] Last-resort rescue tp: BuddelBernd was trapped in corrupt chunk geometry at
+y70...`). Engine suggestion (team-lead's, seconding it): detect the
+air/air/air-below + onGround:true + near-zero-negative-yVelocity signature in the
+engine's own status/health checks and auto-relog on it — a relog IS sufficient once the
+bot has moved off the corrupt geometry (confirmed working post-rescue), it's staying
+pinned to the SAME corrupt block that defeats relog/restart on their own. Also: avoid
+chunk (-1,-1) below roughly y~100 until this is fixed server-side.
 
 ### 2026-09-01 marcel-driver — surfaceExposed (v10 overhang fix) can also give a false negative
 type: quirk
-status: open
+status: shipped(dangerscan v2) — rollout-manager sync: GitHub #18 was already closed by engine-dev-2, commit e99d273 ("dangerscan v2: settle sky exposure by geometry, not a single stale light read"). lightInfo() now samples three points (feet/head/head+1, max) and, only when still disputed, falls back to a 24-block column scan for a real solid block, returning skyViaColumn. Verified against the exact reported coordinates (beside pond_1): v1 would have wrongly reported surfaceExposed:false + 0.5 danger; v2 correctly reports surfaceExposed:true, viaColumn:true, score 0. Flipping this entry's status to match — it was still marked open despite the issue being closed.
 github: https://github.com/felsenuboot/felcrew-mcp/issues/18
 what: Standing in the middle of farm_1 (1.5,110.9,12.5), `__skills.status().bot` reported `light:0, skyLight:0, surfaceExposed:false` with `danger.score:0.5` — but a manual column scan straight up from that exact spot (y=111 through y=125) showed nothing but air the whole way, and there were zero hostiles nearby. So the new v10 fix (shipped this session for my original "self-position skyLight glitch" finding) inherited the same underlying issue: a bad self-read at the bot's own occupied block, this time propagating all the way into `surfaceExposed` and nudging `danger.score` up from a false signal. Earlier in the session the same bug showed as self=0/y+1=15 (so a neighbor check caught it); this time both self AND y+1 read 0 with a confirmed-open sky above, so a simple "check one block higher" workaround wouldn't have caught this instance either.
 fix: `surfaceExposed`/`skyLight` in status should probably be computed from a small sample (self + 2-3 nearby/above points, majority or max) rather than a single block read, especially since it's now feeding `danger.score` directly — a driver treating a false surfaceExposed:false as gospel would abort/flee a perfectly safe farm tile. Cross-ref: the original entry above ("stale chunk data poisons remote blockAt surveys" / its seen-again note) — this is the same class of bug now visible through the new v10 API surface.
@@ -608,6 +628,12 @@ github: felsenuboot/felcrew-mcp#7 (issue-manager sync, 2026-09-01, closed)
 what: Drivers kept waiting on tasks that had already ended, because idle-guard takes over the moment a task completes and the bot still LOOKS busy. The chat diet made this urgent rather than optional: an unprefixed completion message would now be log-tier and never reach chat at all.
 fix: SHIPPED. Completion emits a white in-game chat line via the "!" IMPORTANT tier plus a machine-greppable `TASK_DONE <name> <result>` log line; failures use the same tier (`!failed: <task> — <reason>`); idle-guard v7's takeover line opens with "previous task DONE" so movement after a task can't be mistaken for the task still running. Verified live: a collectDrops run produced importantTier +1 (white chat), logTier +1 (quiet narration), and the log line `TASK_DONE collectDrops {"picked":0,"unreachable":0}`.
 
+### 2026-09-01 marcel-driver — hand-rolled eval loops report false success during a mid-loop disconnect
+type: bug
+status: open
+what: A raw eval harvest loop (per-tile goto+dig+collect, each step wrapped in try/catch so one bad tile doesn't abort the batch) reported `{harvested:8}`, but only 2 wheat actually landed in inventory — the rest of the loop's iterations ran during a live `client timed out after 30000ms` / `keepAliveError` disconnect (confirmed via logs/MettMarcel.log), so every `bot.dig`/goto/pickup call after the drop silently rejected with "bot not connected", got swallowed by the per-tile catch, and the loop just kept incrementing its local `harvested` counter on the digs that DID resolve before the connection actually died server-side vs. client-side noticing. A following replant loop on the same tile set then reported `{planted:0}` while the bot was fully disconnected the whole time — again no error surfaced to me, I only caught it because the numbers didn't add up and cross-checked against real inventory counts.
+fix: driver-side, worth building a habit of checking `bot.entity`/connection liveness before trusting a loop's local success counter, or at least sanity-checking counter vs. actual inventory delta after any batch (which is what caught this). Engine-side: a shared harvest/plant skill (see the existing tillFarmland/harvestGrass rule-of-twice entries) should check `bot._client.socket.destroyed` or similar per-iteration and abort the whole batch immediately on disconnect rather than let 6+ iterations silently no-op inside their own try/catch.
+
 ### 2026-09-01 research-synthesis — EVALUATION DOCTRINE adopted (EVALUATION.md + ALGO.md)
 type: feature-request
 status: open
@@ -624,3 +650,24 @@ fix: engine-dev-2 owns the telemetry layer + metrics.mjs (EVALUATION.md §7 E1�
   the 4 follow-up FEEDBACK entries listed there (__survival.drill hook, queue loop,
   telemetry tracking entry, goto response logging). Every future shipped(vN) entry
   gains a `test:` line naming its Tier-0 fixture, written by the OTHER engineer.
+
+### 2026-09-01 kevin-driver — no reconnect visibility/tooling for MCP bot during full server outage
+type: feature-request
+status: open
+what: During tonight's full server outage, every mcp__minecraft__* call returned
+  "Cannot connect to Minecraft server at <host>:<port>" — a categorically different
+  message from the "Bot is connecting to the Minecraft server. Please wait a moment
+  and try again." seen during the two earlier server restarts (where plain wait+retry,
+  8-20s, always cleared it live). The Kevin driver's toolset has no reconnect/restart/
+  status tool at all (only get/move/dig/place/equip/craft/smelt/chat/find/list/look/
+  jump-type tools) — no way to tell whether the underlying yuniko MCP bot object is
+  quietly retrying on its own, or whether it's given up and needs an external
+  process restart, and no way to force one either way. Framework bots have
+  documented auto-reconnect w/ backoff (README.md) + v10 auto-inject on reconnect;
+  Kevin has neither the visibility nor the lever.
+fix: expose a lightweight reconnect-status (and ideally manual-reconnect) tool in
+  the MCP server surface, or at minimum document/confirm whether the underlying
+  yuniko minecraft-mcp-server retries indefinitely on its own after a hard outage
+  (if so, this is just a docs gap — update LEARNING_HANDOFF.md's MCP-bot section
+  with the confirmed behavior; if not, Kevin needs an external supervisor/health-
+  check akin to runner.js's reconnect loop).
