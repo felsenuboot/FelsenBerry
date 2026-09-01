@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 41;
+const ENGINE_VERSION = 42;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -133,6 +133,11 @@ const FILLERS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'a
   'granite', 'deepslate', 'tuff', 'netherrack']);
 const KIT_TIERS = {
   excursion: { torches: 8, foodItems: 2, weapon: true },
+  // hunt (#45): gate on a WEAPON, not on food. huntAnimals used `excursion`, whose foodItems:2
+  // made a foodless bot unable to hunt FOR food — the bootstrap paradox (food is the OUTPUT of
+  // hunting, so requiring it first is circular). An ARMED hunter can hunt and thereby feed itself.
+  // Torches stay for night-mob safety on the excursion — they are producible and carry no paradox.
+  hunt: { torches: 8, weapon: true },
   // sticks + table: the makings of an in-place tool re-craft, carried rather than hoped for
   // (#43 item 1, promoted to phase-1). They are only meaningful where wood is not reachable,
   // so the surface `excursion` tier does not ask for them. The spare pickaxe stays: these
@@ -3134,7 +3139,7 @@ S.define('mineLane', {
 
 // ---------- huntAnimals ----------
 S.define('huntAnimals', {
-  kit: 'excursion',
+  kit: 'hunt',        // #45: weapon-gated, not food-gated — a foodless hunter can hunt FOR food
   tool: 'sword',
   description: 'Hunt N animals of given species, attack on the weapon damage cooldown, collect all drops. NEVER targets players.',
   params: { species: "array, e.g. ['cow','pig'] (default ['cow'])", count: 'kills (default 1)', radius: 'search radius (default 32)', anyMob: 'allow non-animal mobs like zombie (default false; players never allowed)' },
