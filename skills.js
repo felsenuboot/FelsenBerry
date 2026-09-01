@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 21;
+const ENGINE_VERSION = 23;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -995,11 +995,27 @@ const ASSERTS = {
     if (typeof a.x !== 'number') return null;
     const p = bot.entity && bot.entity.position;
     if (!p) return null;
-    const d = Math.sqrt((p.x - a.x) ** 2 + (p.y - a.y) ** 2 + (p.z - a.z) ** 2);
+    // Compare BLOCK to BLOCK, the same way GoalNear defines arrival. A bot standing on
+    // block y has an entity position of y+1 (the top surface), so measuring the float
+    // position against an integer block target charged ~1.0 of phantom distance to every
+    // call and could fail a bot that was standing exactly where it was asked to. That is a
+    // unit mismatch, not a miss — and the fix keeps genuine misses failing: the specimens
+    // that produced this were 2.8 and 3.4 blocks out, which still exceed the limit.
+    const f = p.floored();
+    const d = Math.sqrt((f.x - a.x) ** 2 + (f.y - a.y) ** 2 + (f.z - a.z) ** 2);
     const limit = (a.range == null ? 1 : a.range) + 1.5;
     // `come` returns no result object, so final position is the ONLY ground truth —
     // which is exactly how ctx.goto's empty-path noPath used to report success.
-    return { rule: 'come.arrived', fail: d > limit, want: 1, got: d <= limit ? 1 : 0, yield: d <= limit ? 1 : 0 };
+    //
+    // The rule string carries the numbers because the ledger deliberately does NOT store
+    // call coordinates (SALIENT.come keeps only `range`), which left the first five
+    // real specimens undiagnosable: "come.arrived failed" with no way to tell a genuine
+    // non-arrival from an over-tight tolerance. Note what is NOT done here — the limit is
+    // not loosened to make the alarm quieter. Widening a verifier until it stops
+    // complaining is how a false-success metric becomes decorative.
+    const r2 = Math.round(d * 100) / 100;
+    return { rule: `come.arrived(d=${r2},limit=${limit})`, fail: d > limit,
+      want: 1, got: d <= limit ? 1 : 0, yield: d <= limit ? 1 : 0 };
   },
   safeDescend: (task) => {
     const r = task.result; if (!r) return null;

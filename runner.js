@@ -61,7 +61,20 @@ const MC_VERSION = args.version || undefined; // let mineflayer auto-detect unle
 // parseArgs consumes the NEXT token as a flag's value, so a valueless `--agenda` lands as
 // undefined — presence in the object is the correct test, not its value.
 const AGENDA = ('agenda' in args) || process.env.AGENDA === '1';
-const ROLE = args.role || null; // optional: 'lumberjack'|'miner'|'hunter'|'builder' — enables auto-injected role-templated idleguard on spawn
+// Role: --role wins, else roster.json keyed by bot name. The fallback exists because
+// --role is opt-in and nothing was passing it, so every rolling restart had each driver
+// hand-rolling a sed substitution for idleguard's __ROLE__ template — the same workaround
+// reinvented five times. Read at startup; an unknown bot simply has no role.
+function rosterRole(name) {
+  try {
+    const r = JSON.parse(fs.readFileSync(path.join(__dirname, 'roster.json'), 'utf8'));
+    return (r.roles && r.roles[name]) || null;
+  } catch (_) { return null; }
+}
+// optional: 'lumberjack'|'miner'|'hunter'|'builder'|'farmer' — enables the role-templated
+// idleguard (and the agenda's role defaults) on spawn. --role wins; roster.json is the
+// fallback so a bot always has one without anyone hand-rolling a sed substitution.
+const ROLE = args.role || rosterRole(NAME);
 
 if (!NAME || !CONTROL_PORT) {
   console.error('Usage: node runner.js --name <username> --port <controlPort> [--host h] [--mcport p] [--version v]');
@@ -233,10 +246,12 @@ async function applyPayloadStack(bot) {
   // subscribes to __danger's state changes — so skills -> dangerscan -> survival.
   // survival.js REPLACES panicguard.js (context-aware branches vs flee-home-only);
   // panicguard is no longer injected.
-  // farmskills.js is a skill PACK: it registers farmCycle/tillFarmland/harvestGrass into
-  // __skills via S.define, so it MUST come after skills.js (which creates __skills). A
-  // reconnect re-runs skills.js (resetting the registry) then farmskills.js (re-registering).
-  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js', 'farmskills.js']) {
+  // farmskills.js / basekeeping.js are skill PACKS: they register skills (farmCycle/tillFarmland/
+  // harvestGrass, spawnProof/structureAudit) into __skills via S.define, so they MUST come after
+  // skills.js (which creates __skills). A reconnect re-runs skills.js (resetting the registry)
+  // then the packs (re-registering). basekeeping.structureAudit reads __digguard.regions, so it
+  // sits after digguard too.
+  for (const f of ['skills.js', 'dangerscan.js', 'survival.js', 'digguard.js', 'toolguard.js', 'graychat.js', 'reachguard.js', 'farmskills.js', 'basekeeping.js']) {
     const r = await injectPayload(bot, f);
     report[f] = r.ok ? 'installed' : `failed: ${r.reason}`;
   }

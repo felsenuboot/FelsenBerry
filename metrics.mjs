@@ -1,0 +1,262 @@
+#!/usr/bin/env node
+/*
+ * metrics.mjs — the aggregator over telemetry.js's JSONL ledger (EVALUATION.md E5).
+ *
+ *   node metrics.mjs                          # all bots, all runs
+ *   node metrics.mjs --bot LokalLothar        # one bot
+ *   node metrics.mjs --since 2026-09-01       # from a date
+ *   node metrics.mjs --by skill|role|rung|class
+ *   node metrics.mjs --goto                   # movement table (SPL, wedge rate, route class)
+ *   node metrics.mjs --baseline write|compare # freeze / diff against bench/baseline.json
+ *   node metrics.mjs --ab runA runB           # compare two run ids
+ *   node metrics.mjs --json                   # machine-readable
+ *
+ * Two rules from the anti-Goodhart register are enforced here rather than left to
+ * discipline, because a metric that can be gamed WILL be:
+ *   - `bad_input` (driver typos) is excluded from every rate. A malformed call is not an
+ *     engine failure, and pooling it with `wedge` corrupts the denominator.
+ *   - cells with n < MIN_N are SUPPRESSED, not printed with a wide interval. A 1/1 = 100%
+ *     success rate is noise that reads like triumph.
+ * Rates carry Wilson intervals, never Wald — at these sample sizes Wald is simply wrong.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const DIR = path.dirname(fileURLToPath(import.meta.url));
+const LOGS = path.join(DIR, 'logs');
+const MIN_N = 5;
+
+const argv = process.argv.slice(2);
+const flag = (n, d = null) => { const i = argv.indexOf('--' + n); return i >= 0 ? (argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : true) : d; };
+const has = (n) => argv.includes('--' + n);
+
+// ---------- load ----------
+function roster() {
+  try { return JSON.parse(fs.readFileSync(path.join(DIR, 'roster.json'), 'utf8')).roles || {}; }
+  catch { return {}; }
+}
+function load() {
+  const recs = [];
+  const gaps = [];
+  let files = [];
+  try { files = fs.readdirSync(LOGS).filter((f) => /^metrics-.*\.jsonl$/.test(f)); } catch { /* no logs yet */ }
+  const botFilter = flag('bot');
+  const since = flag('since') ? Date.parse(flag('since')) : null;
+  for (const f of files) {
+    const bot = f.replace(/^metrics-|\.jsonl$/g, '');
+    if (botFilter && bot !== botFilter) continue;
+    const lastSeq = new Map();
+    for (const line of fs.readFileSync(path.join(LOGS, f), 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      let r; try { r = JSON.parse(line); } catch { continue; }
+      if (since && r.t < since) continue;
+      // A gap in seq means a dropped write. Report it — silently under-counting is exactly
+      // the kind of quiet corruption that makes a whole table untrustworthy.
+      const k = r.bot + '/' + r.run;
+      const prev = lastSeq.get(k);
+      if (prev != null && r.seq > prev + 1) gaps.push({ run: k, from: prev, to: r.seq, lost: r.seq - prev - 1 });
+      lastSeq.set(k, r.seq);
+      recs.push(r);
+    }
+  }
+  return { recs, gaps };
+}
+
+// ---------- stats ----------
+// Wilson score interval. Wald is wrong at small n (and can产 produce bounds outside [0,1]),
+// and every cell here is small n.
+function wilson(k, n, z = 1.96) {
+  if (!n) return [0, 0];
+  const p = k / n, d = 1 + z * z / n;
+  const c = p + z * z / (2 * n), m = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n));
+  return [Math.max(0, (c - m) / d), Math.min(1, (c + m) / d)];
+}
+const pct = (x) => (x * 100).toFixed(1) + '%';
+const rate = (k, n) => {
+  if (n < MIN_N) return `n=${n} (suppressed)`;
+  const [lo, hi] = wilson(k, n);
+  return `${pct(k / n)} [${pct(lo)}–${pct(hi)}] n=${n}`;
+};
+
+// ---------- universal (2.1) ----------
+const TYPED = new Set(['timeout', 'wedge', 'kit_missing', 'no_tool', 'reach_violation', 'low_health',
+  'inv_full', 'no_path', 'not_found', 'death', 'disconnected']);
+
+function universal(ends) {
+  const N = ends.filter((e) => e.outcome !== 'bad_input');       // denominator rule
+  const ok = N.filter((e) => e.outcome === 'ok');
+  const fs_ = N.filter((e) => e.outcome === 'false_success');
+  const naive = N.filter((e) => e.outcome === 'ok' || e.outcome === 'false_success');
+  const fails = N.filter((e) => e.outcome !== 'ok' && e.outcome !== 'false_success');
+  const typed = fails.filter((e) => TYPED.has(e.outcome));
+  const yields = N.filter((e) => typeof e.yield === 'number');
+  const under = yields.filter((e) => e.outcome === 'ok' && e.yield < 1);
+  return {
+    n: N.length,
+    SR: { k: ok.length, n: N.length },
+    FSR: { k: fs_.length, n: N.length },
+    naive_SR: { k: naive.length, n: N.length },
+    trust_gap: N.length ? (naive.length - ok.length) / N.length : 0,
+    DFR: { k: typed.length, n: fails.length },
+    under_prod: { k: under.length, n: N.length },
+    excluded_bad_input: ends.length - N.length,
+    byOutcome: ends.reduce((o, e) => (o[e.outcome] = (o[e.outcome] || 0) + 1, o), {}),
+  };
+}
+
+function printUniversal(label, u) {
+  console.log(`\n── ${label} ──`);
+  if (!u.n) { console.log('  (no task_end records)'); return; }
+  console.log(`  SR (verified)   ${rate(u.SR.k, u.SR.n)}`);
+  console.log(`  naive SR        ${rate(u.naive_SR.k, u.naive_SR.n)}   <- counts done===true, unverified`);
+  console.log(`  trust gap       ${pct(u.trust_gap)}   <- naive minus verified; the integrity number`);
+  const fsr = u.FSR.k / (u.FSR.n || 1);
+  console.log(`  FSR             ${rate(u.FSR.k, u.FSR.n)}${u.FSR.k > 0 ? '   *** ALARM: target is 0 ***' : ''}`);
+  console.log(`  DFR             ${u.DFR.n ? rate(u.DFR.k, u.DFR.n) : 'n=0'}   <- typed share of failures (higher = better diagnosis)`);
+  console.log(`  under-produced  ${rate(u.under_prod.k, u.under_prod.n)}   <- ok but yield<1`);
+  if (u.excluded_bad_input) console.log(`  excluded        ${u.excluded_bad_input} bad_input (operator error, never an engine rate)`);
+  console.log(`  outcomes        ${Object.entries(u.byOutcome).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join('  ')}`);
+}
+
+// ---------- movement (2.2) ----------
+function movement(gotos) {
+  const byClass = {};
+  for (const g of gotos) {
+    const c = g.class || 'UNKNOWN';
+    (byClass[c] = byClass[c] || []).push(g);
+  }
+  const rows = [];
+  for (const [cls, list] of Object.entries(byClass)) {
+    const arrived = list.filter((g) => g.res === 'arrived');
+    // SPL uses crow/max(odometer,crow): both are stated lower bounds, so this ranks
+    // honestly but is NOT an absolute efficiency percentage. Never present it as one.
+    const spl = arrived.length
+      ? arrived.reduce((a, g) => a + (g.crow / Math.max(g.moved || g.crow, g.crow || 1)), 0) / arrived.length : null;
+    const wedged = list.filter((g) => (g.unsticks || 0) > 0 || g.res === 'stuck' || ((g.resets || {}).stuck || 0) >= 3);
+    rows.push({ cls, n: list.length, arrived: arrived.length, spl,
+      wedgeRate: list.length ? wedged.length / list.length : 0,
+      medianMs: median(list.map((g) => g.ms).filter(Number.isFinite)),
+      assertFails: list.filter((g) => g.assert_fail).length });
+  }
+  return rows.sort((a, b) => b.n - a.n);
+}
+const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+function printMovement(rows) {
+  console.log('\n── movement (per route class; never pooled) ──');
+  if (!rows.length) { console.log('  (no goto spans)'); return; }
+  console.log('  class                n  arrived   SPL    wedge%  medMs  assertFail');
+  for (const r of rows) {
+    const supp = r.n < MIN_N;
+    console.log(`  ${r.cls.padEnd(18)} ${String(r.n).padStart(3)}  ${String(r.arrived).padStart(7)}  ` +
+      `${supp ? '  n/a' : (r.spl == null ? '  n/a' : r.spl.toFixed(2))}  ` +
+      `${supp ? '   n/a' : (r.wedgeRate * 100).toFixed(0).padStart(5) + '%'}  ` +
+      `${String(r.medianMs ?? '-').padStart(5)}  ${String(r.assertFails).padStart(6)}` +
+      (supp ? '   (n<5, suppressed)' : ''));
+  }
+}
+
+// ---------- grouping ----------
+function groupKey(e, by, roles) {
+  if (by === 'skill') return e.skill || '?';
+  if (by === 'role') return roles[e.bot] || 'unknown';
+  if (by === 'bot') return e.bot;
+  return 'all';
+}
+
+// ---------- main ----------
+const { recs, gaps } = load();
+const roles = roster();
+const ends = recs.filter((r) => r.ev === 'task_end');
+const gotos = recs.filter((r) => r.ev === 'goto');
+
+if (has('json')) {
+  const by = flag('by', 'skill');
+  const groups = {};
+  for (const e of ends) (groups[groupKey(e, by, roles)] = groups[groupKey(e, by, roles)] || []).push(e);
+  console.log(JSON.stringify({
+    overall: universal(ends), byGroup: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, universal(v)])),
+    movement: movement(gotos), gaps, records: recs.length,
+  }, null, 2));
+  process.exit(0);
+}
+
+console.log(`metrics.mjs — ${recs.length} records, ${ends.length} task_end, ${gotos.length} goto spans`);
+if (gaps.length) {
+  const lost = gaps.reduce((a, g) => a + g.lost, 0);
+  console.log(`  !! ${lost} DROPPED WRITES across ${gaps.length} gap(s) — counts below are under-reported`);
+}
+if (!ends.length && !gotos.length) {
+  console.log('\nNo task records yet. Run some tasks on an instrumented bot, then re-run.');
+  process.exit(0);
+}
+
+printUniversal('overall', universal(ends));
+
+const by = flag('by');
+if (by) {
+  const groups = {};
+  for (const e of ends) (groups[groupKey(e, by, roles)] = groups[groupKey(e, by, roles)] || []).push(e);
+  for (const [k, v] of Object.entries(groups).sort((a, b) => b[1].length - a[1].length)) {
+    printUniversal(`${by}=${k}`, universal(v));
+  }
+}
+if (has('goto') || !by) printMovement(movement(gotos));
+
+// ---------- baseline / A-B ----------
+const BASE = path.join(DIR, 'bench', 'baseline.json');
+const bl = flag('baseline');
+if (bl === 'write') {
+  fs.mkdirSync(path.dirname(BASE), { recursive: true });
+  const snap = { at: Date.now(), overall: universal(ends), movement: movement(gotos) };
+  fs.writeFileSync(BASE, JSON.stringify(snap, null, 2));
+  console.log(`\nbaseline written -> ${path.relative(DIR, BASE)}`);
+} else if (bl === 'compare') {
+  let prev = null;
+  try { prev = JSON.parse(fs.readFileSync(BASE, 'utf8')); } catch { }
+  if (!prev) console.log('\nno baseline yet — run --baseline write first');
+  else {
+    const cur = universal(ends);
+    const d = (a, b) => { const x = (a.k / (a.n || 1)) - (b.k / (b.n || 1)); return (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + 'pp'; };
+    console.log(`\n── vs baseline (${new Date(prev.at).toISOString().slice(0, 16)}) ──`);
+    console.log(`  SR   ${d(cur.SR, prev.overall.SR)}   FSR ${d(cur.FSR, prev.overall.FSR)}   n ${prev.overall.n} -> ${cur.n}`);
+    if (cur.FSR.k > 0 && prev.overall.FSR.k === 0) console.log('  *** REGRESSION: false_success appeared where the baseline had none ***');
+  }
+}
+const ab = flag('ab');
+if (ab) {
+  const [a, b] = [ab, argv[argv.indexOf('--ab') + 2]];
+  const ra = ends.filter((e) => e.run === a), rb = ends.filter((e) => e.run === b);
+  printUniversal(`run ${a}`, universal(ra));
+  printUniversal(`run ${b}`, universal(rb));
+}
+
+// ---------- tokens ----------
+// Deliberately NOT faked. Cost-per-outcome is co-primary with success rate, so a made-up
+// number here would be worse than none: it needs per-message token counts with message.id
+// dedupe (the same message is billed once but appears in many transcript rows), and that
+// source is not in this ledger. Point it at a token export and it will join on bot+time.
+if (has('tokens')) {
+  const src = flag('tokens');
+  console.log('\n── tokens ──');
+  if (typeof src !== 'string' || !fs.existsSync(src)) {
+    console.log('  no token source. Pass --tokens <file.jsonl> with {id, bot, t, input, output}.');
+    console.log('  Dedupe on `id` before summing — the same message appears in multiple');
+    console.log('  transcript rows and double-counting inflates cost_per_ok silently.');
+  } else {
+    const seen = new Set(); let inp = 0, outp = 0;
+    for (const l of fs.readFileSync(src, 'utf8').split('\n')) {
+      if (!l.trim()) continue;
+      let r; try { r = JSON.parse(l); } catch { continue; }
+      if (r.id && seen.has(r.id)) continue;
+      if (r.id) seen.add(r.id);
+      inp += r.input || 0; outp += r.output || 0;
+    }
+    const u = universal(ends);
+    console.log(`  input ${inp}  output ${outp}  (deduped ${seen.size} messages)`);
+    if (u.SR.k >= MIN_N) console.log(`  tokens per verified ok: ${Math.round((inp + outp) / u.SR.k)}`);
+    else console.log(`  tokens per ok: n=${u.SR.k} (suppressed)`);
+  }
+}

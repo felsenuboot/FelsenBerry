@@ -1,0 +1,15 @@
+{
+  "note": "Bot -> role map. Two consumers: runner.js falls back to this when --role is omitted (so idleguard/agenda still get a role and nobody hand-rolls a sed substitution), and metrics.mjs joins it to the telemetry ledger so rows can be grouped by role. Keys are the runner --name. Unknown bots simply get no role, which is not an error.",
+  "roles": {
+    "FurzFriedrich": "lumberjack",
+    "MettMarcel": "hunter",
+    "BuddelBernd": "miner",
+    "PflasterPeter": "builder",
+    "KloputzKarl": "farmer",
+    "SoloSauhund": "miner",
+    "LokalLothar": "builder",
+    "DiggyAshHole": "farmer",
+    "SchisserSiegbert": "builder",
+    "HuettenHorst": "builder"
+  }
+}
