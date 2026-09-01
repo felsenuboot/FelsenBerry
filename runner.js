@@ -305,7 +305,8 @@ async function applyPayloadStack(bot) {
         // producer, because acquire-by-producing runs through it and #41's whole point was
         // that a run must be attributable to its WHOLE stack, not just skills. Omitting it
         // would leave the one payload the self-sufficiency claim depends on unattributable.
-        reachguard: ver(globalThis.__reachguard), producer: ver(globalThis.__producer), role: ROLE,
+        reachguard: ver(globalThis.__reachguard), producer: ver(globalThis.__producer),
+        digchain: ver(globalThis.__digchain), role: ROLE,
       });
     }
   } catch (_) {}
@@ -628,6 +629,7 @@ const server = http.createServer(async (req, res) => {
         digguard: ver(globalThis.__digguard),
         toolguard: ver(globalThis.__toolguard),
         agenda: ver(globalThis.__agenda),
+        digchain: ver(globalThis.__digchain),
         // producer carries __skills.produce and the `produce` skill, which the agenda's
         // RESTOCK rung depends on for acquire-by-producing. It was auto-injected but not
         // REPORTED, so "is produce installed" needed an /eval — exactly the gap this map

@@ -26,6 +26,21 @@ need('__agenda installed', globalThis.__agenda && globalThis.__agenda.enabled !=
   globalThis.__agenda ? 'v' + globalThis.__agenda.version : 'MISSING');
 need('__digguard installed (producer consults it)', Boolean(globalThis.__digguard),
   globalThis.__digguard ? 'v' + globalThis.__digguard.version : 'MISSING');
+// The dig guards register into digchain rather than wrapping bot.dig themselves (#55), so a
+// missing coordinator means they are NOT INSTALLED — silently, on bots that protect a real
+// base. Each guard raises `chainMissing` when it finds no chain to register into; assert both
+// that the coordinator is present and that nobody reported giving up.
+const chain = globalThis.__digchain;
+need('__digchain installed (the guards register into it)', Boolean(chain),
+  chain ? 'v' + chain.version : 'MISSING');
+if (chain) {
+  need('dig guards actually registered', Boolean(chain.guards && chain.guards.size > 0),
+    chain.order ? chain.order.join(' -> ') : 'registry empty');
+}
+const abandoned = ['__digguard', '__toolguard', '__reachguard']
+  .filter((n) => globalThis[n] && globalThis[n].chainMissing).map((n) => n.slice(2));
+need('no guard gave up for want of a chain', abandoned.length === 0,
+  abandoned.length ? abandoned.join(', ') + ' reported chainMissing' : 'none');
 // A reconnect builds a fresh bot object while globals survive, so a payload can be
 // present-but-dead. Anything stale here is bound to a discarded bot and must be re-injected.
 const stale = Object.entries(globalThis.__payloads || {}).filter(([, v]) => v && v.stale).map(([k]) => k);
