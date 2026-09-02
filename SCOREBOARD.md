@@ -300,6 +300,16 @@ Known-failure branch plans (act within the 60s detection SLO, don't wait for a p
 - **Tool breaking** (`tool_low` warning in status/log): no action needed, TOOL rung reacquires automatically; just don't be surprised by a brief PROJECT pause.
 - **IDLE rung while a project exists and tiers remain**: per team-lead's doctrine, this is ALWAYS an alarm, never "still working" — check `agenda.blocked` and the bot's log tail immediately, don't wait out a poll cycle.
 - **DEAD RACE = DEAD STOP** (Felix's law, see above): position flat + inventory flat + no yield for 5 straight minutes with a diagnosed cause and no legal recovery = conclude the run yourself, immediately, DNF-with-cause. No lead approval needed. This is the backstop for the sealed-pocket branch and any other dead end the plan above didn't anticipate.
+- **Zero-defense combination — filler low + melee threat present** (added for run #4, team-lead
+  advisory 2026-09-02, `#96` field-confirmed fatal — this is exactly what killed RotzRudi 3x in run
+  #3): `WALL_OFF` needs filler blocks (cobble/dirt) to actually seal; without them it can only run,
+  not defend. A design fix is in progress but will **NOT** be aboard this racer. Treat "filler
+  count low (check via a read-only kit/inventory glance when HP drops or a melee mob is reported in
+  status) + a melee threat present" as an EARLY WARNING, before HP gates close — a legal
+  `setProject` toward disengagement (`come` toward home/open ground, away from the threat) beats any
+  reaction after HP is already critical. If the racer dies to this exact chain anyway, the
+  attribution is pre-written (see run #3's writeup) and the run still measures everything else —
+  don't let one melee death read as a mystery.
 
 **Green-light criteria for run #2 (updated per team-lead 2026-09-02):** the gate itself (`#45`)
 is already fine and does NOT need to be part of the gate. What run #2 actually needs landed first:
@@ -503,3 +513,668 @@ Steering calls: 10 (7 setProject, 3 other /eval). Deaths: 0.
 
 DNF context (stone_pickaxe): `[+4692s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4754s] [Not Secure] <FrischFriedhelm> failed: collectDrops — health 3.0 <= guard`; `[+4754s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4816s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4877s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4939s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`
 
+### Run #3 — RotzRudi, 127.0.0.1:25600 (`world-race3`, fresh, same seed) — LIVE, the Direction Episodes era
+
+Both green-light gates cleared before launch: `#92` heal-deadlock fix (survival v6, WALL_OFF now
+exits on threat-clear AND (healed OR cannot-heal)) and soak #2's formal Direction Episodes Phase-3
+acceptance verdict. Prep executed in order: (1) self-verified via `./list.sh` + `server.log` +
+`pids/` that `KrachKuddel` (engine-dev's `#54` walk-execution specimen) was already disconnected
+(19:31:12) with no live pid/`.port` file — messaged engine-dev to confirm/object rather than
+blocking on a reply, per the launch checklist's own "if not, verify and message them" branch; (2)
+graceful `SIGTERM` on the `world-race2` java process (level.dat saved 19:32, confirmed clean),
+`level-name` swapped to `world-race3` in `server.properties`, relaunched — fresh world regenerated
+in 2.151s, seed re-verified unchanged (`felcrewtest`); `world-race2` stays on disk as an ARCHIVE,
+never deleted (still carries engine-dev's staked `#54` wedge geometry (2,101,2) and run #2's
+WALL_OFF site (-77.5,112,-21.5)); (3) fresh never-used name `RotzRudi` (checked against every
+`pids/*.meta`, both usercaches, and `logs/*.log` before spawn), spawned with
+`OWNER=test-driver PURPOSE="gear-race run #3, world-race3, Direction-Episodes era"` env vars,
+`./list.sh` run before and after to confirm the roster.
+
+**Format note for this era**: the fleet decider daemon (`decider.js`, rules.json first,
+Andy/Ollama on a miss) is running and serves this racer too — intended, not a violation of the
+role-less design; per team-lead, `#88` (role:null food-routing gap) formally closes when a race
+proves the decider feeds a role-less bot end to end. Any dispatch the decider makes (visible in
+`logs/decider.log` as `RotzRudi: rule|llm decision for '<trigger>' -> <skill>`) is ENGINE
+attribution, not a driver steering call; only my own `setProject` calls count against the
+autonomy metric.
+
+Engine versions at run start: skills **v58**, agenda **v24** (one point newer than the v23
+expected in the launch brief — live engine motion, not a concern), dangerscan v5, survival **v6**
+(carries the `#92` fix for the first time in any race run), digguard v5, toolguard v2, producer
+v7, digchain v1, graychat v5, reachguard v1 (idleguard off, panicguard off — both subsumed).
+Bot confirmed empty/never-used before spawn.
+
+| Tier | Time from join | Notes |
+|---|---|---|
+| Join | T+0 (19:33:36) | fresh spawn, empty inventory confirmed, position (7.5, 96, 2.5), health 20/20, food 20/20, role:null (race-format default) |
+| Wooden pickaxe | T+3m42s (19:37:18) | `Tool ready: wooden_pickaxe (crafted)` — clean, no failed attempts logged. Slower than run #1's 1m00s but well inside normal variance (run #0 took 6m19s under a contaminated track). Bot healthy (20/20 hp+food) moving into RESTOCK for the underground kit tier. |
+| Stone pickaxe | pending | — |
+| Iron pickaxe | pending | — |
+| Diamond pickaxe | pending | — |
+
+Steering calls: 1 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+19:33:58 (one earlier call at 19:33:5x used the wrong call shape, `setProject(bot, spec)` instead
+of `setProject(spec)`, and returned a clean validation error with zero effect on the bot — not
+counted as a real steering decision, footnoted here for an honest tally). Deaths: 0. Race book
+branches armed (food-shortfall -> huntAnimals-with-repeat if the decider hasn't already routed it,
+barren-search reposition, DEAD RACE = DEAD STOP backstop at 5 dead minutes). Monitor armed: 15s
+`/state` poll for IDLE-while-project-set, `direction.state==='needs_direction'`, kit `blocked`,
+and low-HP, plus a real-time `server.log` tail for every RotzRudi chat/death/advancement line.
+Baselines to beat: run #1 (v50) wood 1m00s/DNF-stone, run #2 (v55) wood-only/DNF heal-deadlock (6
+calls). Watching for: fauna-scarce spawn on this seed (measured twice already), and whether the
+decider closes `#88` for real this time.
+
+### Run (auto) — 2026-09-02 18:03 — RotzRudi, /home/felix/minecraft/localserver-race
+
+Generated by `bench/gearrace.mjs`. Engine versions: engine version unknown (bot not reachable for GET /state). Run may still be in progress at generation time.
+
+| Tier | Time from join | Source |
+|---|---|---|
+| Wooden pickaxe | 3m42s | log:Tool ready |
+| Stone pickaxe | DNF | DNF -- see notes below |
+| Iron pickaxe | DNF | DNF |
+| Diamond pickaxe | DNF | DNF |
+
+Steering calls: 19 (4 setProject, 15 other /eval). Deaths: 3.
+
+DNF context (stone_pickaxe): `[+790s] [Not Secure] <RotzRudi> HP 20/20 - breaking off, running for base.`; `[+797s] [Not Secure] <RotzRudi> No cobble to wall in with. Kit rule broken - heading out the way I came.`; `[+800s] [Not Secure] <RotzRudi> HP 20/20 - breaking off, running for base.`; `[+807s] [Not Secure] <RotzRudi> No cobble to wall in with. Kit rule broken - heading out the way I came.`; `[+809s] [Not Secure] <RotzRudi> failed: collectDrops — health 0.7 <= guard`; `[+812s] [Not Secure] <RotzRudi> HP 20/20 - breaking off, running for base.`
+
+**OFFICIAL CONCLUSION — DEAD RACE = DEAD STOP invoked by test-driver, 2026-09-02 ~20:02, no
+lead approval sought per the law's own terms.** Position and inventory were both completely flat
+for ~19 minutes (19:42:51 last yield to ~20:02 conclusion), a diagnosed cause was in hand, and no
+legal (`setProject`-only) recovery path existed — all three preconditions met.
+
+**Cause chain (a NEW wedge, distinct from OhneHoseOtto's underground sealed-pocket case):**
+(1) During the kit self-provisioning phase the bot's own chopping/mining near spawn evidently
+disturbed the ground at the true world-spawn coordinate (the original join point, (7.5,96,2.5)).
+(2) A skeleton/zombie burst at 19:46:23 dropped HP to 9, triggered `WALL_OFF`, which immediately
+hit `kit_violation: no filler blocks for wall-off` (zero cobblestone carried despite 24 having
+been mined earlier — see open question below) and could only flee, not seal. Three deaths to
+Zombie followed within 28 seconds (19:46:37/54, 19:47:05) — **vanilla drops the full inventory on
+death, so each of the 3 deaths stripped tools/torches/sticks/cobblestone; by the 3rd death the bag
+was completely empty and stayed that way for the rest of the run** (confirmed via
+`bot.inventory.items()`, a read-only `/eval`). (3) Because the original spawn was seemingly no
+longer valid, the server relocated the respawn point to (-2.5,109,{2.5→4.4)) — **a single isolated
+`acacia_leaves` block floating in open air**, confirmed via a read-only vertical `blockAt` scan:
+air for 5 blocks straight down to the nearest ground (short_grass at y≈103). The fleet's default
+pathfinder `Movements` caps a single drop at `maxDropDown:3`; a bare 5-6 block fall with nothing to
+land on partway and zero inventory to bridge/tower with is **outside every legal skill's reach** —
+`chopTrees`, `mineLane`, and a driver-issued `come{x:0,y:103,z:4}` all confirmed unable to move the
+bot one block from this spot. (4) The spot is also permanently dark (`light:0` despite
+`skyLight:14` — no torches, ever) and evidently mob-attractive: `__skills.status`'s log showed a
+chain of zombie/creeper `panic_enter` events at this exact position, and at the moment of
+conclusion a **creeper sitting 3.3-3.5 blocks away (unable to path up onto the platform, but
+visible to `dangerscan` through the gap) kept `danger.state` pinned at `"panic"` continuously**,
+which appears to hold `REFLEX` from ever handing control back to `PROJECT` — every project set
+after the 3rd death (`chopTrees` x3 via decider, `mineLane` and `come` via me) sat with `task:null`
+indefinitely rather than actually attempting a move.
+
+**Decider behavior, separately worth noting (not the root cause, but a real gap):** the decider
+answered every `project_stalled`/`unproductive_idle` episode promptly (not the `#95` give-up
+pattern — no unmapped-Andy-reply strikes, no rot) but re-dispatched the **identical**
+`chopTrees{types:['oak'],maxDist:32}` three times in a row from a position that never moved,
+rather than repositioning after the first repeat failure — exactly the "barren search, reposition
+before re-trying" branch the race book reserves for a driver, because nothing in the decider's
+current logic seems to check "did my last dispatch of this exact skill+args also fail from this
+exact position." Filed as a proposed engine gate below, distinct from `#95`.
+
+**Self-flagged call accounting (per the standing `/eval` ruling — self-flagging before the audit
+finds it):** of the 15 non-`setProject` `/eval` calls the ledger recorded, **5 are mine**, all
+pure reads with zero mutation: `bot.inventory.items()` enumeration, two `bot.blockAt` terrain
+scans (6-direction + vertical column), one read of `__agenda`'s own `{rung,project,blocked,role}`
+fields, and one no-op snapshot probe that returned `null`. **The remaining ~9-10 are the decider's
+own `dirDispatch`/registry-check calls**, which hit this bot's port over HTTP the same way a
+driver's would and so land in the same ledger — ENGINE attribution per this run's accounting
+rules, not steering. My real steering tally: **4 setProject calls** (1: opening `mineLane`, 2:
+re-arm `mineLane` after the full inventory wipe, 3: `come` reposition attempt) — plus the
+footnoted call-1 shape error from the opening, which also contains the substring `setProject` and
+so is counted in the ledger's "4" but had zero effect on the bot.
+
+**Final table: wooden pickaxe only, T+3m42s (19:37:18). Stone/iron/diamond pickaxe: DNF —
+stranded-on-an-elevated-isolated-platform, not resource-scarcity or heal-deadlock.** Deaths: 3.
+Total run time to conclusion: ~28m30s of the 90-min cap (of which ~19 consecutive minutes were
+provably dead). Baselines: beats run #2 on deaths avoided at the fatal moment (0 additional deaths
+after my intervention attempts, since none of my 4 setProject calls put the bot back in harm's
+way) but is a clear regression on wall-clock vs run #1's DNF-at-stone (that run reached 40+ minutes
+of real mining before its dead end; this run lost the back half of its life to a spawn-relocation
+accident within the first 15 minutes).
+
+**Proposed engine work (FEEDBACK.md + GitHub, engine-dev/-3 lanes):**
+1. A generic "stuck with no legal path, not necessarily underground" detector/recovery — the
+   existing ESCAPE rung (v21) is scoped to underground sealed pockets; this case is a surface/
+   elevated isolated-platform trap the same rung doesn't currently catch. Possible shape: if N
+   consecutive project attempts across ANY skill produce zero position delta and zero task start,
+   promote to ESCAPE regardless of y-level or `surfaceExposed`.
+2. Decider retry logic should track "did this exact skill+args already fail from this exact
+   position" and reposition (or escalate to a driver/needs_direction with a distinct `why`) rather
+   than re-issuing an identical dispatch a 2nd/3rd time.
+3. `danger.state` staying pinned at `"panic"` against a threat that cannot path to the bot (the
+   creeper 3+ blocks below an isolated platform) blocks `REFLEX` from releasing control
+   indefinitely — worth a reachability check before a live-but-unreachable threat holds the ladder
+   hostage. Possibly related: `danger.state` read `"panic"` at score 2.59, below the documented
+   `>=5` panic threshold in DRIVER_GUIDE.md — worth reconciling live behavior against the doc.
+4. **Open question, not yet answered**: why did the bot have zero cobblestone for WALL_OFF at
+   19:46:34 when 24 cobblestone had been mined at 19:42:09 and no `Produced`/craft/deposit line
+   consumed it in between? Either it was spent on something not logged, or there's a separate
+   inventory-accounting gap. Flagging rather than guessing.
+
+`RotzRudi` process left running (not stopped) — offered to engine-dev-3 as a live specimen for
+building the missing surface/elevated-platform escape capability, the same pattern used for
+OhneHoseOtto's underground case. World-race3 stays up; no new race run starts on this server until
+that's resolved or declined.
+
+## Cross-run retrospective (runs #0-#4 comparable, run #5 suspended, test-driver, 2026-09-02)
+
+Written at team-lead's request, originally on the ruling that held run #4 for three gates (#97's
+paralysis fix, survival v7 aboard, the cobble-vanish mystery explained) — all three cleared (the
+paralysis gate amended to the REFLEX-release half alone) and run #4 launched, then concluded in
+~7 minutes on a new, more severe bug. Updated in place rather than left stale. Purpose: give Felix
+one place to judge the whole benchmark program, not just the latest run.
+
+**Run-count note (added after run #5's operator wind-down)**: run #5 (BruzzelBruno, `world-race5`)
+is deliberately EXCLUDED from the comparison table and tally below — it was suspended by an
+operator wind-down mid-run, not concluded by a diagnosed cause, so it carries no DNF cause and no
+real survival-time to compare against runs #1-#4. Its full state-at-stop is recorded as a footnote
+at the end of the run log above (reached wooden pickaxe T+7m25s, first live confirmation that both
+the `#96` zero-defense floor and `#97`'s frozen-repeat dedup fix work as designed, one organic
+combat death). The wall tally below still reads **0 of 4**, not 5 — run #5 neither broke the wall
+nor extended the failure catalog, it was stopped before either could happen.
+
+### Comparison table
+
+| | Run #0 (shakedown) | Run #1 (baseline) | Run #2 | Run #3 | Run #4 |
+|---|---|---|---|---|---|
+| Bot / world | NacktNorbert / shared `localserver` (contaminated) | OhneHoseOtto / `world-race` | FrischFriedhelm / `world-race2` | RotzRudi / `world-race3` | SabberSepp / `world-race4` |
+| Engine at start | skills v48→v50 mid-run, agenda v19 | skills v50, agenda v19 | skills v55, agenda v22, producer v7 | skills v58, agenda v24, survival v6, producer v7, decider.js live (1st race) | skills v59, agenda v25, **survival v8** (carries `#94` + `#97` finding-3 fixes) |
+| Wooden pickaxe | T+6m19s (contaminated track — 2 failed searches) | **T+1m00s** (clean) | T+2m17s (clean) | T+3m42s (clean) | **T+59s** (clean — fastest ever, tied with run #1) |
+| Stone/iron/diamond | not reached (stopped on purpose, still working) | DNF — never reached | DNF — never reached | DNF — never reached | DNF — never reached |
+| DNF cause | n/a (no-loiter stop, not a dead end) | food-routing gap + terminal entombment (sealed pocket, y89) | WALL_OFF heal-deadlock (`#92`, 26 cycles/25m44s at 3 HP) | elevated isolated-platform stranding + REFLEX pinned by unreachable threat (`#97`) | **threat-independent panic thrash** — standalone HP<8 entry re-fires forever with zero mob involvement (`#99`, new, no freak geometry needed) |
+| Real time to conclusion | 58m26s (deliberately stopped, not dead) | ~43 min | **~80 min** (longest-lived) | ~28.5 min | **~7 min** (shortest-lived by far) |
+| Steering calls (ledger) | 5 setProject + 2 read-only (hand-tally corrected twice) | 7 setProject, 0 other (hand-tally undercounted by 1, corrected) | 7 setProject + 3 other = 10 total (hand-tally said "6," never reconciled until this retro) | 4 setProject + 15 other = 19 total (self-flagged live) | **2 setProject + 5 other = 7 total**, both setProject calls objectively correct, neither able to outrun the bug |
+| Deaths | 5 (all RCON, non-organic, exonerated) | 0 | 0 (survival kept it alive — arguably worse, see below) | 3 (all organic, Zombie) | 1 (Zombie, T+29s — the trigger, not the cause) |
+| Findings logged | 5 | 5 | 5 | 4 | 1 (but a severe one) |
+| Live specimen handed off | no | **yes — OhneHoseOtto, resolved same day** (`#89` closed) | no | **yes — RotzRudi**, `#97` finding 3 fixed+verified same day, wound down clean | **yes — SabberSepp, still live and thrashing**, handed to engine-dev (lane-corrected from an initial eng-3 offer) as the entry-gate half of their in-progress `#96` fix |
+| GitHub issue | (pre-dates per-run issue filing) | `#89` | `#92`, `#94` | `#97` | `#99` |
+
+### What each run's DNF forced the engine to build
+
+- **Run #0 → #1 window**: nothing shipped from #0 alone (it was a shakedown), but it independently
+  corroborated the food/kit deadlock and the `harvestGrass` non-resumable-skill footgun that run #1
+  hit again for real — first sighting, not first fix.
+- **Run #1 → #2 window** (same-day turnaround): `producer.js` v7 fixed the unbounded horizontal
+  cobblestone-search wander that actually caused Otto's entombment (my own WALL_OFF theory was
+  wrong — eng-3's `/eval` forensics found the real cause). `ascendToSurface` (skills v55) + the
+  ESCAPE agenda rung (v21) were built from nothing and live-verified by walking Otto out
+  (y89→y102, ~65s) — a capability the engine simply did not have before this run manufactured the
+  specimen to build it against. `#89` closed same day.
+- **Run #2 → #3 window**: survival v6 shipped fixing `#92` (WALL_OFF now exits on threat-clear AND
+  (healed OR cannot-heal), instead of looping forever at low HP with no food path) — soak-tested
+  and formally accepted (Direction Episodes Phase-3) before the green light. The decider daemon
+  (`decider.js`) went live fleet-wide for the first time, feeding a role-less racer for the first
+  time (the `#88` closing condition).
+- **Run #3 → #4 window**: all three of team-lead's gates cleared, though the paralysis gate was
+  explicitly amended down to its REFLEX-release half — eng-3 shipped and live-verified a fix
+  requiring a sustained idle-panic window AND zero health loss before `REFLEX` stands down, while
+  the generalized surface-stranding escape (finding 1) was deliberately left open as ongoing
+  engineering rather than a race gate, on team-lead's reasoning that holding races hostage to every
+  open issue inverts the benchmark's purpose. Survival v8 (carrying both `#94`'s corner-step fix and
+  the `#97` finding-3 fix) landed in time for run #4's spawn. The cobble-vanish mystery got its named
+  cause: ~2 real `WALL_OFF` seal attempts earlier in the same run #3 encounter legitimately consumed
+  it, confirmed independently by two engineers from the ledger — no inventory leak, race records
+  stay trustworthy.
+- **Run #4 → #5 window (in progress)**: run #4 surfaced `#99`, a NEW bug worse in scope than `#97` —
+  survival's standalone `HP < 8` entry condition re-fires indefinitely with zero mob involvement
+  once food drops below the 18-point regen floor and no cobblestone is on hand, and because
+  `panic_enter` cancels the active task every cycle, not even the objectively-correct driver
+  response (`huntAnimals`) could survive long enough to fix the trigger. Team-lead redirected the
+  fix to engine-dev (not eng-3 — survival.js is engine-dev's lane), since `#96` (the zero-defense
+  routing gap `#97` first exposed in run #3) and `#99` turn out to be the same code region: `#99` is
+  the entry-gate half of the combined fix engine-dev is now building. Run #5 holds for that combined
+  fix to land.
+
+### The recurring measurement bug, across three separate runs
+
+The exact same mistake — a real-time hand tally of `setProject` calls undercounting the ledger's
+true count by one — happened in **run #0** (corrected 3→…→5), **run #1** (corrected 6→7, caught by
+engine-dev's ledger audit), and **run #2** (hand-tally recorded "6," and `bench/gearrace.mjs`'s own
+auto-generated block four lines below it in this very file shows 7 setProject + 3 other = 10 —
+**a discrepancy this retrospective is the first to point out; run #2's record was never
+reconciled**). Only in **run #3** was the ledger treated as ground truth from the start, with the
+driver's own contribution stated as a self-flagged subset (4 of 19 calls) rather than a competing
+count. That is a genuine, measurable improvement in this program's own discipline, independent of
+anything the bots did — three strikes were needed before the lesson ("hand-counting while also
+driving and diagnosing is exactly the kind of bookkeeping an instrument should own," first written
+after run #1) actually stuck in practice.
+
+### The honest trend line
+
+**Tier progress is flat, not declining: 0 of 4 comparable runs have ever reached the stone
+pickaxe.** Every run stalls at the exact same structural transition — leaving the safety of the
+initial wood/tool bootstrap for the first excursion or underground project, where kit gates,
+threat response, and inventory interact in ways the wood-tier bootstrap never exercises. Each run
+has found a **genuinely different** way to die there: an unroutable food shortfall compounded by a
+sealed pocket (run #1), a heal-deadlock with no can-I-actually-heal check (run #2), a death cascade
+into a respawn-point relocation accident with no legal recovery skill (run #3), and now a
+threat-independent internal panic loop that no legal driver action could outrun (run #4). That is
+"dying differently," not "dying deeper" — the tier needle has not moved, but the failure catalog
+keeps growing, and every entry in it has shipped (or is actively shipping) a real, tested fix.
+**Survival time to the fatal event is not trending either — it is noisy and scenario-dependent**
+(43 min, then 80 min, then 28.5 min, then **7 min** for run #4) — run #4's near-instant DNF isn't a
+regression in engine quality, it's a bug that happens to strike earlier the closer to spawn a bot
+takes any damage at all, which is structurally almost immediate.
+
+**The one clean, unambiguous bright number, and team-lead's framing for it**: wood-tier bootstrap
+keeps getting FASTER even as survival's edge cases keep getting caught earlier and earlier — run #4
+hit the wooden pickaxe in **59 seconds**, tying run #1's clean baseline and beating every run in
+between (2m17s, 3m42s). The engine's core acquisition plumbing (gather → craft → equip, from a
+stone-cold empty inventory) is not just solid, it is still improving. **That contrast — the
+plumbing getting faster while survival's edge cases keep killing racers — is this program's current
+story**, not a simple pass/fail on tier progress. What IS trending cleanly on the process side:
+**driver steering calls that represent genuine indecision are dropping** (run #1 needed a human to
+manually invent the food→hunt branch from scratch; run #2 closed the same branch in under 5 minutes
+once known; run #3's decider closed 4 of 5 stall episodes with zero driver involvement; run #4 took
+exactly 2 steering calls total, both objectively correct for their moment — the ceiling on "how good
+can the decision be" was reached, and the run still died, because the bug lived below the layer any
+`setProject` call can reach) and **the fix-and-close loop is unbroken**: every DNF has produced a
+GitHub issue, and twice now (of two opportunities) a live specimen handoff has produced a new,
+load-bearing engine capability rather than just a bug report, with a third (`#99`/`#96`, engine-dev's
+combined fix) in progress right now. The benchmark is doing exactly what a good one should: it has
+never yet produced a diamond pickaxe, and it has never once failed to teach the engine something it
+didn't know before the run started — run #4 taught it something the other three hadn't even
+suggested was possible.
+
+
+
+### Run #4 — SabberSepp, 127.0.0.1:25600 (`world-race4`, fresh, same seed) — LIVE, green-lit after all three gates cleared
+
+Gates cleared per team-lead's ruling (amended same day): (a) REFLEX-release fix shipped and
+live-verified by engine-dev-3 (`#97` finding 3 — REFLEX now requires a sustained idle-panic window
+AND zero health loss during it before standing down; amended to satisfy the gate alone, the
+generalized surface-stranding escape stays open as ongoing engineering, not a race gate); (b)
+survival v8 aboard at spawn (carries `#94`'s corner-step fix, confirmed in payload versions below);
+(c) the cobble-vanish mystery traced and named — ~2 real WALL_OFF seal attempts earlier in the same
+encounter legitimately consumed it, independently confirmed by both engineers from the ledger, no
+inventory leak. Prep: `world-race3` server SIGTERM'd cleanly, `level-name` swapped to `world-race4`,
+restarted — fresh world in 2.376s, seed unchanged (`felcrewtest`); `world-race3` archived,
+never deleted. Fresh never-used name `SabberSepp` (checked against `pids/*.meta`, both usercaches,
+`logs/*.log`), spawned `OWNER=test-driver PURPOSE="gear-race run #4, world-race4, full current
+stack"`, `./list.sh` run before and after.
+
+**Known advisory going in, added to the race book same day**: `#96` field-confirmed fatal — melee
+attacker + HP<6 + no filler blocks = zero-defense routing gap (exactly what killed RotzRudi 3x in
+run #3). Fix in progress, NOT aboard this racer. Branch: treat low filler + melee threat present as
+an early warning and disengage proactively; if it kills this racer anyway, attribution is
+pre-written and the run still measures everything else.
+
+Engine versions at run start: skills **v59**, agenda **v25**, survival **v8** (carries `#94`
+corner-step fix and `#97` finding-3 REFLEX-release fix — first race run with both), dangerscan v5,
+digguard v5, toolguard v2, producer v7, digchain v1, graychat v5, reachguard v1 (idleguard off,
+panicguard off — both subsumed) — all exactly matching the expected v59/v25/v8 stack. Bot confirmed
+empty/never-used before spawn.
+
+| Tier | Time from join | Notes |
+|---|---|---|
+| Join | T+0 (20:29:34) | fresh spawn, empty inventory confirmed, position (-4.5, 105, -8.5), health 20/20, food 20/20, role:null |
+| Wooden pickaxe | T+59s (20:30:33) | `Tool ready: wooden_pickaxe (crafted)` — fastest bootstrap of any race run yet, DESPITE a zombie death at T+29s (20:30:03) mid-bootstrap. Kit was still empty at that point (`No cobble to wall in with` fired twice, 20:29:53 and 20:30:20) — exactly the `#96` zero-defense pattern, but this time survival's `#97`-fixed REFLEX held a clean recovery instead of chaining into repeat deaths. One death so far, HP stable at 7.67/20 post-respawn (food 17, one below the natural-regen threshold, so no change expected without eating), position holding — reads as the designed post-death REFLEX hold, not yet a stall (no direction episode opened, ticks climbing normally). Watching before considering any intervention; role this run is reduced by design. |
+| Stone pickaxe | pending | — |
+| Iron pickaxe | pending | — |
+| Diamond pickaxe | pending | — |
+
+Steering calls: 1 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+20:29:45, clean on the first attempt (no shape error this time). Deaths: 1 so far (Zombie, T+29s,
+kit-empty — the `#96` pattern firing before any tool even existed, earliest possible onset).
+Monitor armed: same 15s `/state` poll (IDLE-while-project-set, `needs_direction`, kit `blocked`,
+low-HP) plus real-time `server.log` tail for SabberSepp. Baselines to beat: run #1 (v50) wood
+1m00s/DNF-stone, run #2 (v55) wood-only/DNF heal-deadlock, run #3 (v58) wood 3m42s/DNF
+elevated-platform-stranding. Watching for: whether `#97`'s REFLEX fix holds up under a REAL early
+zombie encounter (not a stubbed test), and whether the `#96` zero-defense gap claims this racer too.
+
+### Run (auto) — 2026-09-02 18:36 — SabberSepp, /home/felix/minecraft/localserver-race
+
+Generated by `bench/gearrace.mjs`. Engine versions: engine version unknown (bot not reachable for GET /state). Run may still be in progress at generation time.
+
+| Tier | Time from join | Source |
+|---|---|---|
+| Wooden pickaxe | 0m59s | log:Tool ready |
+| Stone pickaxe | DNF | DNF -- see notes below |
+| Iron pickaxe | DNF | DNF |
+| Diamond pickaxe | DNF | DNF |
+
+Steering calls: 7 (2 setProject, 5 other /eval). Deaths: 1.
+
+DNF context (stone_pickaxe): `[+107s] [Not Secure] <SabberSepp> No cobble to wall in with. Kit rule broken - heading out the way I came.`; `[+167s] [Not Secure] <SabberSepp> No cobble to wall in with. Kit rule broken - heading out the way I came.`; `[+227s] [Not Secure] <SabberSepp> No cobble to wall in with. Kit rule broken - heading out the way I came.`; `[+229s] [Not Secure] <SabberSepp> failed: ensureTool — could not acquire sword: tier:payable:wooden_sword | depot:minerals:none | depot:wood:none | planks:3 | craft:no craft`; `[+287s] [Not Secure] <SabberSepp> No cobble to wall in with. Kit rule broken - heading out the way I came.`; `[+347s] [Not Secure] <SabberSepp> No cobble to wall in with. Kit rule broken - heading out the way I came.`
+
+
+**OFFICIAL CONCLUSION — DEAD RACE = DEAD STOP invoked by test-driver, 2026-09-02 ~20:36, no
+lead approval sought per the law's own terms.** Escalated to team-lead/engine-dev-3 as an urgent
+finding before formally concluding, since this appeared live-diagnosable and possibly fleet-wide
+in scope — not held back for the full 5-minute confirmation window once the cause was airtight.
+
+**Cause chain (new, more severe than run #3's `#97`, filed as `#97`'s neighbor `#99`):** (1) an
+early Zombie death at T+29s (20:30:03), before any kit existed at all — the earliest possible onset
+of the `#96` zero-defense pattern team-lead flagged going into this run. (2) Post-respawn, HP
+settled at 7.67/20 with food at 17 — one point below the 18 needed for natural regeneration — and
+zero cobblestone for `WALL_OFF`'s filler requirement. (3) From that point, `survival.js`'s
+standalone `HP < 8` panic-entry condition re-fired **continuously and indefinitely, with no mob
+involved at all** — confirmed directly from the log: `danger.score` 0, `danger.state` `"calm"`,
+`threats:[]`, and the line `"danger panic (0): no visible threat"` immediately followed by
+`"panic_enter (danger) hp=8 threat=no visible threat"`, repeating. `survival.fires` measured 395 at
+one check and 1107 roughly three minutes later — accelerating, not stabilizing. (4) Because
+`panic_enter` calls `stop()` on the active task at this frequency, **no task could ever run long
+enough to complete** — including the correct fix. I diagnosed this within the 60s SLO and issued
+`setProject(huntAnimals,{anyMob:true,radius:32,repeat:true})` — the textbook race-book response —
+and it DID work partially: `ensureTool` crafted a wooden sword and the bot moved for the first time
+since the loop began. But the hunt itself never completed a kill; every attempt got cancelled by
+the panic loop before it could finish, so food was never acquired and the trigger condition never
+cleared. **This is a genuine catch-22 with no legal `setProject`-only recovery**: the fix for the
+trigger (food, to eventually let hunger clear 18 and HP regen past 8) requires uninterrupted task
+time that the trigger itself continuously denies.
+
+**Final table: wooden pickaxe only, T+59s (20:30:33) — the fastest bootstrap of any race run yet,
+completed only moments after the death that triggered this entire incident.** Stone/iron/diamond:
+DNF. Deaths: 1. Total run time to conclusion: **~7 minutes** of the 90-min cap — by far the
+shortest-lived race yet, and unlike runs #1-#3 the DNF here has nothing to do with resource
+scarcity, geometry, or an unresolved combat encounter: it is a pure engine-internal loop that a
+perfectly-diagnosed, perfectly-timed, textbook-correct driver response could not outrun. **Steering
+calls: 2 (ledger-verified via `gearrace.mjs`)** — (1) opening `mineLane{target:stone,count:16}` at
+20:29:45, clean; (2) `huntAnimals{anyMob:true,radius:32,repeat:true}` redirect at ~20:33:41 the
+moment the `unproductive_idle` episode + my own diagnosis converged. Both calls were the objectively
+correct call for their moment; neither could have prevented or escaped the underlying bug. Ledger
+also recorded 5 non-`setProject` `/eval` calls — **2 are mine** (`task.sh status` reads, both purely
+diagnostic, zero mutation), the remainder attributable to the decider's own dispatch/registry-check
+traffic (it briefly tried `chopTrees` as its default idle-filler mid-incident, which — like
+`huntAnimals` — could never have completed either, for the same reason).
+
+**Filed as `felsenuboot/felcrew-mcp#99`**, distinct from but more severe in scope than `#97`: this
+bug needs no freak respawn geometry and no persistent attacker, only one early sub-8-HP hit with no
+food/cobble on hand, which is close to guaranteed at the very start of ANY fresh spawn — race bot or
+otherwise. Proposed fixes center on extending `#92`'s "cannot-heal" concept to also suppress
+**re-entry** into panic (not just enable exit), since this run never hung in one continuous
+`WALL_OFF` — it exited cleanly on every single cycle and immediately re-entered — plus a cooldown on
+`panic_enter` when the preceding diagnosis is unchanged, and a grace window for an already-legitimate
+in-flight recovery task (like a driver-issued `huntAnimals`) to actually finish.
+
+`SabberSepp` process left running (not stopped) — still actively thrashing at the moment of writing,
+offered to engine-dev-3 as a live, real-time-reproducing specimen (arguably a better diagnostic
+target than a quiet stranded bot, since the bug is happening continuously rather than needing to be
+provoked again). World-race4 stays up; no new race run starts on this server until `#99` is
+addressed or a considered decision is made to race around it.
+
+### Run #5 — BruzzelBruno, 127.0.0.1:25600 (`world-race5`, fresh, same seed) — LIVE, post-#96/#99 zero-defense floor
+
+Green-lit after the combined `#96`+`#99` fix landed and was confirmed live: survival **v9**
+(commit 5999820, "zero defense is no longer representable in pick()'s routing") — eng-3 diagnosed
+and fixed `#99`'s specific mechanism (WALL_OFF's no-filler bail never armed standdown), engine-dev
+shipped the combined fix folding both `#96` and `#99` into one change, and both were confirmed via
+git diff/grep plus live organic recovery on the `#99` specimen (SabberSepp: HP climbed off its
+7.67 floor back to double digits, food climbing, back to normal RESTOCK/chopTrees, no driver
+action). `SabberSepp` then stopped as part of this run's pre-launch `./list.sh` sweep — specimen
+duty done, no-loiter. Prep: `world-race4` server SIGTERM'd cleanly, `level-name` swapped to
+`world-race5`, restarted — fresh world in 3.852s, seed unchanged (`felcrewtest`); `world-race4`
+archived, never deleted. Fresh never-used name `BruzzelBruno` (checked against `pids/*.meta`, both
+usercaches, `logs/*.log`), spawned `OWNER=test-driver PURPOSE="gear-race run #5, world-race5,
+post-#96/#99-fix zero-defense floor"`, `./list.sh` run before and after.
+
+**Race book notes for this era (team-lead, 2026-09-02)**: the zero-defense floor is now real —
+`FIGHT_BACK` kills things, `FLEE_AWAY` is always available — so the panic-thrash (`#99`) and
+heal-deadlock (`#92`) failure classes should both be dead. One known noise pattern to NOT
+mistake for a new thrash: **`#100`**, post-victory `WALL_OFF` chat spam while HP regens after a
+fight is won — annoying, not lethal, self-resolves as HP climbs.
+
+**The wall to beat: no run has ever crafted a stone pickaxe.** Five predecessors (runs #1-#4) died
+at the wood→stone transition to five different causes, all five now fixed. If run #5 breaks the
+wall, it makes history; if it doesn't, the next cause gets a name (`#101`+).
+
+Engine versions at run start: skills **v59**, agenda **v25**, survival **v9** (first race run with
+the combined `#96`/`#99` fix), dangerscan v5, digguard v5, toolguard v2, producer v7, digchain v1,
+graychat v5, reachguard v1 (idleguard off, panicguard off — both subsumed) — all exactly matching
+the expected stack, no surprises. Bot confirmed empty/never-used before spawn.
+
+| Tier | Time from join | Notes |
+|---|---|---|
+| Join | T+0 (20:56:30) | fresh spawn, empty inventory confirmed, position (9.5, 90, -3.5), health 20/20, food 20/20, role:null |
+| Wooden pickaxe | pending | — |
+| Stone pickaxe | pending — **the wall** | — |
+| Iron pickaxe | pending | — |
+| Diamond pickaxe | pending | — |
+
+Steering calls: 1 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+20:56:42, clean on the first attempt. Deaths: 0 so far. Monitor armed: same 15s `/state` poll
+(IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus real-time `server.log` tail
+for BruzzelBruno, tuned to not mistake `#100`'s post-victory WALL_OFF chatter for a new thrash.
+Baselines to beat: run #1 (v50) wood 1m00s, run #2 (v55) wood-only, run #3 (v58) wood 3m42s, run #4
+(v59/survival v8) wood **T+59s** (the fastest-ever bar to match or beat) — all four DNF before
+stone. Watching for: whether the zero-defense floor actually holds under a real combat encounter,
+and whether this is the run that finally crosses the wood→stone wall.
+
+### Run (auto) — 2026-09-02 19:11 — BruzzelBruno, /home/felix/minecraft/localserver-race
+
+Generated by `bench/gearrace.mjs`. Engine versions: engine version unknown (bot not reachable for GET /state). Run may still be in progress at generation time.
+
+| Tier | Time from join | Source |
+|---|---|---|
+| Wooden pickaxe | 7m25s | log:Tool ready |
+| Stone pickaxe | DNF | DNF -- see notes below |
+| Iron pickaxe | DNF | DNF |
+| Diamond pickaxe | DNF | DNF |
+
+Steering calls: 4 (1 setProject, 3 other /eval). Deaths: 1.
+
+DNF context (stone_pickaxe): `[+640s] [Not Secure] <BruzzelBruno> Drop sweep done: picked up 5 drops.`; `[+661s] [Not Secure] <BruzzelBruno> Produced 16 stick (crafted).`; `[+747s] [Not Secure] <BruzzelBruno> No wall, no room to run clean - fighting back.`; `[+750s] [Not Secure] <BruzzelBruno> Nothing left to fight or wall off with - running for it.`; `[+767s] BruzzelBruno has made the advancement [Stone Age]`; `[+768s] [Not Secure] <BruzzelBruno> Walling myself in to patch up. Back shortly.`
+
+
+**OFFICIAL CONCLUSION — SUSPENDED, operator wind-down (Felix, via team-lead), 2026-09-02 ~21:11.
+NOT A DNF: no cause-of-death, no dead-end, no engine failure diagnosed — the run was still
+progressing normally when it was stopped from outside the race.** Recorded factually, state-at-stop
+only, per team-lead's explicit instruction that a suspended run is not comparable data and must
+never be read as a sixth entry in the wood→stone wall tally.
+
+**State at stop**: wooden pickaxe reached T+7m25s (21:03:55, clean, `Tool ready` log-confirmed and
+ledger-corroborated); wooden sword T+9m09s (21:05:39); kit self-provisioning underway (16 sticks
+produced, drop sweep clean) when a real combat encounter hit at ~T+12m27s (21:08:57) — the new
+`#96` zero-defense floor engaged for the first time in any race run: `FIGHT_BACK` (`"No wall, no
+room to run clean - fighting back."`), then `FLEE_AWAY` (`"Nothing left to fight or wall off with -
+running for it."`), then `WALL_OFF` (`"Walling myself in to patch up. Back shortly."`) — a full,
+working escalation ladder, not a single dead-end branch. **The bot still died** (Zombie, 21:09:21,
+one death total) despite every rung of the new floor firing correctly — worth recording plainly:
+the fix makes zero-defense representable and gives the bot real options, it does not make the bot
+unkillable, and this run's one death is a genuine, undiagnosed-as-a-bug combat loss, not evidence
+against `#96`. `Stone Age` advancement fired at 21:09:17 (wooden pickaxe used to mine stone,
+confirming real progress toward the stone tier moments before the fatal encounter). Post-death:
+clean respawn, HP/food full, agenda cleared to `IDLE`/no-project (same "death clears project"
+pattern as every prior run) and sat there — no re-arm was issued before the wind-down order arrived.
+**Notable engine moment, unprompted**: `#97`'s frozen-repeat dedup fix (the decider restart eng-3
+announced mid-run) fired for real for the first time — episode `dmtkgov381` (`project_stalled` on
+the opening `mineLane`, frozen at one position for 85+ seconds) closed via `dirClose(...,
+'frozen_repeat')` rather than repeating forever, and the project recovered and resumed making
+progress immediately after. Pure upside, exactly as advertised.
+
+**Ledger-verified (`gearrace.mjs`, labeled DNF by the tool's own vocabulary — read as SUSPENDED per
+the note above, not as a sixth wall attempt): wooden pickaxe 7m25s, stone/iron/diamond not reached
+at time of stop. Steering calls: 4 total, 1 `setProject`** (the opening `mineLane`) **+ 3 other
+`/eval`** — of these, likely **0-1 are mine** (a single read-only inventory check made right at
+wind-down time, which may or may not fall inside this snapshot's window) and the rest are the
+decider's own registry-check + the `dirClose` frozen-repeat fix described above — ENGINE
+attribution, not driver steering, per this era's accounting rules. **Deaths: 1** (Zombie, organic,
+zero-defense floor engaged correctly but did not prevent the loss).
+
+`BruzzelBruno` process stopped cleanly (confirmed via disconnect log + `/state` unreachable).
+World-race5 left as-is (not deleted, per the standing archive law) but the server itself was not
+separately torn down as part of this specific instruction — team-lead's wind-down covers the
+fleet broadly; flagging in case the race server also needs a stop as part of the wider order.
+
+**Retrospective note**: this run does NOT get a column in the runs #0-#4 comparison table above —
+a suspended run with no cause-of-death is not comparable data and would corrupt the DNF-cause /
+survival-time trend analysis. It is recorded here, in full, as a footnote to the program's history
+(and specifically as the first live confirmation that both the `#96` zero-defense floor and `#97`'s
+dedup fix work as designed), but the "0 of N runs have ever reached stone pickaxe" tally in the
+retrospective still reads **0 of 4** (runs #1-#4), not 5 — run #5 neither passed nor failed that
+test, it was called before the test could finish.
+
+### Race book v2 (test-driver, night shift, 2026-09-02) — supersedes v1 for run #6 onward
+
+Written during the night-shift hold, before run #6's green light, per team-lead's instruction to fold
+run #5's learnings in and sharpen the branch plans while there is time to think rather than react.
+v1 (above) stays intact as history — every past run's record still refers to what v1 said at the time
+it raced. v2 changes because the ground under it changed: two of v1's failure classes (`#96`
+zero-defense, `#100` post-victory spam) are now **proven fixed, live**, not just shipped; a third
+class (frozen-repeat dedup) turned out to need zero driver branch at all; and two NEW failure classes
+surfaced in soak #3 that neither v1 nor any prior race run ever saw, because they live in the exact
+kit-assembly phase every past run either sailed through cleanly or never got back to. This book is
+written for a run #6 that launches onto an ENGINE where both of tonight's incoming fixes have landed
+(the standing hold, unchanged) — the branches below are the fallback if a fix is incomplete or a
+same-shaped wedge slips past it, not an assumption that today's wall-causes are still fully open.
+
+**What run #5 actually proved, stated plainly:**
+- The `#96` zero-defense floor is a real, working escalation ladder under live combat, not a paper
+  fix: `FIGHT_BACK` → `FLEE_AWAY` → `WALL_OFF` all fired in sequence against a genuine zombie, each
+  handing off to the next rather than dead-ending. **The bot still died.** That is not a regression
+  or a hole in `#96` — it is the honest ceiling of "the bot can now always try something," which is a
+  different guarantee from "the bot now always survives." Run #6's branch plans below assume the
+  floor works and do not need a proactive-disengagement branch for it anymore (v1's old "filler low +
+  melee threat" early-warning branch is RETIRED, not deleted — see below).
+- `#100`'s predicate-keyed standdown (survival v10, landed and fixture-verified THIS session, after
+  run #5 concluded) should make the post-victory `WALL_OFF` chat-spam signature disappear entirely.
+  v1/run #5's framing of it as "noise to not mistake for a new thrash" is now the WRONG framing for
+  run #6 — if that spam reappears, treat it as a regression finding, not expected texture.
+- The decider's frozen-repeat dedup closed a genuinely frozen `mineLane` episode (`dmtkgov381`, 85+s
+  at one position) via `dirClose(..., 'frozen_repeat')` with **zero driver involvement**, and the
+  project resumed making progress right after. This needed no branch in v1 and needs none in v2 —
+  recorded here only so its absence from the branch list below isn't mistaken for an oversight.
+- New timing datum worth tracking going forward: wooden sword crafted at **T+9m09s**, about 3m18s
+  after the fatal encounter's zombie first engaged relative to... actually, precisely: sword at
+  T+9m09s (21:05:39), fatal encounter at T+12m27s (21:08:57) — roughly 3m18s of combat-readiness
+  before the test came. Not enough data points yet to say whether earlier sword acquisition
+  correlates with surviving the first real encounter, but run #6 should log this same timestamp so a
+  trend becomes checkable after 2-3 more comparable runs.
+- Suspended-run bookkeeping pattern (worth repeating if tonight ends the same way): state-at-stop
+  recorded in full, ledger numbers cross-checked against the driver's own tally, explicit "does NOT
+  get a column in the comparison table" footnote, tally language stays "0 of N" over the comparable
+  runs only. If run #6 is ever suspended rather than concluded, follow this exact shape again.
+
+**Trigger table** (unchanged in mechanics from v1 — reproduced here so v2 is a complete, standalone
+reference and a driver never has to flip back to v1 mid-race):
+
+| Trigger | Project to set | Notes |
+|---|---|---|
+| Spawn | `mineLane{target:'stone',count:16}` | bootstraps the wooden pickaxe from nothing; fastest-ever bar is run #4's T+59s |
+| Wooden pickaxe confirmed | no change — let it keep mining | stone pickaxe follows automatically once kit + cobblestone stack up; do not re-issue |
+| Stone pickaxe confirmed | `mineLane{target:'iron_ore',maxDist:48}` (safeDescend to y30 first if `not_found`) | never yet reached live — this row is still theoretical for this program |
+| Iron pickaxe confirmed | `safeDescend{toY:-30}` then `mineLane{target:'diamond_ore',maxDist:48}` | crosses into `deep` kit tier; expect a `kit_missing` pause while RESTOCK self-provisions |
+| Diamond pickaxe OR 90-min cap | STOP, record final table | `Tool ready: diamond_pickaxe` only — the `Isn't It Iron Pick?` mapping dispute is still unresolved, don't use it to call this |
+
+**Known-failure branch plans for run #6, in the order a driver is likely to meet them:**
+
+- **Food/kit refusal** — unchanged from v1, now largely a backstop rather than the primary path: the
+  decider handles this via `rules.json`/Andy for a role-less racer as of run #3 onward (closing
+  `#88`). Keep the manual fallback armed anyway — `setProject(huntAnimals{anyMob:true,radius:32,
+  repeat:true})`, falling back to `harvestGrass{repeat:true}` only if genuinely no fauna — in case
+  the decider is down or its dispatch is refused for this specific bot.
+- **Barren search** (2 identical `gather:X(0/N reached)`/`not_found` in a row) — unchanged: reposition
+  30-50 blocks before re-trying the same target, per the 60s SLO.
+- **Sealed pocket / no path** — unchanged: the ESCAPE rung (v21+) should auto-route an underground
+  path-blocked project to `ascendToSurface` now; two manual `come` attempts max before treating as
+  exhausted, same as v1.
+- **Tool breaking** — unchanged: no action, TOOL rung reacquires automatically.
+- **IDLE rung while a project exists and tiers remain** — unchanged: always an alarm, check
+  `agenda.blocked` and the log tail immediately.
+- **DEAD RACE = DEAD STOP** — unchanged, the universal backstop: 5 straight dead minutes (position
+  flat AND inventory flat AND no yield), diagnosed cause, no legal recovery path = conclude
+  immediately, no lead approval needed.
+- **Zero-defense combination (v1's melee-threat early-warning branch) — RETIRED for run #6.** `#96`
+  and `#100` are both proven live (run #5, this session's v10 fixture pass). A racer with low filler
+  and a melee threat present now has a real, working escalation ladder on its own; proactively
+  steering the bot away pre-empts survival's own designed response rather than complementing it. Do
+  not treat low-filler-plus-melee as an alarm requiring a driver `come` anymore — only intervene if
+  the ladder demonstrably fails to progress (WALL_OFF looping with no exit — itself now a `#100`
+  regression signal, see above) rather than on the mere combination existing.
+
+- **NEW — Combat-loss-at-night branch (argued, the team-lead's specific ask).** Run #5 died once,
+  organically, to a zombie, with the full `#96` ladder firing correctly and still losing. Post-death,
+  the record shows a real, load-bearing gap: clean respawn, HP/food full, but `agenda` cleared to
+  `IDLE`/no-project and **sat there** — nothing in the engine re-arms a project after death, and
+  vanilla drops the bot's full inventory on death (confirmed independently in run #3: three deaths,
+  three inventory wipes). A `/state` snapshot of a bot that died and was never re-armed looks
+  identical, at a glance, to one that is calmly waiting between two legitimate task phases — both
+  show `task:null`, `hp:20/20`, calm. That ambiguity is the actual danger, more than the death itself.
+  Argued response, in order:
+  1. **Detect the death precisely, don't infer it.** The server-log death line
+     (`<Bot> was slain by/shot by/blown up by ...`) is the primary, unambiguous signal — cross-check
+     against `/state` showing health/food freshly reset to 20/20 within the following ~5-10s (vanilla
+     respawn is near-instant), not the mere absence of a project, which is also the post-victory-calm
+     state and would false-positive constantly if used alone.
+  2. **Do not blindly re-issue the pre-death project.** Death likely erased the tool tier that
+     project assumed. Take one read-only inventory check (`list-inventory`, or `/state`'s inventory
+     summary if it carries one) to establish the ACTUAL current tier before deciding what to set.
+  3. **Default action: re-arm from the bottom**, exactly like a fresh spawn —
+     `mineLane{target:'stone',count:16}` — since the TOOL rung bootstraps wood regardless of what tier
+     the bot held a moment ago, and the inventory check will almost always show empty-handed after a
+     real death. Do not try to "resume" a stone/iron project the bot no longer has the tools to
+     pursue; that just re-triggers the same kit-gate refusals runs #1-#2 already catalogued.
+  4. **A corpse-recovery detour is a judgment call only, not the default.** Vanilla drops persist
+     briefly (5 min default) at the death coordinates. No skill in the registry today walks back to a
+     bot's own death location to loot it, and improvising one via a driver `come` costs race time for
+     an unconfirmed payoff (the drops may already be gone, or off the direct path back into the
+     bootstrap anyway). Only worth trying if the death coordinates are provably close (rough rule of
+     thumb: under ~15-20 blocks) to wherever the bot will naturally end up re-bootstrapping regardless
+     — otherwise, skip it and re-arm per step 3 immediately.
+  5. **Log the death-to-re-arm gap as its own timed interval**, the same discipline already applied to
+     idle-gaps and episode latencies elsewhere in this file — this makes post-death recovery latency a
+     real, comparable number across future runs instead of an unrecorded artifact buried in a death
+     count.
+  6. **Flag the underlying gap, don't just patch around it every time.** Unlike food-routing (`#88`,
+     closed via the decider) or frozen-repeat (closed via `dirClose`), there is no engine-side
+     auto-recovery today for "agenda went IDLE with no project shortly after a death line." **Filed as
+     `felsenuboot/felcrew-mcp#103`** (test-driver, night shift): a death/respawn is the purest possible
+     `needs_direction` moment there is (the payload-stack re-run on respawn — `runner.js`'s own
+     `bot.on('spawn')`/`bot.on('death')` hooks — already clears the project directly, not inferred),
+     so the proposed fix is a new episode `why` (e.g. `respawned`) opened right from that hook,
+     alongside `project_done`/`project_blocked`/`no_tool`/`unproductive_idle`/`project_stalled`, rather
+     than waiting for the slow generic idle window to eventually notice. Same fix shape as `#88`,
+     applied to death instead of hunger. Owner: agenda.js lane (engine-dev-3), later — this manual
+     branch stays armed for run #6 regardless of when it lands.
+
+- **NEW — Wood→stone transition plan against the wall (argued).** The wall (0 of 4 comparable runs
+  have ever reached stone) has never been broken by resource scarcity, heal-deadlock, or
+  threat-independent panic anymore — every previously-named cause at this exact transition is fixed
+  (`#88`, `#92`, `#96`, `#97` partial, `#99`, `#100`). Two NEW candidate causes are live as of
+  tonight's soak #3 (1.5% success rate, `wedge:89` of 271 outcomes, in precisely this kit-assembly
+  phase) and are what tonight's fix wave targets before run #6 launches:
+  1. **Standard open, unchanged**: `mineLane{target:'stone',count:16}` at spawn; let RESTOCK/TOOL
+     self-provision without interference. Normal `kit_missing` narrowing, spare-pickaxe crafts, and
+     torch production are the SAME early phase every prior run passed cleanly — not a trigger.
+  2. **WATCH signature — table-placement wedge (`#101` shape).** Log/status text matching `craft:no
+     crafting table in reach and could not place one (already holding one — not re-crafting)`,
+     repeating more than twice from an UNCHANGED position, is a placement problem, not a search
+     problem — no `setProject` retries the identical action differently. Legal lever: `come` 20-30
+     blocks off in any open direction, forcing RESTOCK to re-enter from new terrain and giving
+     `placeCarriedTable`'s candidate search (already confirmed clean by read-only replay in
+     FEEDBACK.md) a genuinely different floor to try. **If tonight's fix is aboard at launch, this
+     signature should not appear at all** — if it does anyway, flag it to engine-dev immediately as a
+     fix-didn't-cover-it finding, not a routine branch execution.
+  3. **WATCH signature — frozen movement wedge (R2 shape).** Position genuinely flat (zero net
+     displacement, not "retrying near a point") for 60-90+ seconds while `agenda` still reports a live
+     project (not `IDLE`) is the early tell — this is what soak #3's `recoveries:0`-for-an-hour looks
+     like from `/state` alone. Do not wait for the 5-minute DEAD RACE threshold to act: one `come` to
+     a coordinate 15-25 blocks off, in an open, previously-unvisited direction, is a cheap, legal first
+     attempt. The historical natural firing (documented in FEEDBACK.md) shows genuine displacement,
+     however small, is what let a fresh A* finally find a route after 9+ minutes of in-place failures
+     — a driver-forced reposition may substitute for R2's own internal retries faster than waiting them
+     out. If position stays flat even after the driver's own `come`, that meets DEAD RACE = DEAD
+     STOP's diagnosed-cause bar — cite the R2 wedge by name; it is a documented, named failure mode
+     now, not a mystery requiring a fresh investigation before concluding.
+  4. **Tier-cross confirmation**: `Tool ready: stone_pickaxe` or `Getting an Upgrade` is the
+     tier-clearing signal, unchanged from v1. The moment either fires is the first stone pickaxe in
+     this program's history — record the exact timestamp, full engine version stamp, and steering-call
+     tally to that point as its own headline entry before continuing toward iron, regardless of how
+     the rest of the run goes.
+
+**Pre-launch checklist for run #6 (unchanged shape from v1, gates updated):** (1) confirm with
+engine-dev-3 that the R2-wedge fix has landed and been verified, not just committed; (2) confirm with
+engine-dev that `#101`'s craftToolChain fix has landed; (3) confirm soak #4's verdict is non-catastrophic
+(or that team-lead has explicitly waived it) — do not launch into an un-soaked engine without that
+explicit sign-off; (4) swap `localserver-race/server.properties`'s `level-name` to `world-race6`
+(fresh, never-used) and restart 25600 (~60-90s regen), leaving `world-race5` on disk as an archive per
+the standing law; (5) fresh never-used bot name, `OWNER=test-driver PURPOSE=...` env vars, `./list.sh`
+before and after spawn, `gearrace.mjs` as recorder of record from the start. Nothing on this list is
+done yet — standing by for team-lead's green light.

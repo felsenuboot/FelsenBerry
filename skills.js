@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 60;
+const ENGINE_VERSION = 61;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -3411,7 +3411,7 @@ S.define('collectDrops', {
 S.define('chopTrees', {
   kit: 'excursion',
   tool: 'axe',
-  description: 'Fell whole trees (flood-filled connected logs, bottom-up), collect all drops, replant saplings when held.',
+  description: 'Fell whole trees (flood-filled connected logs, bottom-up, plus the leaf canopy — no floating half-trees), collect all drops, replant saplings when held.',
   params: { types: "'any' or array of species (oak, spruce, birch, jungle, acacia, dark_oak, cherry, pale_oak, mangrove)", count: 'trees to fell (default 1)', maxDist: 'search radius (default 64)', replant: 'bool (default true)' },
   validate: (a) => {
     let types = a.types || 'any';   // #A: default ANY species, not oak-only (FurzFriedrich thrashed "no oak within 64" beside birch/spruce; matches what SALIENT claims)
@@ -3431,7 +3431,7 @@ S.define('chopTrees', {
     const logIds = blockIds(bot, logNames);
     const logIdSet = new Set(logIds);
     const blacklist = new Set();
-    let felled = 0, logsDug = 0, stranded = 0, replanted = 0, protectedSkipped = 0;
+    let felled = 0, logsDug = 0, stranded = 0, replanted = 0, protectedSkipped = 0, leavesCleared = 0;
     ctx.progress(0, count, 'trees');
     ctx.setPhase('gearing', 'Making sure I have an axe before I start swinging.');
     {
@@ -3516,6 +3516,56 @@ S.define('chopTrees', {
       felled++;
       ctx.progress(felled, count);
 
+      // #102: the trunk was the whole job before this — every log gone, but the leaf canopy
+      // above was never touched, left floating with no trunk beneath it (Minecraft's own leaf
+      // decay is random-ticked and can take a long time, so "eventually" isn't good enough —
+      // Felix caught this live as a half-felled tree with drops resting on the still-standing
+      // leaves instead of the ground). Flood-fill the connected leaves of THIS tree's species,
+      // seeded from the logs just felled — same BFS idiom as the trunk search above, just
+      // through leaves instead of logs — and clear them too: a human fells the whole tree, not
+      // just the trunk. Bounded the same way (±7 laterally from base, a hard node cap, never
+      // below the trunk's own base) so a canopy overlapping a neighbour's tree can't cascade
+      // into felling theirs. Doing this BEFORE collectDrops means saplings/apples/sticks from
+      // the leaves land in the SAME sweep as the logs, not a separate pass that might miss them.
+      const leafEntry = bot.registry.blocksByName[species + '_leaves'];
+      const leafId = leafEntry && leafEntry.id;
+      if (leafId != null) {
+        const leafSeen = new Set();
+        const lq = [];
+        const inBounds = (n) => n.y >= base.y && Math.abs(n.x - base.x) <= 7 && Math.abs(n.z - base.z) <= 7;
+        for (const p of tree) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+          const n = p.offset(dx, dy, dz);
+          const k = key(n);
+          if (leafSeen.has(k) || !inBounds(n)) continue;
+          leafSeen.add(k);
+          const b = bot.blockAt(n);
+          if (b && b.type === leafId) lq.push(n);
+        }
+        const leaves = [];
+        while (lq.length && leaves.length < 150) {
+          const p = lq.shift();
+          leaves.push(p);
+          for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+            if (!dx && !dy && !dz) continue;
+            const n = p.offset(dx, dy, dz);
+            const k = key(n);
+            if (leafSeen.has(k) || !inBounds(n)) continue;
+            leafSeen.add(k);
+            const nb = bot.blockAt(n);
+            if (nb && nb.type === leafId) lq.push(n);
+          }
+        }
+        if (leaves.length) {
+          ctx.setPhase('clearing canopy', `Trunk's down — clearing the last ${leaves.length} leaves so nothing's left floating.`);
+          for (const p of leaves) {
+            ctx.step();
+            if (ctx.isProtected(p)) continue;
+            const r = await ctx.digBlock(p);
+            if (r.ok && !r.already) leavesCleared++;
+          }
+        }
+      }
+
       ctx.setPhase('collecting', 'Tree down. Sweeping up the drops.');
       await ctx.collectDrops(12, 20000);
 
@@ -3546,7 +3596,7 @@ S.define('chopTrees', {
     }
     ctx.setPhase('finishing');
     await ctx.collectDrops(10, 10000);
-    return { treesFelled: felled, logsDug, stranded, replanted, ...(protectedSkipped ? { protectedSkipped } : {}) };
+    return { treesFelled: felled, logsDug, stranded, replanted, ...(leavesCleared ? { leavesCleared } : {}), ...(protectedSkipped ? { protectedSkipped } : {}) };
   },
   doneMsg: (t) => {
     const haul = Object.entries(t.collected).map(([k, v]) => `${v} ${k}`).join(', ');

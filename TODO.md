@@ -1,89 +1,73 @@
-# Breaking point 2026-09-02 (~16:00 local) — FULL WIND-DOWN, resume checklist
+# Breaking point 2026-09-02 ~23:55 — WIND-DOWN for model switch (successor: Fable 5.1)
 
-Everything stopped by user order: all bots, both local MC servers, the decider
-daemon, ollama, all teammates, all monitors. Every finding of the day is in
-FEEDBACK.md (append-only), SCOREBOARD.md (race records + laws), the tracker
-(felsenuboot/felcrew-mcp, 92 issues), and research/IDLE_TRIGGER_SPEC.md.
-Ground truth for "what happened today" = git log on main (this repo).
+Everything stopped by user order mid-night-shift. All findings/state in FEEDBACK.md
+(append-only), SCOREBOARD.md (races + laws + Race book v2 + retrospective), the tracker
+(felsenuboot/felcrew-mcp, 104 issues), GOAL.md (**THE HUMAN BAR** — the formalized
+4-criteria goal acceptance), research/IDLE_TRIGGER_SPEC.md. Ground truth = git log on main.
+An active session /goal exists: "a minecraft bot behaving like a human" (Felix may clear it).
 
-## 0. Restart recipe (in order)
-1. **Local test server** (fixtures/dev): `cd ../localserver && setsid nohup ./setup.sh > server.log 2>&1 &`
-   → 127.0.0.1:25599, RCON 25598 (pw in setup.sh). NOTE setup.sh rewrites server.properties (same content).
-2. **Race server** (only for a race): `cd ../localserver-race && setsid nohup java -Xmx1536M -Xms512M -jar server.jar nogui > server.log 2>&1 &`
-   → 127.0.0.1:25600, RCON 25601. Before a NEW race: swap `level-name` to world-race3 (fresh-world-per-run
-   law, same seed felcrewtest). **world-race2 is an ARCHIVE — never delete/reuse**: it carries the staked
-   R2 wedge (point (2,101,2), escape cell (4,100,2), target (-55,115,-17)) AND run #2's WALL_OFF site.
-3. **Ollama for the decider**: `setsid nohup ollama serve >/dev/null 2>&1 &` (USER-level — the systemd
-   service points at an empty store /var/lib/ollama; models live in ~/.ollama: andy-cpu:latest = CPU-pinned
-   micro-q8, andy8-cpu:latest = bigger fallback; alternative fix: systemd override OLLAMA_MODELS=/home/felix/.ollama).
-4. **Bots**: `OWNER=<teammate> PURPOSE="why" MC_HOST=127.0.0.1 MC_PORT=<25599|25600> ./spawn.sh <Name> <port> [--agenda]`
-   — fleet-awareness law: ./list.sh BEFORE every spawn and in every report. --agenda for driverless/racing.
-   Stack auto-injects on spawn+reconnect. `./bench/preflight.sh <port>` = regression (185/185+ green expected).
-5. **Decider daemon** (Direction Episodes phase 3): `setsid nohup node decider.js > logs/decider.log 2>&1 &`
-   (writes pids/decider.pid; state in decider-state.json + decisions.jsonl, both survive restarts).
-6. **Teammates to respawn** (Agent tool WITH name, one at a time, verify
-   `jq -r '.members[].name' ~/.claude/teams/session-*/config.json` after each; Sonnet):
-   engine-dev-3 (skills/agenda/producer/decider lane), engine-dev (QA/telemetry/metrics/grader lane),
-   test-driver (races), issue-manager (tracker). Onboard from GOAL.md + FEEDBACK.md tail + this file.
-   KNOWN FAILURE MODE all session: teammates drain their inbox LATE — instruct them to check messages
-   at every task boundary.
-7. Lead re-arms monitors: cavecrew port watch (100.101.197.44:25565 — was DOWN all day; on UP: fleet
-   reconnect 3101-3105 + engine-dev's AFTER-playcheck vs the recorded baseline) + fleet-pulse
-   (scratchpad script is gone — rebuild: poll pids/*.meta owner=test-driver bots' agenda rung, alert on
-   IDLE streaks; tail both server logs for <Felsenuboot> chat = supervisor wake).
+## 0. Restart recipe (unchanged from morning, plus new pieces)
+1. Local test server: `cd ../localserver && setsid nohup ./setup.sh > server.log 2>&1 &` → 25599 (RCON 25598).
+2. Race server (only for a race): `cd ../localserver-race && setsid nohup java -Xmx1536M -Xms512M -jar server.jar nogui > server.log 2>&1 &`
+   → 25600. Before a new race: swap level-name → world-race6. ARCHIVES (never delete/reuse):
+   world-race2 (staked R2 wedge + wall-off site), world-race4 (#99 site), world-race5 (run #5 suspended mid-state).
+3. Ollama (decider LLM): `setsid nohup ollama serve &` (USER-level; models in ~/.ollama; andy-cpu = CPU-pinned).
+4. Bots: `OWNER=<teammate> PURPOSE="why" [DECIDER_EXCLUDE=1] MC_HOST=127.0.0.1 MC_PORT=<port> ./spawn.sh <Name> <31xx> [--agenda]`;
+   ./list.sh first, always. `./bench/preflight.sh <port>` = regression (203/203 expected at 0dbde11+).
+5. Decider daemon: `[SOAK_BOT=<name>] setsid nohup node decider.js > logs/decider.log 2>&1 &`
+   (state persists in decider-state.json/decisions.jsonl; liveness = state-file mtime, NOT log silence).
+6. Teammates (Agent tool WITH name, ONE at a time + verify members; Sonnet): engine-dev-3
+   (skills/agenda/producer/decider), engine-dev (QA/telemetry/metrics/survival/grader),
+   test-driver (races), issue-manager (tracker sync — hasn't run since ~104 issues; due).
+   PUT IN EVERY SPAWN PROMPT: drain inbox at every task boundary (chronic cross-in-transit
+   all day); commit with explicit pathspecs only; OWNER/PURPOSE on every spawn; ack-before-edit
+   on any cross-lane file (even break-glass); wall-clock timers are the LEAD's job only.
+7. Lead monitors to re-arm: cavecrew watch (100.101.197.44:25565; on UP → fleet reconnect
+   3101-3105 + AFTER-playcheck vs stored baseline) + night-pulse (scratchpad script gone; rebuild:
+   poll test-driver-owned bots' agenda rung → alert IDLE streaks; tail both server logs for
+   <Felsenuboot> chat = supervisor wake).
 
-## 1. IMMEDIATE next work (priority order)
-1. **Commit/land eng-3's WIP canopy fix** if still uncommitted: `M dangerscan.js` + new
-   `bench/fixtures/dangerscan-canopy.sh` (LIGHT/canopy false-positive: dangerscan sky-check reads forest
-   canopy as not-surface-exposed → LIGHT preempts chopTrees every ~50.1s, killing the task; root-caused
-   in FEEDBACK dc7aaff; a SchlammSteffi throwaway bot was mid-verification when wind-down hit).
-   Constraint from lead ruling: fix must NOT weaken LIGHT underground.
-2. **Grade soak #1 post-hoc** (it ran 13:25:04Z–~14:00Z before wind-down, ledgers persist):
-   `node metrics.mjs --direction-gate soak1 --since 2026-09-02T13:25:04Z --bot EngineDreckDave`
-   (exclude the 12:54:17Z synthetic record). Caveats to annotate: episode.detail bug (3c327e0 fixed it
-   but the soak bot never restarted onto it — economics-only skew) + LIGHT/canopy preemption (latency skew)
-   + window shorter than 60min (gate has a too-short guard; may refuse — then just report descriptives).
-   Observed live before wind-down: 100% rule-hit early, Andy path proven (miss→retry→mapped dispatch,
-   eid dmtk50mcw14), 7+ episodes closed, 3 zero-gap promotions.
-3. **Soak #2 = formal Phase-3 acceptance**: restart-spawn EngineDreckDave (or fresh name) on 25599 with
-   --agenda (picks up runner 3c327e0 detail fix + owner-sentinel 149da8c + canopy fix once landed),
-   start decider daemon, 60 min hands-off (NO /eval, no preflight against it during window), then
-   `--direction-gate` grade: pass = p50≤60s, p90<120s, zero unclosed, calls under cap.
-4. **#92 survival heal-deadlock fix** (engine-dev lane): WALL_OFF exits on threat-clear AND (healed OR
-   cannot-heal: no food + hunger<18); + 60s re-announce churn; + collectDrops health-guard cascade.
-   Run #2 died to this (26 cycles / 25m44s at 3 HP). Fixture + live mob verification per survival doctrine.
-5. **#54 wedge diagnosis CONTINUES** (engine-dev): commit 54d54cc's live finding — candidate search is
-   NOT the bug, WALK EXECUTION is the lead suspect (the dead-reckoned forward+jump toward the candidate).
-   KrachKuddel bot was staged on world-race2 for this. Next: instrument/step the walk at the staked
-   geometry. Then eng-3 improves _reposition per findings. R2 stays "recovers slowly at hard geometry
-   (9.2min worst case)" until fixed. Telemetry now self-diagnoses future wedges ({candidateFound, base,
-   candidate} full-float, skills v57).
-6. **Gear-race run #3** — green light AFTER #92 + soak #2 verdict. Race book v1 in SCOREBOARD.md (tier
-   plan + branch plans + laws: DEAD RACE = DEAD STOP, fresh world per run, read-only eval legal, ledger
-   is scorekeeper). Fresh never-used crude name; OWNER/PURPOSE; gearrace.mjs is recorder of record.
-   Baselines to beat: run#1 (v50): wood 1m00s, DNF-stone; run#2 (v55): wood only, DNF heal-deadlock,
-   6 calls, 4 findings. Watch for: fauna-scarce spawn on this seed (measured twice), #88 role:null food
-   routing (decider now covers it via rules.json — first race WITH the decider running is the point).
-7. **#68/Direction Episodes follow-ups**: rule-of-twice promotion from decisions.jsonl (metrics section
-   exists); Andy reply usability stat (was ~25% mappable — grow mapAndyCommand's dialect map from logged
-   raw misses; andy8-cpu env-swap if micro stays too dumb); #88 formally closes when a race proves the
-   decider feeds a role-less bot.
+## 1. IMMEDIATE queue (priority order)
+1. **#102 chopTrees fell-complete + elevated drops** — eng-3 was mid-work at wind-down; check
+   `git status`/last commits for WIP state + their handoff note in FEEDBACK. REQUIRED for human-bar
+   criterion 4 (a soak bot chops constantly; half-felled trees fail the trail check). Spec: fell the
+   WHOLE trunk column; collect/prevent canopy-stranded drops. Felix's screenshot = the incident.
+2. **SOAK #4 = the first formal HUMAN-BAR attempt** (after #102 + preflight green): fresh crude-named
+   bot on 25599 with --agenda, SOAK_BOT=<name> on the decider, canonical start timestamp from
+   decider.js's startup log, 60 min hands-off, then grade with **`node bench/humanbar.mjs --bot <name>
+   --since <ISO> --until <ISO> --label soak4`** (NEW combined instrument: direction-gate AND playcheck,
+   built+validated byte-identical vs soak-3's hand grade) + a WORLD SPOT-CHECK of its work sites
+   (criterion 4: no half-trees/stranded drops/scars). Pass = all four criteria → the /goal condition
+   is genuinely met. Soak-3 postmortem context: 1.5% SR, root causes both FIXED (#101 terrain-seek
+   landed cd30f4c; R2 EXONERATED — see FEEDBACK edeb3e3: R2 did its job every time, the gap was
+   destination-unreachability one level up, already covered by #95+#97-item-3, both field-confirmed).
+3. **Gear-race run #6** (after soak #4 verdict): Race book v2 in SCOREBOARD.md governs; gates were
+   R2-fix(→exonerated, moot) + #101(done) + preflight; world-race6; the WALL to beat: 0-of-4 runs
+   ever crafted a stone pickaxe (run #5 SUSPENDED, excluded). Stack at wind-down: skills v60,
+   survival v10, agenda v25, producer v7, dangerscan v5.
+4. **#103** death/respawn opens a needs_direction episode (agenda lane; spec'd to exact hook lines in
+   the issue). **#100-family residue:** #96 residual = #96 issue's unkitted-last-resort design Q (open),
+   #104 losAssumed tag (low, needs live sighting).
+5. **Held #95 follow-ups** (specific `why` for repeated identical failures; RESTOCK repeat-count feed)
+   — pull them if soak #4's data says so.
+6. **issue-manager sync pass** — much landed since the last one: #96 #98 #99 #100 #101 fixed/closed-
+   or-closable, #102-#104 filed, R2 exoneration comments, soak grades on #68.
 
-## 2. Standing/deferred (from before today, still valid)
-- Cavecrew reconnect + AFTER-playcheck (#70-75 batch deployed-but-unmeasured) — blocked on their server.
-- Historical fleet idle 55-93% (MettMarcel 93.2%) = the "before" number for undirected-time once v22+ runs fleet-wide.
-- eng-2's displaced-vs-replan prediction: scored at source (data says opposite so far — 1/1 resolutions
-  displaced:true); re-score after the #54 walk fix.
-- Aesthetics/roads (#83), FLEET/1 chat protocol (phase 2), mindcraft-ce/AndiAmateur experiment (parked;
-  ollama now doubles as decider backend), Java 21 installed (Baritone still a hard NO per roadmap).
-- infra.js + server.log in repo root: untracked leftovers, safe to delete after confirming infra.js is
-  the abandoned #76 draft.
+## 2. Standing (unchanged)
+- Cavecrew reconnect + AFTER-playcheck of #70-75 (blocked on their server; monitor on resume).
+- Historical idle 55-93% = the before-number for the human bar's undirected-time story.
+- #97 item 2 emergencyDescend (fixture-first, after any routing contention clears); #83 roads/aesthetics;
+  FLEET/1 phase 2; Java 21 installed (Baritone still hard NO per roadmap).
+- Artifact showcase (FelsenBerry Field Day) published: https://claude.ai/code/artifact/d247012a-ed2b-48dd-a278-5e8ea8533383
+  — update it after soak #4 / the wall breaking; same URL redeploy.
 
-## 3. Team/process laws learned today (keep enforcing)
-- One teammate per lane; spawn named teammates ONE at a time + verify members (config race).
-- Teammate inbox lag is chronic — "drain inbox at task boundaries" belongs in every spawn prompt.
-- Grader/graded separation; instrument is scorekeeper (3 hand-count errors caught today); predictions on
-  record get scored AT the prediction; silent+zero-cost mechanisms need explicit edge-case policy;
-  every iterative search needs an anchor; optional-guarded emits must have verified sinks (#38).
-- Supervisor is the idle-trigger of last resort: fleet-pulse + player-chat watch = lead's job until
-  Direction Episodes runs fleet-wide.
+## 3. Tonight's laws & doctrines (enforce from spawn prompt #6 above)
+- THE HUMAN BAR (GOAL.md): playcheck PLAYING + direction-gate PASS + survives night unaided +
+  human trail — all four on one hour.
+- Composition rot: "an unverified deferral is a disablement wearing a shortcut's clothing" (+ the
+  refinement: an INSTRUMENTED deferral under measurement is a hypothesis, not rot).
+- Zero defense must be unrepresentable (routing must always reach a branch that CAN act).
+- Every iterative search needs an anchor; assumed-false ≠ verified-false (representable uncertainty);
+- Instrument is scorekeeper; predictions get scored AT the prediction; deferred-gap comments are
+  promissory notes (two honored tonight); ensureTool is NOT test-inert by default (opts.depot:false
+  in fixtures); a TODO comment is not a tracker item.
