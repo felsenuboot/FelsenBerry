@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "8bd5cd832429",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "bench/gates/direction-soak3-dryrun.json",
+    "bench/gates/humanbar-soak3-dryrun.json",
+    "bench/humanbar.mjs",
+    "bench/playcheck.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8b/d5cd832429/0/metadata.json",
+      "transcript": "/8b/d5cd832429/0/full.jsonl",
+      "compact_transcript": "/8b/d5cd832429/0/transcript.jsonl",
+      "content_hash": "/8b/d5cd832429/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 108410,
+    "cache_read_tokens": 2499126,
+    "output_tokens": 23722,
+    "api_call_count": 24
+  }
+}
