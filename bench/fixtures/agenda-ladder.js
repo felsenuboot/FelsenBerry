@@ -48,6 +48,14 @@ A.project = { skill: 'mineLane', args: {}, restockFloor: { torches: 16, food: 4,
 try {
   T('healthy, project set -> PROJECT', {}, 'PROJECT');
   T('reflex active -> REFLEX', { survivalActive: true }, 'REFLEX');
+  // #97: panicStale is the ONLY thing that can make REFLEX stand down while raw dangerState
+  // still literally says 'panic' -- the stateful tracking that COMPUTES panicStale lives in
+  // sense()'s live path (never run in dry-run injection, see sense()'s own early return), so
+  // this proves the RUNG WIRING consumes it correctly; bench/fixtures/reflex-panic-stale.sh
+  // proves the tracking itself against a real bot over real time.
+  T('panic but survival active -> REFLEX still fires regardless of panicStale', { dangerState: 'panic', survivalActive: true, panicStale: true }, 'REFLEX');
+  T('panic, survival inactive, NOT yet stale -> REFLEX (unchanged safety behavior)', { dangerState: 'panic', survivalActive: false, panicStale: false }, 'REFLEX');
+  T('panic, survival inactive, CONFIRMED stale -> REFLEX stands down, ladder proceeds', { dangerState: 'panic', survivalActive: false, panicStale: true }, 'PROJECT');
   T('danger alert -> POSTURE', { dangerState: 'alert' }, 'POSTURE');
   T('food 5 -> EAT_CRITICAL', { food: 5 }, 'EAT_CRITICAL');
   T('freeSlots 1 -> DEPOSIT', { freeSlots: 1 }, 'DEPOSIT');

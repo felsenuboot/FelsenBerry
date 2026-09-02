@@ -40,6 +40,20 @@ const TICK_MS = 2000;              // deliberative only — safety never depends
 const MIN_SWITCH_MS = 1500;        // anti-flap floor (safety rungs exempt)
 const PREEMPT_DEBOUNCE = 2;        // ticks a non-safety rung must hold to preempt a running task
 const POSTURE_DWELL_MS = 3000;
+// #97: a threat dangerscan can SEE (raycast LOS, no obstruction) but that cannot actually
+// PATH to the bot (e.g. a zombie 3+ blocks straight down from an isolated platform, unable to
+// climb) keeps danger.state pinned at 'panic' forever -- dangerscan's score is LOS-based, not
+// reachability-based, by design (a cheap "wallhack" scanner, not a pathfinding oracle). If
+// survival.js never engages for it (correctly -- there is nothing productive to physically do
+// about a threat that cannot land a hit), REFLEX still fires purely on the raw panic state and
+// yields every tick without ever accomplishing anything, deadlocking the WHOLE ladder (live:
+// ~19 consecutive dead minutes, felcrew-mcp#97). Fixed conservatively, not by touching
+// dangerscan's scoring (risk of ever missing a genuine threat) but by requiring TWO
+// independent, corroborating signals before REFLEX (a safety:true rung) ever stands down on a
+// still-panicking read: survival.js has not engaged AT ALL for a sustained window, AND health
+// has not dropped even once during that same window (positive evidence nothing is landing
+// hits, not just elapsed time). Either signal alone resets the window immediately.
+const PANIC_STALE_MS = 20000;
 const RESTOCK_BUFFER = 1.5;        // resupply target as a multiple of the floor (the hysteresis gap)
 const RESTOCK_MINE_BATCH = 16;     // minimum produced per mining trip — never mine a 1-block gap
 // WITHDRAW -> PRODUCE -> STAND DOWN. A bot that can only acquire by withdrawing is not
@@ -102,10 +116,12 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 24, enabled: true,
+  version: 25, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
+  // #97: unbroken "panic, survival.js not engaging" streak tracking (see PANIC_STALE_MS)
+  _panicIdleSince: 0, _panicIdleDamaged: false, _panicIdleLastHp: null,
   standDown: {}, standDownCount: {}, unproductive: {},
   // the produce-fallback's memory: what the depot could not supply (item names — the COUNTS
   // are deliberately not trusted, they go stale the moment anything is consumed), when that
@@ -273,6 +289,17 @@ const sense = (inject) => {
 
     const sv = globalThis.__survival;
     s.survivalActive = Boolean(sv && sv.active);
+    // #97: track an unbroken "panic, but survival.js isn't engaging" streak, plus whether any
+    // damage landed during it. Either signal breaking (state leaves panic, survival engages,
+    // or a hit lands) resets the streak immediately -- see PANIC_STALE_MS's own comment.
+    if (s.dangerState === 'panic' && !s.survivalActive) {
+      if (!A._panicIdleSince) { A._panicIdleSince = s.now; A._panicIdleDamaged = false; }
+      else if (typeof A._panicIdleLastHp === 'number' && s.hp < A._panicIdleLastHp) A._panicIdleDamaged = true;
+      A._panicIdleLastHp = s.hp;
+    } else {
+      A._panicIdleSince = 0; A._panicIdleDamaged = false; A._panicIdleLastHp = null;
+    }
+    s.panicStale = Boolean(A._panicIdleSince) && !A._panicIdleDamaged && (s.now - A._panicIdleSince) > PANIC_STALE_MS;
     // /goto2 (ashfinder) drives the body directly, outside the task engine, so the ladder
     // cannot see it as a running task and would happily issue pathfinder goals straight
     // into it. Measured: a /goto2 hop logged 35 pathfinder interferences and moved zero
@@ -585,8 +612,12 @@ const gradeIdleWork = (s) => {
 // ---------------- the ten rungs ----------------
 const RUNGS = [
   { id: 'REFLEX', prio: 0, safety: true,
-    fire: (s) => s.survivalActive || s.dangerState === 'panic',
-    clear: (s) => !s.survivalActive && s.dangerState !== 'panic',
+    // #97: `panicStale` (see PANIC_STALE_MS's own comment) only ever goes true after a
+    // sustained window of panic with survival.js never engaging AND zero health lost during
+    // it -- while survival.js IS active, or panic is fresh, this is unconditionally identical
+    // to the original behavior.
+    fire: (s) => s.survivalActive || (s.dangerState === 'panic' && !s.panicStale),
+    clear: (s) => !s.survivalActive && (s.dangerState !== 'panic' || s.panicStale),
     // Yield completely. survival.js owns the body; starting anything here would fight the
     // reflex, and the falling edge is survival's documented "driver decides" handback —
     // which is now us: we simply resume the ladder next tick.
