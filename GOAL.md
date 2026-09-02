@@ -1,4 +1,14 @@
-# North Star (set by Felix, 2026-09-01; refined same day)
+# North Star (set by Felix, 2026-09-01; refined same day; re-affirmed via /goal 2026-09-02)
+
+**THE HUMAN BAR (formalized 2026-09-02, the goal's measurable acceptance —
+all four on ONE observed hour of a driverless bot):**
+1. playcheck verdict **PLAYING** (real distance, productive actions, low no-op fraction);
+2. **--direction-gate PASS** (self-directed: episodes open AND close, zero rot, decider under cap);
+3. survives real night threats **without driver help**;
+4. leaves a **human-looking trail** — no half-felled trees, no stranded drops, no naked
+   scars (world spot-check at its work sites).
+A bot that clears all four for an hour is, by this project's own definition, behaving
+like a human player. First attempt: soak #4's combined verdict.
 
 **Refinement (Felix, via /goal):** the bot should BEHAVE LIKE A GOOD HUMAN
 PLAYER — tidy builds, honest chat manners, fair play, no scars, respected
