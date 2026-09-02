@@ -3330,3 +3330,56 @@ fix: `bench/playcheck.mjs` (`--until` flag, `NOW`/window-end override), `bench/h
 `bench/gates/humanbar-soak3-dryrun.json` (new — the corrected verification record).
 github: n/a — instrument bug caught during readiness prep, not a tracked engine bug (QA tooling, not
 the bot engine itself); flagging to team-lead directly since it corrects this file's own prior claim.
+
+### 2026-09-02 engine-dev — #96-residual argued (not built): kit-preflight hardening is the wrong lever
+for the failure class that motivated it; recommend closing the residual question, no build
+type: proposal (doctrine: argue before building) + #104 re-check (no change)
+status: argued per team-lead's wait-filler authority, audit-only, nothing built
+what: #96 itself is CLOSED (survival v9: FIGHT_BACK/FLEE_AWAY, "zero defense is no longer
+representable"). What's left is the residual half of its own two-direction framing, never built:
+"prevent the state from ever being reached" via kit-preflight/mid-encounter resupply awareness, as an
+alternative or complement to the filler-independent last resort that shipped. Assigned to re-argue with
+fresh eyes and any ledger data since.
+
+**Checked what "kit-preflight" already covers, precisely, rather than arguing from memory.** Two
+mechanisms exist today, not one: `skills.js`'s `kitCheck`/`S.start` gate blocks DEPARTURE below
+`underground`/`deep`'s `filler:16` floor (`skills.js:155-156,2434-2436`), and separately `agenda.js`'s
+RESTOCK rung (`ROLE_FLOOR.miner.filler:16`, checked continuously via `s.filler < f.filler` at
+`agenda.js:739`, not just at departure) re-triggers a restock any time filler drops below floor DURING
+normal work. So "leaning harder on kit-preflight" as a phrase undersells what's already there — this
+isn't a one-shot gate, it's a standing floor re-armed on every agenda cycle.
+
+**Why that still didn't save RotzRudi, and why raising it wouldn't have either.** The #96-motivating
+incident's own trace (this file, "R2 wedge diagnosis" section's neighbor, the RotzRudi WALL_OFF
+finding) shows filler at 26 (well above the 16 floor — RESTOCK had no reason to fire) going to 0 across
+~2 real seal attempts DURING the same encounter that then killed the bot three times. The depletion
+happened inside the fight, not before it. No departure gate or periodic floor-check — no matter how
+high the floor is set — can prevent a fixed store from being spent faster than it can be refilled by a
+threat that is actively landing hits every cycle; raising the floor from 16 to 32 only buys a longer
+fight before hitting zero, it doesn't change the shape of the failure. This is a genuinely different
+class from "departed without checking" (which kit-preflight is built for and already covers) —
+it's "spent it live, mid-crisis," which no pre-crisis check can see coming.
+
+**Recommendation: no build.** The shipped fix (FIGHT_BACK/FLEE_AWAY, direction 1) is the right lever for
+this exact failure class — it's what still works after the store hits zero, which is precisely where
+prevention structurally cannot reach. Direction 2 (kit-preflight/resupply-awareness hardening) is not
+wrong in the abstract, but there is no live evidence of the OTHER failure mode it would actually fix
+(gradual, off-fight depletion arriving at a floor breach undetected) — RESTOCK's continuous floor-check
+already covers that path, and no incident on file shows it failing to. Marking the #96-residual question
+answered: the last-resort defense was the correct completion, kit-preflight is already proportionate to
+what it can control, and further hardening there would be effort spent on a failure mode with zero
+observed instances while the one with a body count (#96 itself) is already fixed.
+
+**#104 re-check (losAssumed / dangerscan raycast budget): no new ledger data, no change.** Looked for
+any live sighting of >8 simultaneous hostiles within 24 blocks since filing (the issue's own stated
+"no build without one" bar) — dangerscan doesn't log threat-list size or budget exhaustion to the
+ledger at all (confirmed by reading `dangerscan.js`'s `scan()`: `rays`/`threats.length` are local,
+never emitted to telemetry), so this can only be checked indirectly. Fleet-wide `deaths` counters across
+every `metrics-*.jsonl` show exactly 4 nonzero entries in the whole tree (BruzzelBruno, NacktNorbert,
+SabberSepp, ShakeoutShorty, each `deaths:1`), none referenced anywhere in this file as a horde/mob-farm/
+crowded-spawn event — no mob-farm or husbandry-pen incident logged since #104 was filed either. Still
+zero live sightings. #104 stays open, `priority-low`, no build — the standing bar hasn't been met, and
+nothing here should be read as new urgency.
+fix: n/a — both audit/argument, no code changed.
+github: felsenuboot/felcrew-mcp#96 (residual question argued, recommend no further action — comment
+posted), #104 (re-checked, no new evidence, left open as-is)
