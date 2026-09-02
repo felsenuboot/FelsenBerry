@@ -5,7 +5,7 @@
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-const require = createRequire('/home/felix/minecraft/bots/');
+const require = createRequire(import.meta.url);
 const nbt = require('prismarine-nbt');
 
 function writeShort(n) { const b = new Uint8Array(2); new DataView(b.buffer).setInt16(0, n, false); return b; }
