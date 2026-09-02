@@ -1,4 +1,19 @@
-// survival v6 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v7 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v7 (#94): BREAK_LOS's corner-step search skips itself under critical HP on the assumption
+// that arrow-shadow/counter-attack/WALL_OFF cover the gap faster (the #65 fix below). That
+// assumption silently breaks the instant the bot carries no filler blocks: arrow-shadow's and
+// WALL_OFF's own placeAt() calls both open with a synchronous no-filler check and return
+// near-instantly, counter-attack gates on HP>=rushHp (already false), and corner-step never
+// got a real search. Measured, not guessed at: 593 real panic cycles across 5 live encounters
+// (#94's own recorded runs) show 99% resolving in <100ms (median 31-36ms) -- far faster than
+// any real goto/placeBlock round-trip, meaning every phase was short-circuiting. A bot with no
+// filler got LITERALLY ZERO seconds of active defense once HP crossed the critical threshold,
+// for as long as the fight lasted, re-diagnosing the identical undefended situation every
+// ~200-250ms while taking real, unopposed damage each cycle. Fix: only skip corner-step under
+// critical HP when a filler-based fallback can actually catch it -- corner-step needs no
+// inventory at all, so it should never be the thing sacrificed when supplies are the problem.
+// Byte-for-byte identical behavior for any kitted bot (the common case).
 //
 // v6 (#92): WALL_OFF's only exit was "healed" (HP>=regenHp AND food>=regenFood), timeboxed
 // to 60s. If food is stuck below the regen threshold with nothing left to eat, "healed" can
@@ -76,7 +91,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 6,
+  enabled: true, version: 7,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -341,7 +356,12 @@ const branchBreakLOS = async (t) => {
     const searchDeadline = Date.now() + 3000;      // total budget for ALL attempts combined
     for (const o of offs) {
       if (Date.now() > searchDeadline) break;
-      if (bot.health > 0 && bot.health < g.cfg.hpPanic) break;   // stop searching, go defend
+      // #94: only skip the search if a filler-based fallback (arrow-shadow / WALL_OFF) can
+      // actually catch it -- both open with the identical no-filler check and return near-
+      // instantly without one, so "stop searching, go defend" was silently "stop searching,
+      // do nothing" for a bot with no cobblestone. Corner-step needs no inventory at all; it
+      // should never be the thing sacrificed when supplies are the problem.
+      if (bot.health > 0 && bot.health < g.cfg.hpPanic && fillerItem()) break;   // stop searching, go defend
       const cell = feet.offset(o[0], 0, o[1]);
       const at = bot.blockAt(cell), above = bot.blockAt(cell.offset(0, 1, 0)), below = bot.blockAt(cell.offset(0, -1, 0));
       if (!at || !above || !below) continue;
@@ -872,7 +892,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 6, boundAt: Date.now(), stale: false };
+REG.survival = { version: 7, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -883,7 +903,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 6, home: g.home,
+  installed: true, version: 7, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),

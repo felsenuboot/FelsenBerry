@@ -2302,3 +2302,55 @@ ceiling. That ceiling is a kit/logistics problem, not a reflex-logic one.
 fix: proposed only in this entry — building next.
 github: felsenuboot/felcrew-mcp#94 (root cause posted; fix to follow in a separate FEEDBACK entry once
 built and verified)
+
+### 2026-09-02 engine-dev — #94 fix landed and verified (survival v7): real HP improvement measured, mechanism only partly isolated, reported honestly
+type: fix + verification
+status: shipped, no regression, measured improvement confirmed live; one causal question left open rather
+than guessed at
+what: built the fix argued in the entry above (`branchBreakLOS`'s corner-step skip now requires
+`fillerItem()` too, so it only defers to a fallback that can actually catch it) and verified it two ways.
+
+**NO REGRESSION**: `bench/fixtures/survival-cannotheal.js` still 7/7 on the fresh bot post-injection (#92's
+WALL_OFF logic is untouched by this change, confirmed not just assumed).
+
+**LIVE RE-VERIFICATION, n=5 vs n=5, same fixture, same conditions**: reran `induced-stress-sequencing.sh`
+five more times on a fresh isolated bot (`KaputtKord`, `DECIDER_EXCLUDE=1` per team-lead's standing
+instruction, 200 blocks from both the live soak and the live race). **Post-fix distribution: 2.33, 0.33,
+2.33, 2.17, 2.33 HP — median 2.33, vs the pre-fix n=5 median of 0.33 (0.33, 0.17, 2.33, 0.33, 0.33).** A
+real, consistent, ~7x improvement in the worst-case margin. Every run still correctly fires BREAK_LOS with
+zero thrash, and every run still fails the fixture's own `hpMin<6` criterion — this fix narrows the gap,
+it does not close it (see the "what this does NOT fix" caveat in the proposal entry: a bot with no filler
+AND no viable corner cell is still under-defended, same ceiling as before).
+
+**HONEST GAP, flagged rather than papered over**: I could not fully isolate corner-step actually
+succeeding as the mechanism behind the measured improvement, and I looked rather than assumed. Re-pulled
+the same enter/recovered timing analysis against `KaputtKord`'s own post-fix ledger: **98% of cycles still
+resolve in under 100ms** (median 27ms) — meaning corner-step's own loop still never found a QUALIFYING
+offset (one where moving there would genuinely break LOS) in this specific fixture's arena, which is a
+flat, roofed, cornerless platform by design (nothing to duck behind, on purpose, so wild mobs can't join).
+The fix removes the SKIP; it can't manufacture geometry the arena doesn't have. So the measured HP
+improvement in this exact test is real but its precise causal path isn't nailed down by this session's
+evidence — plausible contributors not disentangled here: (a) the corner-step loop now genuinely running
+its checks (8x blockAt+losBlocked) adds real but small wall-clock per cycle that could shift Minecraft's
+own damage-tick alignment slightly, (b) run-to-run position/timing variance this fixture doesn't fully
+control for, or (c) some other secondary interaction. What IS fully verified, by direct code reading (not
+inferred from the aggregate number): the fix is a strict widening — it can only make corner-step MORE
+likely to be attempted, never less, and changes nothing for any bot that carries filler blocks (the common
+case). It is landed on that basis plus the measured, repeatable, non-regressive HP improvement, not on a
+fully closed causal story for this one fixture's specific (deliberately cornerless) arena.
+
+**Cleanup**: killed the test skeleton, removed the temporary corner-wall geometry I'd built for a separate
+controlled corner-step check (inconclusive on its own — the geometry I improvised didn't actually sit
+between the bot and the threat correctly; not worth further time given the fixture-level result already
+stands on its own), removed the forceload ticket, stopped `KaputtKord`.
+
+**What's still open for #94**: the fixture's own worst case (no filler, no corner-friendly geometry) still
+ends every encounter under 3 HP. Closing that fully needs either giving BREAK_LOS a filler-independent
+LAST resort beyond corner-step (there may not be one that's safe — pillaring up needs placement too), or
+accepting that a genuinely unkitted bot facing a ranged attacker in the open is a kit/logistics failure
+this reflex was never going to fully solve on its own, and leaning harder on kit-preflight (departing
+half-kitted is already supposed to be blocked) to keep bots out of this state in the first place rather
+than expecting the reflex to compensate for it after the fact.
+fix: survival.js (v7: `branchBreakLOS`'s corner-step gate, line ~344).
+github: felsenuboot/felcrew-mcp#94 (fix landed and reported; leaving open pending a maintainer call on
+whether the remaining "no filler, no corners" ceiling needs its own follow-up issue)
