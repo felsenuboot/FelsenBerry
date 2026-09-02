@@ -159,7 +159,20 @@ function summarize(botName) {
         if (LOG_ITEM.test(name) && r.skill === 'chopTrees') logsChopped += n;
       }
       if (r.skill === 'depositToChest') itemsDeposited += taskItems;
-      const observable = (r.digs || 0) > 0 || (r.placed || 0) > 0 || (r.moved || 0) > 1 || taskItems > 0;
+      // Soak-#4 human-bar prep: a genuine RESTOCK depot search that comes up short
+      // (checked several chests, none had what was needed — `outcome:'ok', result.
+      // stocked:false`) reports `moved:0, digs:0, placed:0, collected:{}` even after
+      // real `gotos` (short chest-to-chest hops don't register on the same distance
+      // tracker full travel does) — measured directly against real ledgers before this
+      // fix: EVERY stocked:false restock record checked (10/10) showed gotos:8-9,
+      // ms~2000, and all four of the OLD observable fields at zero. A person watching
+      // a bot walk between three chests and come away empty-handed would call that
+      // "looking for supplies", not "standing still" — `gotos>0` is a real, visible
+      // travel-attempt count (never fabricated for a task that never actually moved:
+      // the genuinely-stuck #101 case — ensureTool wedged in place on a table it
+      // can't re-place — reports gotos:0, so this does not blur the two apart).
+      const observable = (r.digs || 0) > 0 || (r.placed || 0) > 0 || (r.moved || 0) > 1
+        || taskItems > 0 || (r.gotos || 0) > 0;
       if (observable) productiveTasks++; else noOpTasks++;
     }
   }

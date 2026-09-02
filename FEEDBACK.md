@@ -3162,3 +3162,54 @@ The re-issued `goto()` immediately after DID fail (`no_path`, target 5.13 blocks
 That higher-level gap is exactly what #95's `dirClose`/reopen-backoff and #97's frozen-repeat check already exist to catch and mitigate — and both were independently, live-confirmed firing correctly against this SAME bot earlier today (`decider_exhausted:3` in the soak-3 grade, and the natural `frozen_repeat` skip observed live after this diagnosis began). The mitigation for the SYMPTOM (a bot that can't make progress toward an unreachable local goal eventually gets a fresh decider look) is already shipped and proven; what's still open, if anything, is whether RESTOCK/mineLane's target SELECTION should get smarter about avoiding destinations this hard to reach in the first place — a genuinely separate, lower-urgency design question, not a defect in R2 or in #54's fix.
 fix: n/a — no code change; this entry CLOSES the diagnosis rather than proposing one. R2/#54 is exonerated with direct evidence, not just left unconfirmed. Superseded the "not yet directly confirmed" caveat in the entry immediately above.
 github: felcrew-mcp#54 (closes the open wedge-recovery question for this class), #97 (cross-reference — the existing dirClose/frozen-repeat mitigation is the right layer for the actual remaining gap, no new build needed here)
+
+### 2026-09-02 engine-dev — Human-bar instrument prep for soak #4: playcheck fairness fix + combined --direction-gate/playcheck verdict wrapper
+type: fix + tooling + verification
+status: built and verified against real ledger data ahead of soak #4's window, per team-lead's explicit
+"fix the instrument BEFORE the window opens, not after" instruction
+what: Felix formalized the session goal as "a Minecraft bot behaving like a human," operationalized
+tonight as a combined instrument verdict: playcheck grades PLAYING AND the direction gate passes, over
+the same observed window. Two pieces of prep, both done before soak #4 opens.
+
+**1. playcheck.mjs fairness fix, found by checking real data rather than guessing.** Pulled real
+`restock` `task_end` records to see whether a genuine, observable RESTOCK depot search would be counted
+fairly. Two shapes exist: a SUCCESSFUL restock (`result.stocked:true`) already populates `collected`
+correctly and is credited fine by playcheck's existing check. But the equally-real "checked several depot
+chests, none had what was needed" outcome (`outcome:'ok', result.stocked:false`) — checked 10/10 real
+occurrences across two bots' ledgers — showed `moved:0, digs:0, placed:0, collected:{}` EVERY time,
+despite `gotos:8-9` (real short-range travel between chest locations) and ~2 seconds of real wall-clock
+work. Every one of these would have been silently counted as a no-op task, exactly the fairness gap team-
+lead named ("RESTOCK provisioning looks stationary-ish"). Fixed by adding `(r.gotos || 0) > 0` to
+`playcheck.mjs`'s `observable` check — a real, human-visible travel-attempt count, never fabricated for a
+task that never actually moved (verified: the genuinely-stuck `#101` case, `ensureTool` wedged trying to
+re-place a table it can't, reports `gotos:0`, so this doesn't blur "searching but empty-handed" with
+"stuck in one spot," which are visually different things a human watcher would tell apart).
+**Verified against real ledgers, not just reasoned about**: ran playcheck fleet-wide with and without the
+fix (git-stashed for the A/B) — `EngineDreckDave`'s no-op fraction shifted 85%->84% (2 tasks reclassified),
+`KanapeeKarl` shifted 100%->78% (2/9 reclassified). Small in this snapshot (no bot's overall verdict
+crossed a threshold in the sampled window), but real and repeatable, and the mechanism is exactly targeted
+at the shape team-lead named.
+
+**2. `bench/humanbar.mjs` (new): the combined verdict wrapper.** Shells out to both `metrics.mjs
+--direction-gate` and `playcheck.mjs --json` against the IDENTICAL, exactly-bounded window and ANDs their
+verdicts — deliberately a wrapper, not a merge, so each instrument stays independently testable and a bug
+in the wrapper can never corrupt either one's own numbers. Automates the window-end-bounding trick this
+session's own soak grading has had to do BY HAND three times already (soaks #1-#3): given `--until`, it
+builds a real truncated scratch copy of the metrics ledger, `decisions.jsonl`, and the plain-text chat
+log, runs a COPY of `metrics.mjs` from inside that scratch dir (the only way to redirect its otherwise-
+fixed `logs/` resolution) and points `playcheck.mjs` at the same scratch dir via its own `--dir` flag.
+Without `--until`, both tools read the real, live logs directly (matches today's "grade right at window
+close" precedent). Writes `bench/gates/humanbar-<label>.json` (verdict, both instruments' numbers) plus
+the underlying `direction-<label>.json` in the real tree, same convention as every other soak's gate file.
+
+**Verified against real data**: re-ran soak #3's own exact window through the new wrapper and confirmed it
+reproduces the manually-graded numbers exactly (opened 10, closed 9, unclosed 1, latency p50 204898ms /
+p90 223926ms — byte-identical to the original hand-graded report), while ADDING the playcheck dimension
+that original report never had (SPARSE, 44-45% stationary, ~9.9 productive actions/10min — soak #3 would
+have failed the human-bar combined verdict on BOTH counts, not just direction-gate). Also tested the
+no-`--until` (live) path, and an unknown-bot edge case — the latter caught and fixed a real bug during
+verification: the scratch directory wasn't cleaned up on the early-exit "no gate file" error path (a
+genuine `/tmp` leak per failed run), fixed by registering the cleanup on `process.on('exit')` instead of
+only at the bottom of the happy path, so it fires on every termination route.
+fix: `bench/playcheck.mjs` (`observable` check, `gotos>0`), `bench/humanbar.mjs` (new).
+github: n/a — instrument prep, not a tracked engine bug. Ready for soak #4's window.
