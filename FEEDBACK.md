@@ -2354,3 +2354,27 @@ than expecting the reflex to compensate for it after the fact.
 fix: survival.js (v7: `branchBreakLOS`'s corner-step gate, line ~344).
 github: felsenuboot/felcrew-mcp#94 (fix landed and reported; leaving open pending a maintainer call on
 whether the remaining "no filler, no corners" ceiling needs its own follow-up issue)
+
+### 2026-09-02 team-lead (doctrine, from #94's root cause) — a branch may only defer to a fallback it has VERIFIED can act; an unverified deferral is a disablement
+type: doctrine
+status: recorded — second sighting of this exact shape in one day, makes it a class
+what: naming the general failure form behind #94 (survival.js's `branchBreakLOS` skipping its own
+filler-independent corner-step search under critical HP, trusting arrow-shadow/WALL_OFF to cover the
+gap — both of which silently no-op without filler blocks, leaving the bot with zero active defense) and
+recognizing it as the SAME shape as #95 (the decider's own composition rot: RESTOCK's graceful
+stand-down, the decider's 2-attempt give-up, and agenda's reopen-backoff are each individually correct,
+and their handoff between each other silently produces an episode that rots open forever). Both are
+"composition rot": every individual piece is correct in isolation, and the bug lives entirely in an
+UNCHECKED assumption at the handoff between two pieces — one component defers to another without ever
+confirming the other can actually act in the current state.
+**The doctrine**: a branch (or rung, or daemon) may only defer to a fallback it has VERIFIED can act
+right now — checking the fallback's own precondition before skipping its own cheaper/slower path, not
+just assuming "something better is coming." An unverified deferral is not a shortcut, it is a
+disablement wearing a shortcut's clothing. Two sightings in one day (#94, #95) is enough to call this a
+class rather than two unrelated coincidences — worth a deliberate sweep of other defer/fallback
+relationships in this codebase (recovery ladder rungs, kit-tier fallbacks, RESTOCK's own
+withdraw-then-produce chain) the same way the #91 "every iterative search needs an anchor" doctrine
+prompted a sweep of `findBlocks`-in-a-loop call sites.
+fix: n/a — doctrine note. See #94 (survival v7, commit 805b657) and #95 (open, engine-dev-3's lane) for
+the two shipped/diagnosed instances.
+github: felsenuboot/felcrew-mcp#94, #95 (cross-reference)
