@@ -2705,3 +2705,77 @@ Verified the tracking logic in isolation with six cases before committing: a bot
 **Deliberately not restarting the live decider to exercise this against a real dispatch right now** -- soak #3 (formal Phase-3 acceptance) is running on the current shared decider process, and a restart to pick this up would touch its active measurement window exactly the kind of thing this whole soak-hygiene effort has been trying to prevent. Will do the live end-to-end verification (a real frozen bot, a real matching episode reopening, confirming the actual `dirClose` call fires and the fresh reopen still works afterward) at the next safe restart -- soak #3's window close -- before calling this fully proven, matching the standard the rest of today's fixes were held to.
 fix: decider.js (`handleBot`'s frozen-repeat check, right after the (bot,eid) dedup).
 github: felsenuboot/felcrew-mcp#97 (comment to follow)
+
+### 2026-09-02 engine-dev — #96 design argued (not yet built): "zero defense must be unrepresentable" accepted, corner-step-for-melee refuted, two new branches proposed
+type: proposal (doctrine: argue before building)
+status: argued here per team-lead's steer; building next, holding only for the soak #3 grade if the timer
+pings mid-work
+what: team-lead's frame for #96, taken as the starting point: the composition-rot principle generalizes
+to **"zero defense must be unrepresentable"** — `pick()`'s routing table must provably always reach a
+branch that CAN act given the bot's actual current resources, not one that silently degrades to a no-op.
+RotzRudi's triple-death is exactly a representable-zero-defense state: melee threat, HP<6 (closes
+FLEE_HOME), no filler (closes WALL_OFF), nothing else in the table. Agreeing/refuting each of team-lead's
+three concrete proposals in turn:
+
+**(a) An un-gated FLEE_AWAY floor — AGREED, this is the right shape.** The key property: it needs no
+inventory (unlike WALL_OFF/arrow-shadow), no specific reachable target (unlike FLEE_HOME/home,
+corner-step/a qualifying cell) — the only thing it needs is that SOME direction has room to move, which is
+strictly weaker than every other branch's own precondition. This codebase already has the exact proven
+mechanism, just scoped to one threat type: `branchCreeper`'s retreat is `pathfinder.setGoal(GoalInvert(
+GoalFollow(ent, clear+1)))` — maximize distance from a live entity, no destination, real pathfinding
+handles obstacles automatically (strictly more robust than hand-rolled dead-reckoning; #54's own lesson —
+trust a proven navigation primitive over a bespoke one — applies directly here). Generalizing it to
+`branchFleeAway(t)` for ANY threat (not creeper-specific) rather than reimplementing is both less risk and
+less code.
+
+**(b) FIGHT_BACK as a candidate above the floor — AGREED, with one deliberate deviation from precedent.**
+BREAK_LOS's own counter-attack sub-branch already proves the mechanism (mineflayer-pvp, gated on "already
+at melee reach, real sword, not a creeper") — reusing that exact gate for a NEW `branchFightBack`, EXCEPT
+for one field: **no minimum-health floor.** BREAK_LOS's counter-attack requires `health >= rushHp (12)`
+because in that context declining to fight and holding the shield is a genuinely safe alternative. Here it
+is not — the branch only fires when NOTHING else can act, so the honest alternative to fighting at HP 0.33
+is not "a safer option," it is "guaranteed continued unopposed damage" (exactly what killed RotzRudi three
+times). A real player facing that choice swings back; the branch should too. Falls through to
+`branchFleeAway` if the fight doesn't end the threat within a bounded window, rather than repeating a
+losing fight forever.
+
+**(c) A filler-low early warning — AGREED as a valuable COMPLEMENT, explicitly NOT a substitute for (a)/
+(b).** This reduces how often the zero-defense state is ever reached (a bot topped up before an encounter
+starts is less likely to run out mid-fight); it does not make the state unrepresentable when it does
+happen anyway (bad luck, an unusually long single encounter, several encounters back-to-back). Both layers
+matter, but only (a)/(b) satisfy the actual invariant team-lead's framing demands. Also: this specific
+piece crosses into agenda.js's RESTOCK/kit-floor territory (a different lane) and reacting fast enough to
+help WITHIN one panic episode — survival.js suspends the whole agenda ladder while active, so RESTOCK
+can't react to filler burning fast until control returns, possibly after the bot is already dead — needs
+its own design pass. Recommending it as a follow-up rather than building it in this same change: the
+core structural fix (a)/(b) is what actually closes #96's gap, and bundling a cross-lane RESTOCK change in
+without separate review risks the exact "argue before building" doctrine this file keeps enforcing.
+
+**Corner-step-for-melee — REFUTED, agreeing with team-lead's skepticism.** Corner-step's entire value is
+breaking LINE OF SIGHT so a RANGED attack (which needs a clear line) can no longer land. A melee mob's
+attack doesn't need LOS at all — it needs adjacency, and vanilla/mineflayer melee-mob pathfinding routes
+around a single obstacle in normal time, not a meaningful delay. Extending corner-step to melee threats
+would spend real search/travel budget on a maneuver whose core mechanism doesn't transfer, when
+`branchFleeAway`'s actual distance-gaining mechanism is both simpler and directly effective against a
+melee attacker (a sprinting bot is faster than a walking zombie; genuine distance is genuinely safer,
+unlike ducking behind a corner it can walk around).
+
+**Concrete routing change, `pick()`**: after the existing FLEE_HOME check, gate WALL_OFF itself on
+`fillerItem()` being available BEFORE calling it (same "verify before deferring" discipline as #94/#98 —
+don't call a fallback already known to no-op) — but only when a REAL threat is present (`nearest` is
+non-null); the existing "hurt, no visible threat" `branchWallOff(null)` case is unaffected, since nothing
+is actively landing hits during that no-op retreat today and it isn't the state #96 is about. When a real
+threat is present and filler is unavailable: try `branchFightBack` if `canFightBack(nearest)` (weapon
+held, already at melee reach, not a creeper), otherwise `branchFleeAway(nearest)`. `pick()` never again
+reaches a state where the only representable outcome is a repeating no-op.
+
+**Verification plan**: re-run `bench/fixtures/survival-cannotheal.js`, the #94/#98 preflight suite, and
+`bench/fixtures/flee-home-reachability.sh` (must all still pass — this change touches `pick()`'s routing,
+which #98 also touches, so regression risk is concentrated exactly there). New fixture proving the actual
+gap closes: a real melee mob, no filler, HP forced low — assert the bot no longer sits in a
+sub-100ms no-op loop, and that SOME real action (fight or flee) is attempted and has a measurable effect
+(HP stabilizes, distance increases, or the mob dies) within a bounded window. Per survival doctrine (#65
+precedent), this needs a real mob, not `drill()`.
+fix: proposed here; building next (holding for the soak #3 grade first if it lands mid-work, per
+team-lead's explicit priority order).
+github: felsenuboot/felcrew-mcp#96
