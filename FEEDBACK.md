@@ -2881,3 +2881,45 @@ mechanism) — recommend it as a fast, contained follow-up rather than building 
 fix: survival.js (`canFightBack`/`branchFightBack`/`branchFleeAway`, `pick()`'s WALL_OFF filler gate, v9).
 github: felsenuboot/felcrew-mcp#96 (fix landed and reported); recommend a small follow-up issue for the
 post-resolution no-filler chat-spam pattern above, distinct from #96's own lethal-gap claim
+
+### 2026-09-02 engine-dev — #99: confirmed already landed in #96's commit, not a v7/v8/v9 regression
+type: confirmation + regression analysis
+status: verified — fix is live in commit 5999820 (no separate commit needed), root cause predates #94/#96
+what: engine-dev-3's #99 fix (`branchWallOff`'s no-filler early-return now sets `cannotHeal: cannotHeal()`)
+landed on disk while I was mid-verification of #96 in the same uncommitted file, and got swept into my own
+`git add survival.js && git commit` for #96 (5999820) without either of us realizing at the time —
+confirmed by `git diff survival.js` showing zero uncommitted changes and `grep -n "no_filler" survival.js`
+showing the fixed return already in place. No action needed to land it; it's live. Independently verified
+the live specimen: `GET /state` on SabberSepp shows `health:10.17, food:14`, agenda back to normal
+`RESTOCK/chopTrees` operation — the thrash is over, confirmed read-only (no `/eval` against a bot mid-race).
+
+**Team-lead's regression question, answered from git history, not inference**: `git log -S"reason:
+'no_filler'" -- survival.js` shows that exact early-return has existed since the ORIGINAL foundational
+commit (`6b290bb`), untouched ever since — `git show 71eb13f -- survival.js | grep -A5 no_filler` (71eb13f
+is #92/v6, where `cannotHeal` was first introduced) returns nothing, meaning v6 never touched this line at
+all. **This is a v6-era gap in #92's own original work — I added `cannotHeal` computation and standdown-
+arming to the FULL seal-attempt path's return, and never retrofitted the same field onto the pre-existing
+no-filler shortcut return a few lines earlier in the same function. Neither #94 (v7) nor #98 (v8) nor #96
+(v9) touched this code at all** — confirmed directly against each commit's own diff (v7 only changed
+`branchBreakLOS`'s corner-step gate; v8 only changed `pick()`'s FLEE_HOME routing + added `S.reachOf`; v9
+added new branches and changed `pick()`'s WALL_OFF gate, never `branchWallOff` itself). **This was not a
+regression opened by my routing changes.**
+
+Why did run #3's v6 racer (RotzRudi) never exhibit this exact threat-independent thrash, if the bug
+predates it? Plausible, evidence-consistent (not proven from RotzRudi's own ledger directly) explanation:
+RotzRudi's encounters were all threat-PRESENT death spirals — it died from active, ongoing damage before
+ever settling into a SUSTAINED "threat gone, still hurt, no filler" resting state, so the missing-
+`cannotHeal` bug never got the TIME to manifest as a visible, climbing fire-count the way SabberSepp's
+threat-independent, non-lethal (HP stable at ~7-8, never dying) case did. Same latent bug, very different
+observability depending on whether the surrounding state is fatal-and-fast or survivable-and-sustained.
+
+Engine-dev-3's own follow-up analysis (their second #99 entry, same file) already correctly generalizes
+this beyond the one-line patch: standdown's ARMING is branch-result-keyed (`out.branch==='WALL_OFF' &&
+out.cannotHeal`), not predicate-keyed (`threatsNow().length===0 && cannotHeal()` regardless of which
+branch produced the outcome) — meaning any FUTURE early-return anywhere that is also genuinely
+cannot-heal would need its own explicit field to be caught. This is the same generalization #100 (filed
+earlier today, the post-resolution WALL_OFF chat-spam finding) already points at — one broadening, not two
+separate follow-ups.
+fix: n/a — confirming already-landed work + regression analysis, no new code from this entry.
+github: felsenuboot/felcrew-mcp#99 (confirmed fixed, live in commit 5999820), cross-reference #92, #96,
+#100
