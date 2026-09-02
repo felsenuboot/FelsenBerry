@@ -401,10 +401,18 @@ if (dirRecs.length) {
   if (!exists) {
     console.log(`  (no decisions.jsonl at '${src}' -- decider.js not running yet, or pass --decisions <path>)`);
   } else {
-    const decisions = fs.readFileSync(src, 'utf8').split('\n').filter(Boolean)
+    // same --since/--bot scoping as everything else in this file, applied here explicitly
+    // since decisions.jsonl is read outside load()'s own filtering -- a soak's grading window
+    // needs this (engine-dev-3's own sign-off left one pre-soak synthetic record in the file;
+    // `--since <daemon start>` is how a gate run excludes it without editing the file).
+    const botFilter = flag('bot');
+    const sinceMs = flag('since') ? Date.parse(flag('since')) : null;
+    let decisions = fs.readFileSync(src, 'utf8').split('\n').filter(Boolean)
       .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    if (sinceMs) decisions = decisions.filter((d) => d.t >= sinceMs);
+    if (botFilter) decisions = decisions.filter((d) => d.bot === botFilter);
     if (!decisions.length) {
-      console.log('  decisions.jsonl exists but is empty -- decider running, nothing decided yet');
+      console.log('  decisions.jsonl exists but is empty (or nothing in this --since/--bot window) -- decider running, nothing decided yet');
     } else {
       const byHour = (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) / 3600000;
       const ruleHits = decisions.filter((d) => d.src === 'rule');
@@ -412,38 +420,57 @@ if (dirRecs.length) {
       const skipped = decisions.filter((d) => d.src === 'skipped_cap');
       const LLM_CAP_PER_HR = 30;   // IDLE_TRIGGER_SPEC §7's hard ceiling
       const llmPerHr = byHour > 0 ? llmCalls.length / byHour : null;
-      console.log(`  ${decisions.length} decisions${byHour > 0 ? ` over ${byHour.toFixed(2)}h` : ''}: ${rate(ruleHits.length, decisions.length)} rule-hit, ${rate(llmCalls.length, decisions.length)} LLM-miss`);
+      // "rule-hit" vs "LLM-consulted" (a rule miss, not an LLM miss -- that's a different,
+      // narrower thing since the Andy/Ollama switch, see below) is the top-level decision
+      // ROUTE. Whether the LLM leg actually produced something usable is a separate number.
+      console.log(`  ${decisions.length} decisions${byHour > 0 ? ` over ${byHour.toFixed(2)}h` : ''}: ${rate(ruleHits.length, decisions.length)} rule-hit, ${rate(llmCalls.length, decisions.length)} LLM-consulted`);
+      // Andy-4-micro (local Ollama, zero-cost) does not reliably stay inside the command
+      // menu the prompt offers -- decision:null on a src:'llm' record is a genuine miss (an
+      // unmapped/unparsed reply), NOT the same thing as "a rule miss routed to the LLM"
+      // above. Up to LLM_MISS_RETRY_LIMIT=2 records per (bot,eid) is the NORMAL shape of a
+      // retry-once-then-give-up sequence, not an anomaly (see the dedup check below).
+      const llmMisses = llmCalls.filter((d) => d.decision == null);
+      if (llmCalls.length) {
+        console.log(`  Andy reply usability: ${rate(llmCalls.length - llmMisses.length, llmCalls.length)} produced a usable/mappable decision (${llmMisses.length} unmapped-or-unparsed miss(es))`);
+      }
       console.log(`  LLM calls/hr: ${llmPerHr != null ? llmPerHr.toFixed(1) : 'n/a'} vs the ${LLM_CAP_PER_HR}/hr cap` +
         (llmPerHr != null && llmPerHr > LLM_CAP_PER_HR ? '   *** OVER CAP -- the persisted rate gate should have prevented this, investigate decider-state.json ***' : ''));
       console.log(`  skipped_cap: ${skipped.length}${skipped.length > 0 ? '   <- overflow correctly logged, not spent (this IS the cap working, not a failure)' : ''}`);
       // dispatchOk/dispatchError only exist on rule/llm records (decider.js appends
       // skipped_cap BEFORE attempting dispatch, so those lines are structurally shorter --
       // 'in d' below, not a truthiness check, so a real `dispatchOk:false` isn't mistaken
-      // for "field absent"). A false here is normal, not a bug: the eid CAS raced a driver
-      // that answered first (IDLE_TRIGGER_SPEC §1.1j) -- worth counting, not alarming on.
-      const dispatched = decisions.filter((d) => 'dispatchOk' in d);
-      const dispatchFailed = dispatched.filter((d) => d.dispatchOk === false);
-      if (dispatched.length) {
-        console.log(`  dispatch races (driver answered first): ${rate(dispatchFailed.length, dispatched.length)}${dispatchFailed.length ? '  <- normal eid-CAS behavior, not a decider bug; see dispatchError for the stale reason' : ''}`);
+      // for "field absent"). A false here has TWO distinct causes, not one: an llm-miss
+      // record (decision:null) never had anything to dispatch at all (dispatchError
+      // 'unmapped_or_unparsed', already counted above as an Andy reply-usability miss --
+      // excluded here so it isn't double-counted as a "race"); a REAL decision that still
+      // failed to dispatch is the genuine eid-CAS race (a driver answered first,
+      // IDLE_TRIGGER_SPEC §1.1j) -- normal, worth counting, not alarming on.
+      const attemptedDispatch = decisions.filter((d) => 'dispatchOk' in d && d.decision != null);
+      const raceFailed = attemptedDispatch.filter((d) => d.dispatchOk === false);
+      if (attemptedDispatch.length) {
+        console.log(`  dispatch races (driver answered first, a real decision existed): ${rate(raceFailed.length, attemptedDispatch.length)}${raceFailed.length ? '  <- normal eid-CAS behavior, not a decider bug; see dispatchError for the stale reason' : ''}`);
       }
-      // decider-state.json's dedup is by (bot,eid), marked handled regardless of outcome --
-      // decisions.jsonl should NEVER show two records for the same pair in a healthy run.
-      // A duplicate here means dedup itself is broken (a retry storm, or two decider
-      // processes racing), which is a decider-health signal worth surfacing on sight rather
-      // than silently folding into whatever count happens to read it first.
+      // decider-state.json's dedup is by (bot,eid), marked handled regardless of outcome. As
+      // of the Andy/Ollama switch, though, UP TO 2 records for the same (bot,eid) is the
+      // NORMAL shape of a retry-once-then-give-up sequence (LLM_MISS_RETRY_LIMIT=2) -- only
+      // >2 records, or a MIX of src types for one pair (a rule and an llm record sharing an
+      // eid, which the rule-first/llm-fallback design should never produce), are genuine
+      // dedup-health signals worth surfacing.
       const byBotEid = {};
-      for (const d of decisions) { const k = `${d.bot}|${d.eid}`; byBotEid[k] = (byBotEid[k] || 0) + 1; }
-      const dupes = Object.entries(byBotEid).filter(([, n]) => n > 1);
+      for (const d of decisions) { const k = `${d.bot}|${d.eid}`; (byBotEid[k] = byBotEid[k] || []).push(d.src); }
+      const dupes = Object.entries(byBotEid).filter(([, srcs]) => srcs.length > 2 || new Set(srcs).size > 1);
       if (dupes.length) {
-        console.log(`  *** ${dupes.length} (bot,eid) pair(s) appear MORE THAN ONCE -- decider-state.json dedup should make this impossible: ${dupes.slice(0, 5).map(([k, n]) => `${k}x${n}`).join(' ')} ***`);
+        console.log(`  *** ${dupes.length} (bot,eid) pair(s) look wrong -- either >2 records or mixed src types (not the normal <=2-llm-retries shape): ${dupes.slice(0, 5).map(([k, srcs]) => `${k}:[${srcs.join(',')}]`).join(' ')} ***`);
       }
       // rule-of-twice candidates (§3b step 7): a (key -> decision) pair the LLM answered the
       // SAME way two or more times is exactly what graduates into rules.json. Grouping by key
       // and comparing decision payloads by value (not by object identity) is the whole point
       // of this table -- it is #68's promised token trajectory ("shrink monotonically"), made
-      // checkable rather than asserted.
+      // checkable rather than asserted. Excludes decision:null (an Andy reply-usability miss,
+      // not a repeatable decision -- "seen null twice" is not a rule candidate).
       const byKey = {};
       for (const d of llmCalls) {
+        if (d.decision == null) continue;
         const k = d.key || '(no key)';
         (byKey[k] = byKey[k] || []).push(JSON.stringify(d.decision));
       }
@@ -675,10 +702,17 @@ if (dgate && typeof dgate === 'string') {
   const p50 = median(latencies);
   const p90 = latencies.length ? latencies[Math.min(latencies.length - 1, Math.ceil(0.9 * latencies.length) - 1)] : null;
 
+  // same --since/--bot scoping as the decider section above -- a gate run must be able to
+  // exclude pre-soak records (e.g. a sign-off verification's synthetic eid) the same way it
+  // scopes the direction/task ledgers, or a soak's own grading window silently includes them.
   const decisionsPath = flag('decisions', path.join(DIR, 'logs', 'decisions.jsonl'));
-  const decisions = (typeof decisionsPath === 'string' && fs.existsSync(decisionsPath))
+  const gateSinceMs = flag('since') ? Date.parse(flag('since')) : null;
+  const gateBotFilter = flag('bot');
+  let decisions = (typeof decisionsPath === 'string' && fs.existsSync(decisionsPath))
     ? fs.readFileSync(decisionsPath, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
     : [];
+  if (gateSinceMs) decisions = decisions.filter((d) => d.t >= gateSinceMs);
+  if (gateBotFilter) decisions = decisions.filter((d) => d.bot === gateBotFilter);
   const llmCalls = decisions.filter((d) => d.src === 'llm');
   const skippedCap = decisions.filter((d) => d.src === 'skipped_cap').length;
   const decByHour = decisions.length ? (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) / 3600000 : 0;
