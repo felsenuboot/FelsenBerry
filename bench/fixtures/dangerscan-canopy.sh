@@ -51,16 +51,52 @@ if [[ "$(jget "$hasDanger" '.result')" != "true" ]]; then
   fail "globalThis.__danger.columnOpen is not exposed -- dangerscan.js v5's test-hook export is missing or not installed on this bot"
 fi
 
+# poll_column_open / poll_block_name -> retry a few times before accepting an answer.
+#
+# 2026-09-02 postmortem (engine-dev-3): this fixture originally called columnOpen() once
+# and appeared to fail every run -- "columnOpen with stone roof: null" instead of the
+# expected false. A live trace (10 back-to-back queries, 0.2s apart) showed columnOpen()
+# actually returning `false` -- correctly -- on EVERY SINGLE try; the "null" was never
+# real. Root cause was in common.sh's jget(), not here: `jq -r "$2 // \"null\""` uses
+# jq's `//` alternative operator, which treats a legitimate JSON `false` the same as
+# null/missing, so jget silently turned a correct `false` into the string "null" every
+# time. Fixed at the source in jget() (see its comment in common.sh) -- that alone makes
+# this fixture reliably green. These two retry helpers are kept anyway as cheap, honest
+# defensive hardening against a DIFFERENT, genuinely-observed (if rare) race: a fresh
+# RCON fill occasionally reads back as still-air, or blockAt as unloaded, for one beat --
+# the same class of transient tp_bot() already retries past above.
+poll_column_open() {
+  local tries=0 result
+  while (( tries < 10 )); do
+    result=$(jget "$(eval_js "const feet = new Vec3($COLX, $PY, $COLZ); return { open: globalThis.__danger.columnOpen(feet) };")" '.result.open')
+    [[ "$result" != "null" ]] && { echo "$result"; return; }
+    sleep 0.2
+    tries=$((tries+1))
+  done
+  echo "$result"
+}
+# poll_block_name <y> <want> -> same idea for the raw blockAt setup-verification probe.
+poll_block_name() {
+  local y="$1" want="$2" tries=0 name=''
+  while (( tries < 10 )); do
+    name=$(jget "$(eval_js "const b = bot.blockAt(new Vec3($COLX, $y, $COLZ)); return { name: b && b.name };")" '.result.name')
+    [[ "$name" == "$want" ]] && { echo "$name"; return; }
+    sleep 0.2
+    tries=$((tries+1))
+  done
+  echo "$name"
+}
+
 # ---- case 1: solid leaf canopy overhead, feet+2..feet+24 -- must return true (open) ----
 rcon "fill $COLX $((PY+2)) $COLZ $COLX $TOP $COLZ minecraft:oak_leaves" >/dev/null
 sleep 0.5
-leafBlockName=$(jget "$(eval_js "const b = bot.blockAt(new Vec3($COLX, $((PY+5)), $COLZ)); return { name: b && b.name, boundingBox: b && b.boundingBox };")" '.result.name')
-leafOpen=$(jget "$(eval_js "const feet = new Vec3($COLX, $PY, $COLZ); return { open: globalThis.__danger.columnOpen(feet) };")" '.result.open')
+leafBlockName=$(poll_block_name $((PY+5)) "oak_leaves")
+leafOpen=$(poll_column_open)
 
 # ---- case 2: real stone ceiling, same column -- must still return false (enclosed) ----
 rcon "fill $COLX $((PY+2)) $COLZ $COLX $TOP $COLZ minecraft:stone" >/dev/null
 sleep 0.5
-stoneOpen=$(jget "$(eval_js "const feet = new Vec3($COLX, $PY, $COLZ); return { open: globalThis.__danger.columnOpen(feet) };")" '.result.open')
+stoneOpen=$(poll_column_open)
 
 cleanup
 

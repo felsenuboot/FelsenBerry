@@ -162,5 +162,13 @@ assert_true() {
   [[ "$cond" == "true" ]] || fail "$msg (got '$cond')"
 }
 
-# jget <json> <jqpath> -> convenience wrapper, "null" on missing
-jget() { jq -r "$2 // \"null\"" <<<"$1" 2>/dev/null; }
+# jget <json> <jqpath> -> convenience wrapper, "null" on missing.
+# NOT `"$2 // \"null\""` -- jq's `//` alternative operator treats a legitimate JSON
+# `false` the same as null/missing (both count as "falsy" for `//`'s purposes), so any
+# fixture checking a boolean field that is correctly `false` got silently handed the
+# STRING "null" instead. Found live (2026-09-02, engine-dev-3, dangerscan-canopy fixture):
+# columnOpen() was correctly returning `false` for a real stone ceiling on every one of
+# ~15 retries, but jget reported "null" every time, reading as a fixture/logic bug that
+# didn't exist. `if (EXPR)==null then "null" else (EXPR) end` distinguishes true
+# null/missing from a real `false` while keeping the same "null" placeholder default.
+jget() { jq -r "if ($2) == null then \"null\" else ($2) end" <<<"$1" 2>/dev/null; }
