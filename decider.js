@@ -7,7 +7,10 @@
 // Stop: kill the pid in pids/decider.pid (or just SIGTERM/SIGINT it — the pidfile is cleaned
 // up on exit either way).
 //
-// Flow per POLL_MS cycle, for every bot discovered via pids/*.port (+ pids/*.meta for owner):
+// Flow per POLL_MS cycle, for every bot discovered via pids/*.port (+ pids/*.meta for owner
+// and, since #95's soak-hygiene fix, DECIDER_EXCLUDE=1 spawn-time exclusion -- a throwaway
+// verification bot spawned alongside a formal soak/race is structurally invisible to this
+// daemon's polling/budget/LLM path, never just a naming-convention hint):
 //   1. GET /state; skip unless agenda.direction.state === 'needs_direction' (see agenda.js v22
 //      / runner.js's own /state.agenda.direction — Phase 1 of this same spec).
 //   2. Driver grace, CONDITIONAL not flat: an OWNED bot (meta names a driver) gets
@@ -89,7 +92,7 @@ function loadRules() {
 }
 
 // ---- bot discovery: pids/*.port (control port, written by spawn.sh) + pids/*.meta
-// (owner|server|purpose, the fleet-awareness convention) ----
+// (owner|server|purpose|decider_exclude, the fleet-awareness convention) ----
 function discoverBots() {
   let files;
   try { files = fs.readdirSync(PIDS_DIR); } catch (e) { return []; }
@@ -102,14 +105,26 @@ function discoverBots() {
     try { port = parseInt(fs.readFileSync(path.join(PIDS_DIR, f), 'utf8').trim(), 10); } catch (e) { continue; }
     if (!port) continue;
     let owner = null;
+    // #95 soak-hygiene fix (2026-09-02): a throwaway/verification bot spawned alongside a
+    // formal soak or race used to draw from the SAME shared fleet-wide LLM budget/rate gates
+    // as the bot actually being measured, silently -- soak #2 was contaminated exactly this
+    // way (SchlonzSchorsch, spawned mid-window for an unrelated fix's regression check).
+    // DECIDER_EXCLUDE=1 at spawn time (spawn.sh's 4th meta field) makes a bot structurally
+    // invisible to this daemon -- not a "(throwaway)" note in freeform PURPOSE text, which
+    // existed before and enforced nothing. Excluded bots still run their own engine-side
+    // agenda ladder exactly as always; only decider.js's polling/budget/LLM path skips them.
+    let excluded = false;
     try {
       const meta = fs.readFileSync(path.join(PIDS_DIR, name + '.meta'), 'utf8').trim();
+      const fields = meta.split('|');
       // spawn.sh writes the literal string "unowned" (not an empty field) when no OWNER is
       // given -- treat that sentinel as no owner, or every driverless bot would wait out the
       // 60s driver grace this daemon's own header comment promises it never gets.
-      const rawOwner = (meta.split('|')[0] || '').trim();
+      const rawOwner = (fields[0] || '').trim();
       owner = (rawOwner && rawOwner !== 'unowned') ? rawOwner : null;
+      excluded = Boolean((fields[3] || '').trim());
     } catch (e) {}
+    if (excluded) continue;
     bots.push({ name, port, owner });
   }
   return bots;

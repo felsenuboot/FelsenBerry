@@ -903,3 +903,20 @@ finishes after ONE pass regardless of what `count` you pass it — use `repeat:t
 open-ended goal (e.g. `harvestGrass` with no field to exhaust). This bit a live driver during
 the 2026-09-02 gear-race: a `count:16` argument on a non-resumable skill was silently a no-op
 cap on a single pass, not a target the ladder kept working toward.
+
+**Checking whether `decider.js` is actually alive, not just quiet** (2026-09-02, soak #2):
+`logs/decider.log` only writes a line when it makes an ACTUAL decision — nothing needed
+answering for a while reads as silence in the log, indistinguishable at a glance from the
+daemon having died. Don't infer death from log silence. The real liveness signal is
+`decider-state.json`'s mtime (it's rewritten every poll cycle, ~20s) or a plain `ps`/pidfile
+check on `pids/decider.pid` — either confirms the daemon is genuinely still polling.
+
+**An episode the decider gives up on no longer rots open forever** (#95, fixed 2026-09-02,
+agenda v24): if the decider exhausts its two Andy attempts and neither maps to a real skill,
+it now closes the episode via `dirClose` (armed with the same reopen backoff every other
+close uses) instead of just leaving it open with nothing watching. If you're driving a bot
+and see `direction.state === 'needs_direction'` sit open far longer than you'd expect, it's
+still worth answering yourself rather than assuming the decider will eventually get it — the
+fix stops permanent silence, but a persistently-unmappable stall (e.g. a genuine kit
+shortfall RESTOCK can't resolve) will keep cycling open/closed on an escalating backoff
+(30s→60s→120s→300s) rather than actually getting fixed on its own.

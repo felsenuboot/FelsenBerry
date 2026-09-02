@@ -39,5 +39,11 @@ echo "$PID" > "$PIDFILE"
 echo "$PORT" > "pids/$NAME.port"
 # fleet-awareness meta: who spawned it, against which MC server, and why.
 # Convention (team law 2026-09-02): OWNER=<teammate> PURPOSE="<short why>" ./spawn.sh ...
-echo "${OWNER:-unowned}|${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}|${PURPOSE:-}" > "pids/$NAME.meta"
+# 4th field (2026-09-02, #95 soak-hygiene fix): DECIDER_EXCLUDE=1 marks a throwaway/
+# verification bot as structurally invisible to decider.js's shared fleet-wide LLM budget --
+# NOT a "(throwaway)" note in freeform PURPOSE text (that convention existed but nothing
+# enforced it; a formal soak window got silently contaminated by exactly this class of bot).
+# Set it whenever a bot is spawned for a quick test/verification alongside a live soak/race,
+# not for anything meant to actually do fleet work.
+echo "${OWNER:-unowned}|${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}|${PURPOSE:-}|${DECIDER_EXCLUDE:-}" > "pids/$NAME.meta"
 echo "spawned $NAME (pid $PID, control port $PORT, owner ${OWNER:-unowned}, server ${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}, log logs/$NAME.log)"
