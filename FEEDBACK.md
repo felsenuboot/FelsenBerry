@@ -3128,5 +3128,5 @@ cheapest option is probably tagging budget-exhausted entries with an explicit `l
 (free — the information already exists at the point `los` is assigned, just discarded) so `pick()` or a
 future refinement COULD treat "assumed false" differently from "verified false" without dangerscan itself
 needing to spend more raycasts than its own budget allows.
-github: n/a yet — recommend filing once a maintainer decides whether this is worth a tracker issue given
-its narrower likelihood, or stays a FEEDBACK note.
+github: felsenuboot/felcrew-mcp#104 (filed, per team-lead's ruling — the class matters even where this
+instance is narrow, same family as #38's phantom instruments)
