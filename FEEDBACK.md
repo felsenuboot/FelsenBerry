@@ -2481,3 +2481,45 @@ the hard way.
 fix: n/a — audit only, per assignment. FLEE_HOME's reachability gap filed as #98 (fix to be argued
 separately before building, same doctrine as #94).
 github: felsenuboot/felcrew-mcp#98 (new, FLEE_HOME finding), cross-reference #94, #95, #54, #91
+
+### 2026-09-02 engine-dev — #98 fix proposed (not yet built): wire the existing _reachOf probe into FLEE_HOME's routing
+type: proposal (doctrine: argue before building)
+status: argued here, building next in this same session
+what: #98's finding — `pick()` chooses `branchFleeHome` on straight-line distance alone
+(`dHome <= fleeHomeMax`), with no check that home is actually reachable. `branchFleeHome`'s own
+`ownedGoto` carries a real 30-second timeout, but that only discovers unreachability AFTER the bot has
+already committed to it, exposed to whatever melee threat triggered the flee the whole time.
+
+**Proposed fix, minimal and reusing what already exists rather than reimplementing it**: this codebase
+already has the exact probe needed — `_reachOf(bot, p)` in skills.js (used today by `resolveContainer`'s
+`tablePos` check and, via the `ctx.reachable` wrapper, `craftToolChain`'s wood-gather ordering per #70):
+a pure `bot.pathfinder.getPathTo(WORK_movements, GoalNear(p,2), 2000ms)` search, no movement, strict
+`status==='success'` only (a `'partial'` is treated as NOT reachable, matching the same "checker must
+match the executor" discipline #70 established). It is currently private to skills.js. Two changes:
+
+1. **skills.js**: expose it as `S.reachOf = _reachOf;` (zero new logic — the exact same function, made
+   callable from another independently-injected payload the same way `S.recoveryDetect` already is).
+   Team-lead's coordination note applies here directly: eng-3's own #97 fix (reachability-before-REFLEX-
+   pins) will likely want this identical probe from a different file — exposing the ALREADY-PROVEN
+   function once, rather than two independent reimplementations drifting apart over time, is the "share
+   one idiom" ask made concrete. Flagging this export to eng-3 directly so they can reuse it rather than
+   rebuild it.
+2. **survival.js**: a `homeReachable()` wrapper that calls `S.reachOf(bot, g.home)` if `skills.js` is
+   installed, and — matching this file's own established "requires: skills.js (optional)" degradation
+   posture — **fails OPEN (treats home as reachable) if skills.js is absent**, since a false "unreachable"
+   from a missing optional payload would silently disable FLEE_HOME entirely rather than degrade
+   gracefully to today's behavior. `pick()`'s FLEE_HOME routing (both the meleeOnly-threat case and the
+   "hurt, no visible threat" case) gates on this check; when it fails, `pick()` falls through to
+   `branchWallOff` — the next thing it would try anyway, not a dead end.
+
+**Why this is safe and matches the #94 pattern exactly**: additive, one new gate on an EXISTING routing
+decision, zero change to any branch's own internal logic (BREAK_LOS, CREEPER, WALL_OFF, and
+`branchFleeHome` itself are all untouched). For a bot whose home genuinely IS reachable — the overwhelming
+common case — behavior is unchanged except for one extra ~2-second, no-movement path search before
+committing, which is a clear net win against a 30-second wasted commitment when it isn't. Verification
+plan: re-run `bench/fixtures/survival-cannotheal.js` (must still be 7/7, #92 untouched) and the #94 fixture
+(`induced-stress-sequencing.sh`, which doesn't touch FLEE_HOME's routing but exercises the same file —
+must not regress), plus a new fixture case proving both directions live: home-reachable still routes
+FLEE_HOME as before, home-walled-off routes elsewhere without burning the 30s.
+fix: proposed here; building next.
+github: felsenuboot/felcrew-mcp#98
