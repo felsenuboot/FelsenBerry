@@ -1,0 +1,26 @@
+{
+  "label": "soak2",
+  "at": "2026-09-02T17:24:26.637Z",
+  "pass": false,
+  "reasons": [
+    "1 episode(s) never closed (open-unclosed must be 0): dmtka4ans4",
+    "latency p50 64s -- must be <=60s",
+    "decisions.jsonl window is only 582s -- too short to judge the LLM calls/hr cap honestly (need >=10min); re-run the gate once the soak has run longer"
+  ],
+  "opened": 4,
+  "closed": 3,
+  "unclosed": 1,
+  "latency_p50_ms": 63918,
+  "latency_p90_ms": 69484,
+  "llm_calls": 2,
+  "llm_calls_per_hr": 12.4,
+  "skipped_cap": 0,
+  "closedBy_decider": 2,
+  "decider_interventions_matched": 2,
+  "undirected_time_fraction_by_bot": {
+    "EngineDreckDave": {
+      "opened": 4,
+      "fraction": 0.8618884125968325
+    }
+  }
+}
