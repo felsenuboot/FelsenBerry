@@ -7,6 +7,7 @@
 node_modules/
 logs/
 pids/
+decider-state.json
 # editor/backup litter
 *.bak-*
 # downloaded blueprints: creators' copyright — build freely on our server, NEVER publish

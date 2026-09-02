@@ -883,3 +883,23 @@ up as DFR rising even when SR is flat, and that is progress, not noise.
 
 If you see `n<5 (suppressed)`, that is deliberate — a 1-for-1 success rate reads like
 triumph and means nothing.
+
+## Direction Episodes (agenda v22+) — wake on demand instead of polling blind
+
+Your bot now tells you explicitly when it needs a decision, instead of you guessing from
+`rung`/`project` whether it's actually stuck or just between chores. Wake on `AGENDA_EVENT` in
+`tail -F logs/<bot>.log` (or just read `agenda.direction` on your normal `/state` poll — either
+surface is the same fact, the log line is the push-latency option). On `direction.state ===
+'needs_direction'`: decide NOW and dispatch via
+`__agenda.dirDispatch('<eid>', {skill, args, repeat?, next:{...}, by:'driver'})` — always
+include `next` so the completion *after* this one costs zero tokens (a staged next promotes
+the instant the current project verifies done, no episode, no LLM, no gap). You have about 60
+seconds before the fleet decider (`decider.js`, one shared daemon, `claude-haiku-4-5`) answers
+for you — dispatching with the real `eid` first just wins the race; a later decider dispatch
+against the same episode is a harmless no-op, not a conflict.
+
+One footgun worth knowing before you hit it: a skill not in the `resumable()` registry
+finishes after ONE pass regardless of what `count` you pass it — use `repeat:true` for an
+open-ended goal (e.g. `harvestGrass` with no field to exhaust). This bit a live driver during
+the 2026-09-02 gear-race: a `count:16` argument on a non-resumable skill was silently a no-op
+cap on a single pass, not a target the ladder kept working toward.
