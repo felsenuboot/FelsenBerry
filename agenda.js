@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 20, enabled: true,
+  version: 21, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -403,6 +403,10 @@ const torchInline = async () => {
 // bot to fresh terrain (the relocateToWork skill) before letting it try its trade again.
 const RELOCATABLE = new Set(['chopTrees', 'harvestGrass', 'mineLane', 'safeDescend']);
 const BARREN_ERRS = new Set(['not_found', 'no_target', 'none']);   // "nothing of the kind here"
+// #89: a project's own error code, once p.blocked (PROJECT's act(), 3 failed attempts),
+// that means "cannot get there" rather than "nothing to find" or "missing kit/tool" — the
+// ESCAPE rung's trigger for a bot that may have dug itself into a sealed pocket.
+const PATH_BLOCKED = new Set(['no_path', 'unreachable', 'stuck']);
 // worked | barren | other. 'other' (kit_missing, no_tool, busy) is NOT barren — RESTOCK/TOOL own
 // it — so it must never trip a relocate. Unknown skills default to 'worked' so a bot making
 // progress we cannot read is never marched off its work.
@@ -699,6 +703,30 @@ const RUNGS = [
       }
       p.attempts = 0;
       return 'started';
+    } },
+
+  // #89 ESCAPE (minimal deterministic hook, ahead of Direction Episodes): a project blocked
+  // on a path/reachability failure while underground has no way out on its own —
+  // mineLane/safeDescend/produce can all dig a bot into a fully-enclosed pocket (#91's
+  // forensics: NOT a WALL_OFF seal, NOT mineLane — producer.js's own unbounded nearest-ore
+  // chase did it), and until now nothing routed a sealed bot to the one skill that can dig
+  // back out (ascendToSurface). Sits BELOW PROJECT (a healthy running project is never
+  // interrupted for this) and ABOVE IDLE (so a sealed bot escapes before falling to generic
+  // idle busywork forever). Deliberately narrow and temporary: Direction Episodes (the
+  // idle-trigger spec, next up) will own this class of decision properly; this only closes
+  // the immediate "no skill, no route" gap so a bot is never permanently entombed meanwhile.
+  // Does not clear A.project.blocked on success — reaching the surface makes the bot SAFE,
+  // which is the whole point; retrying/replacing the blocked project is a separate decision
+  // left to a driver or (soon) Direction Episodes, not guessed at here.
+  { id: 'ESCAPE', prio: 8.5,
+    fire: (s) => Boolean(A.project && PATH_BLOCKED.has(A.project.blocked) && s.surfaceExposed === false),
+    clear: (s) => !(A.project && PATH_BLOCKED.has(A.project.blocked)) || s.surfaceExposed !== false,
+    act: async (s) => {
+      if (oursRunning(s)) return 'running';
+      const r = runSkill('ascendToSurface', {}, 'ESCAPE');
+      if (r.ok) return 'started';
+      if (r._transient) return 'busy';
+      return 'refused';
     } },
 
   { id: 'IDLE', prio: 9, floor: true,

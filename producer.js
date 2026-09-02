@@ -99,13 +99,25 @@ async function mineProduct(bot, oreNames, product, want, steps, chk) {
   const oreIds = idsOf(bot, oreNames);
   const start = inv(bot, product);
   const noun = product === 'coal' ? 'coal' : 'ore';
+  // #91 forensics (OhneHoseOtto, GEAR-RACE run #1, 2026-09-02): findBlocks was centred on the
+  // bot's CURRENT position every scan, with no bound on how far the WHOLE multi-scan pass
+  // could wander chasing "nearest unmined stone" — over up to 60 iterations that is an
+  // unbounded random walk, and it is what actually dug this bot into a fully-enclosed dead
+  // end with no path back (the #89 specimen; NOT a WALL_OFF seal — zero panic/danger events
+  // ever fired for that bot — and NOT mineLane, which never once ran there, always
+  // kit_missing). Anchor the search to where THIS CALL started, same MINE_RADIUS, so a
+  // mining pass explores a bounded area instead of marching progressively further with every
+  // scan. Nothing left reachable within that area now hits the existing "found.length===0"
+  // exit and reports partial — the same honest stop, reached for the right reason.
+  const origin = bot.entity.position.clone();
   let scans = 0, stagnant = 0, spaceOut = false;
   while (inv(bot, product) - start < want && scans++ < 60) {
     chk();
     if (bot.inventory.emptySlotCount() === 0) { spaceOut = true; break; }
     const before = inv(bot, product);
     const floorY = Math.floor(bot.entity.position.y) - MAX_MINE_BELOW;
-    const found = bot.findBlocks({ matching: oreIds, maxDistance: MINE_RADIUS, count: 8 }).filter((p) => !isProt(bot, p) && p.y >= floorY);
+    const found = bot.findBlocks({ matching: oreIds, maxDistance: MINE_RADIUS, count: 8 })
+      .filter((p) => !isProt(bot, p) && p.y >= floorY && p.distanceTo(origin) <= MINE_RADIUS);
     if (!found.length) break;
     for (const p of found) {
       chk();
@@ -360,14 +372,14 @@ S.define('produce', {
 
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 6,
+  version: 7,
   restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 6, boundAt: Date.now(), stale: false };
+REG.producer = { version: 7, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 6,
+return { installed: true, version: 7,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
   resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table'],
