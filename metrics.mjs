@@ -416,6 +416,27 @@ if (dirRecs.length) {
       console.log(`  LLM calls/hr: ${llmPerHr != null ? llmPerHr.toFixed(1) : 'n/a'} vs the ${LLM_CAP_PER_HR}/hr cap` +
         (llmPerHr != null && llmPerHr > LLM_CAP_PER_HR ? '   *** OVER CAP -- the persisted rate gate should have prevented this, investigate decider-state.json ***' : ''));
       console.log(`  skipped_cap: ${skipped.length}${skipped.length > 0 ? '   <- overflow correctly logged, not spent (this IS the cap working, not a failure)' : ''}`);
+      // dispatchOk/dispatchError only exist on rule/llm records (decider.js appends
+      // skipped_cap BEFORE attempting dispatch, so those lines are structurally shorter --
+      // 'in d' below, not a truthiness check, so a real `dispatchOk:false` isn't mistaken
+      // for "field absent"). A false here is normal, not a bug: the eid CAS raced a driver
+      // that answered first (IDLE_TRIGGER_SPEC §1.1j) -- worth counting, not alarming on.
+      const dispatched = decisions.filter((d) => 'dispatchOk' in d);
+      const dispatchFailed = dispatched.filter((d) => d.dispatchOk === false);
+      if (dispatched.length) {
+        console.log(`  dispatch races (driver answered first): ${rate(dispatchFailed.length, dispatched.length)}${dispatchFailed.length ? '  <- normal eid-CAS behavior, not a decider bug; see dispatchError for the stale reason' : ''}`);
+      }
+      // decider-state.json's dedup is by (bot,eid), marked handled regardless of outcome --
+      // decisions.jsonl should NEVER show two records for the same pair in a healthy run.
+      // A duplicate here means dedup itself is broken (a retry storm, or two decider
+      // processes racing), which is a decider-health signal worth surfacing on sight rather
+      // than silently folding into whatever count happens to read it first.
+      const byBotEid = {};
+      for (const d of decisions) { const k = `${d.bot}|${d.eid}`; byBotEid[k] = (byBotEid[k] || 0) + 1; }
+      const dupes = Object.entries(byBotEid).filter(([, n]) => n > 1);
+      if (dupes.length) {
+        console.log(`  *** ${dupes.length} (bot,eid) pair(s) appear MORE THAN ONCE -- decider-state.json dedup should make this impossible: ${dupes.slice(0, 5).map(([k, n]) => `${k}x${n}`).join(' ')} ***`);
+      }
       // rule-of-twice candidates (§3b step 7): a (key -> decision) pair the LLM answered the
       // SAME way two or more times is exactly what graduates into rules.json. Grouping by key
       // and comparing decision payloads by value (not by object identity) is the whole point
