@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 50;
+const ENGINE_VERSION = 51;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -243,6 +243,17 @@ const ORE_ALIASES = {
 };
 const UBIQUITOUS = new Set(['stone', 'deepslate', 'dirt', 'netherrack', 'cobblestone', 'grass_block', 'sand', 'gravel']);
 const CONTAINERS = new Set(['chest', 'trapped_chest', 'barrel']);
+// #10: mineflayer's generic bot.openContainer only understands the chest FAMILY — calling it
+// on a furnace throws "containerToOpen is neither a block nor an entity" (furnaces open
+// through the separate bot.openFurnace). Every engine skill already gates its own chest access
+// behind CONTAINERS.has(), so none of them hit this — the two live reports (bernd-driver,
+// marcel-driver) both came from hand-rolled /eval scripts calling bot.openContainer directly
+// on a furnace, with no engine helper to route it correctly. This is that helper, for any
+// future skill or driver script (smelting, #59) that needs to open EITHER family generically.
+const FURNACES = new Set(['furnace', 'blast_furnace', 'smoker']);
+async function openContainerAuto(bot, block) {
+  return FURNACES.has(block.name) ? bot.openFurnace(block) : bot.openContainer(block);
+}
 // blueprint skills refuse to bulldoze anyone's infrastructure to clear a build cell.
 const PROTECTED = new Set(['chest', 'trapped_chest', 'barrel', 'ender_chest', 'shulker_box',
   'furnace', 'blast_furnace', 'smoker', 'crafting_table', 'bed', 'loom', 'anvil', 'brewing_stand']);
@@ -1216,6 +1227,11 @@ function makeCtx(bot, task) {
       };
     },
 
+    // #10: open a furnace OR a chest-family block correctly (see openContainerAuto above —
+    // mineflayer's bot.openContainer throws on furnaces). Skills built on this ctx (e.g. a
+    // future smelting skill, #59) should call this instead of bot.openContainer directly.
+    openContainerAuto(block) { return openContainerAuto(bot, block); },
+
     // Withdraw a shopping list from a chest/barrel. needs = {itemName: count}.
     // Returns {got:{}, short:{}} — never throws except Cancelled/fatal(not_found).
     // Every quirk guard from depositToChest applies: GoalNear->GoalLookAtBlock travel
@@ -1456,6 +1472,11 @@ S.recoveryDetect = {
   offsets: REPOSITION_OFFSETS.map((o) => o.slice()),
   findRepositionTarget,
 };
+
+// #10: exposed for driver hand-eval scripts (both live reports came from those, not from an
+// engine skill) — `__skills.openContainerAuto(bot, block)` opens a furnace OR a chest-family
+// block correctly instead of a raw bot.openContainer that throws on the former.
+S.openContainerAuto = openContainerAuto;
 
 // The kit tier table, exported so the AGENDA can aim its maintenance rungs at the SAME
 // requirement the departure gate enforces. Without this the ladder's idea of "I have a
