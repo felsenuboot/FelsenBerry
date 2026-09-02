@@ -2779,3 +2779,43 @@ precedent), this needs a real mob, not `drill()`.
 fix: proposed here; building next (holding for the soak #3 grade first if it lands mid-work, per
 team-lead's explicit priority order).
 github: felsenuboot/felcrew-mcp#96
+
+### 2026-09-02 test-driver — threat-independent panic thrash: HP<8 alone loops survival forever (new, more severe than #97)
+type: bug
+status: open
+what: Gear-race run #4 (SabberSepp, world-race4): an early zombie death (T+29s, before any kit
+existed) left HP at 7.7/20 with food at 17 (one below the 18 needed for natural regen) and zero
+cobblestone. From that point, survival.js's standalone "HP < 8" panic-entry condition re-fired
+continuously and indefinitely with NO mob involved: `danger.score` was 0, `danger.state` "calm",
+`threats:[]`, and the log read `"danger panic (0): no visible threat"` immediately followed by
+`"panic_enter (danger) hp=8 threat=no visible threat"`, repeating. `survival.fires` went 395 -> 1107
+in ~3 minutes and was still climbing (accelerating) when the run concluded. This is MORE severe
+than `#97`: it needs no freak geometry and no persistent attacker, just one early sub-8-HP hit with
+no food/cobble on hand — near-guaranteed at the start of any fresh spawn. Because `panic_enter`
+calls `stop()` on the running task at this frequency, NO task can ever complete — including the
+correct fix (hunting for food). I set `huntAnimals{repeat:true}` as soon as diagnosed; it correctly
+crafted a sword and started moving, but has never completed a kill because the hunt keeps getting
+cancelled before it can finish. Genuine catch-22, no legal `setProject`-only recovery exists: the
+fix for the trigger requires uninterrupted task time the trigger itself prevents.
+fix: (1) survival.js's HP<8 entry should not re-fire on a fresh panic_enter when the immediately
+preceding cycle already diagnosed kit_violation/cannot-heal and nothing has changed (no new threat,
+no food/filler gained) — extends #92's cannot-heal concept to suppress RE-entry, not just enable
+exit (this run never hung in one continuous WALL_OFF, it exited cleanly every cycle and immediately
+re-entered). (2) a cooldown/backoff on panic_enter when the preceding diagnosis is unchanged, rather
+than sub-second re-triggering. (3) whatever the gate, an in-flight legitimate recovery task (like a
+driver-issued huntAnimals already running) needs some grace window to actually complete rather than
+being aborted every single tick.
+github: felsenuboot/felcrew-mcp#99 (filed)
+
+### 2026-09-02 engine-dev-3 — #99 diagnosed and fixed live: the WALL_OFF no-filler bail never armed standdown
+type: fix + verification
+status: root cause confirmed via live introspection (not guessed), fixed, verified live and via preflight; fix lives inside engine-dev's active uncommitted survival.js WIP (v9, #96) pending their commit
+what: picked up test-driver's urgent #99 handoff (SabberSepp, run #4, actively thrashing). Live-confirmed the exact mechanism with a single `/eval` read rather than reasoning from the log alone: `__survival.brief()` showed `branch:'WALL_OFF'`, `fires:2060, recovered:2059` (and climbing), `standdown:null`, while `__survival.cannotHeal()` independently evaluated `true` at that exact moment (food:17 < regenFood:18, no food item held). Cross-referenced against `pick()`'s current (#96 WIP) routing: with `nearest===null` (no visible threat — confirmed, `ts.length===0`), the FLEE_HOME branch is skipped (out of `fleeHomeMax` range or unreachable) and the fallback-of-last-resort `branchWallOff(nearest)` fires; inside it, `if (!fillerItem())` bails immediately with `{ branch: 'WALL_OFF', sealed: false, reason: 'no_filler' }` — **no `cannotHeal` field at all**. `enter()`'s existing #92 standdown-arming check (`out.branch==='WALL_OFF' && out.cannotHeal`) only ever sees this field set by the FULL seal-attempt path further down the same function, so it silently never fires for the no-filler bail — the exact same class of heal-deadlock #92 already fixed once, reopened through an early-return path that was never retrofitted with the same protection. Since `critical` (hp<8) deliberately bypasses `lockoutMs` (by design, for good reason — #65's point-blank-skeleton lesson), and the underlying condition (no filler, no food, hp pinned) never changes on its own, `enter('hp')` re-fires as fast as the health listener ticks, canceling whatever project is running every single time before it can make the ONE kind of progress (eating) that would actually resolve the trigger. Confirmed this specific bail path can only ever be reached with `threatsNow()` already empty (a real threat + no filler diverts to the newer `branchFightBack`/`branchFleeAway` branches before `branchWallOff` is even called under #96's routing), so no additional threat-clear guard was needed — the fix is exactly as narrow as the gap.
+
+**Fix**: one field. `return { branch: 'WALL_OFF', sealed: false, reason: 'no_filler', cannotHeal: cannotHeal() };` — reuses the same predicate the full path already trusts, no new logic.
+
+**Verified live**, immediately, on the actual thrashing specimen (not a synthetic reproduction): re-injected the patched file, watched `__survival.brief()` — fires/recovered locked at 49 and held perfectly steady across an 8+ second window (was climbing continuously, unbounded, before), `state:'standdown'` correctly armed with the diagnosed hp recorded. `/state` immediately after showed the agenda ladder had resumed real work (`RESTOCK`/`chopTrees`, direction episode closed 4/4, `cooldown` — not stuck). Full `bench/preflight.sh`: 199/199, no regressions.
+
+**Process note, since this touched a teammate's live WIP file**: survival.js was engine-dev's own uncommitted v9 (#96 pick() redesign) when I found this — given the bot was actively thrashing and accelerating, and the fix was a single precise field addition that touches nothing else in the file, I applied and verified it directly rather than waiting through a full coordination round-trip, then immediately handed the exact diff to engine-dev with full disclosure rather than committing it myself under their in-progress work. Not committing this entry's fix myself for that reason — it will land as part of (or alongside) their own #96 commit.
+fix: survival.js (`branchWallOff`'s no-filler early return, one field) — landing via engine-dev's own commit.
+github: felsenuboot/felcrew-mcp#99 (comment to follow)
