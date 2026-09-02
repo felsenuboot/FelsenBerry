@@ -385,17 +385,38 @@ async function handleBot(b, rules) {
   // either blindly re-dispatching an identical failing call or leaving the episode open --
   // the exact same reopen-backoff every other close uses gives it another shot later if the
   // world (position, kit, whatever) actually changes.
+  // TWO BUGS FOUND LIVE during the deferred wiring check this fixture-zero comment promised
+  // (2026-09-02, both on the actual restart -- exactly why that check was deferred rather
+  // than assumed):
+  // 1. Without an eid in the tracked signature, this fired on the SECOND POLL OF THE SAME
+  //    STILL-RETRYING EPISODE, not just across genuinely separate episodes -- every poll
+  //    that passes dedup (including a mid-retry re-poll of an episode decider hasn't given
+  //    up on yet) unconditionally rewrote `lastAttempt` to the identical {pos,why,lastError},
+  //    so the very next poll compared it against itself and always matched, short-circuiting
+  //    the 2-attempt-then-give-up Andy retry after just ONE attempt. Fixed by tracking `eid`
+  //    and requiring it to DIFFER -- matching within the SAME eid is decider re-polling its
+  //    own in-progress retry, not a repeat.
+  // 2. `prevAttempt.eid !== eid` alone is backwards on missing data: a `lastAttempt` entry
+  //    persisted by the OLD code (no `eid` field, live in decider-state.json across this
+  //    exact restart) has `eid: undefined`, and `undefined !== "realEid"` is true -- so a
+  //    STALE entry with no real signal read as "confirmed different episode" and false-
+  //    triggered against BruzzelBruno's genuinely in-progress retry the instant this
+  //    restarted, costing it one legitimate Andy attempt (not left stuck -- dirClose +
+  //    reopen-backoff still applied -- but a real, avoidable false positive). `&&
+  //    prevAttempt.eid` requires an ACTUAL prior eid before ever treating "different" as
+  //    meaningful -- missing/ambiguous data defaults to "don't skip", not "skip", matching
+  //    this codebase's own never-guess-on-missing-data doctrine everywhere else.
   const FROZEN_POS_TOLERANCE = 1.5;   // blocks -- "hasn't moved" allows for settle/jitter
   state.lastAttempt = state.lastAttempt || {};
   const prevAttempt = state.lastAttempt[b.name];
   const curPos = st.position || null;
   const lastError = (dir.detail && dir.detail.lastError) || null;
-  const frozenRepeat = Boolean(prevAttempt && curPos
+  const frozenRepeat = Boolean(prevAttempt && prevAttempt.eid && prevAttempt.eid !== eid && curPos
     && Math.abs(curPos.x - prevAttempt.pos.x) < FROZEN_POS_TOLERANCE
     && Math.abs(curPos.y - prevAttempt.pos.y) < FROZEN_POS_TOLERANCE
     && Math.abs(curPos.z - prevAttempt.pos.z) < FROZEN_POS_TOLERANCE
     && prevAttempt.why === dir.why && prevAttempt.lastError === lastError);
-  if (curPos) state.lastAttempt[b.name] = { pos: curPos, why: dir.why, lastError };
+  if (curPos) state.lastAttempt[b.name] = { pos: curPos, why: dir.why, lastError, eid };
   if (frozenRepeat) {
     state.handled[dedupKey] = Date.now();
     appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key: ruleKey(dir, st.role || null),
