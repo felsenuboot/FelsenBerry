@@ -8,8 +8,8 @@ Everything stopped by user order mid-night-shift. All findings/state in FEEDBACK
 An active session /goal exists: "a minecraft bot behaving like a human" (Felix may clear it).
 
 ## 0. Restart recipe (unchanged from morning, plus new pieces)
-1. Local test server: `cd ../localserver && setsid nohup ./setup.sh > server.log 2>&1 &` → 25599 (RCON 25598).
-2. Race server (only for a race): `cd ../localserver-race && setsid nohup java -Xmx1536M -Xms512M -jar server.jar nogui > server.log 2>&1 &`
+1. Local test server: `cd ~/minecraft/localserver && setsid nohup ./setup.sh > server.log 2>&1 &` → 25599 (RCON 25598).
+2. Race server (only for a race): `cd ~/minecraft/localserver-race && setsid nohup java -Xmx1536M -Xms512M -jar server.jar nogui > server.log 2>&1 &`
    → 25600. Before a new race: swap level-name → world-race6. ARCHIVES (never delete/reuse):
    world-race2 (staked R2 wedge + wall-off site), world-race4 (#99 site), world-race5 (run #5 suspended mid-state).
 3. Ollama (decider LLM): `setsid nohup ollama serve &` (USER-level; models in ~/.ollama; andy-cpu = CPU-pinned).
