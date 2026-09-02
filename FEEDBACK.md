@@ -2646,3 +2646,51 @@ blind.** Two reasons, both real, not just caution theater:
 fix: item 3 built this session (see the commit immediately following this entry). Item 2 is a
 proposal only -- no code change yet.
 github: felsenuboot/felcrew-mcp#97 (comment to follow, both items)
+
+### 2026-09-02 engine-dev — RotzRudi's triple-death: #96's "no filler, no defense" ceiling confirmed in the field, not just a QA fixture (via a path #94 doesn't cover)
+type: finding
+status: root cause confirmed from the real gear-race ledger; NOT fixed here — escalating #96 with field evidence, doctrine says argue before building and this needs a real design call first
+what: engine-dev-3 flagged `logs/metrics-RotzRudi.jsonl` (real gear-race run #3, ~17:46:23Z-17:47:05Z):
+`panic phase:'recovered' branch:'WALL_OFF'` firing in extremely tight succession (six within one logged
+second at 17:46:53Z) with `danger` re-entering panic immediately after each declared "recovered", three
+real `death` events inside 30 seconds.
+
+**Confirmed mechanism, same signature as #94's own diagnostic method applied to this new ledger**: every
+one of these `enter`->`recovered` cycles resolves in 20-30ms (e.g. 17:46:53.512->17:46:53.539 = 27ms) —
+exactly the same "too fast to be real construction" fingerprint #94 measured across 593 cycles. Cross-
+referenced against `task_end` records: cobblestone was genuinely mined (24 at 17:42:09, +1 at 17:42:51,
++1 at 17:44:58 — 26 total, never replenished again before the death sequence at 17:46:23+). Engine-dev-3
+independently confirmed via their own #97 investigation that WALL_OFF legitimately spent this filler
+across ~2 real seal attempts earlier in the same encounter, not a leak. By the time we reach THIS ledger
+segment, filler is exhausted, and every subsequent `branchWallOff` call hits the same synchronous
+`fillerItem()` no-filler bail #94 found — zero real construction, zero protection, ~20-30ms per cycle,
+while the attacking mob keeps landing real hits every cycle.
+
+**Why #94's fix does NOT cover this case — the actually new part of this finding**: `pick()` only ever
+reaches `branchBreakLOS` (where #94's corner-step fix lives) via its `ranged && los` check. RotzRudi's
+attacker throughout this segment is consistent with a MELEE threat (danger's own `threats` entries in
+this window carry no `ranged:true`) — `pick()` never routes a melee threat through BREAK_LOS at all. The
+melee `FLEE_HOME` path requires `bot.health >= 6`; once HP crossed below that (5.33 -> 2.83 -> 0.33 across
+this exact segment), that gate closes too, and `pick()` falls straight to `branchWallOff(nearest)` with
+**no intermediate branch, no corner-step opportunity, nothing #94 touches**. A melee attacker against a
+sub-6-HP, filler-less bot has ZERO possible active defense today, by construction — not a bug in any one
+branch, but a genuine gap in the routing table itself.
+
+**This is #96, field-confirmed, not hypothetical.** #96 (filed today, "last-resort defense for a
+genuinely unkitted bot") was framed around QA-fixture evidence with an open question — "may be testing a
+state well-kitted bots practically never enter." This incident answers that question: a real fleet bot,
+mid-race, doing completely ordinary things (mining pickaxe upgrades, producing sticks/torches) ran its
+filler down over the course of a normal encounter and hit this exact ceiling live, three times, fatally.
+Updating #96 with this evidence rather than filing a duplicate — the design question it already poses
+(filler-independent last resort vs. leaning harder on kit-preflight/mid-encounter resupply awareness) is
+the same question, now with a body count instead of a fixture number.
+
+**Not fixed here, deliberately**: this needs a real design decision (does corner-step's LOS-breaking
+value generalize usefully to melee threats too, despite melee not caring about sightlines the way a
+skeleton's arrows do? does FLEE_HOME's `health>=6` gate need an exception when the alternative is
+provably zero defense? does WALL_OFF need to warn a driver/decider BEFORE filler actually runs out rather
+than only reporting the violation after the fact?) rather than a narrow one-line patch like #94/#98 — per
+this file's own "argue before building" doctrine, that argument belongs on #96 as a maintainer decision,
+not something to rush from a teammate flag mid-soak.
+fix: n/a — diagnosis only, escalating #96.
+github: felsenuboot/felcrew-mcp#96 (updated with field evidence), cross-reference #94, #97
