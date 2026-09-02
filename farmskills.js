@@ -31,6 +31,9 @@ if (!globalThis.__skills || typeof globalThis.__skills.define !== 'function') {
 }
 const S = globalThis.__skills;
 const V = Vec3; // runner.js passes Vec3 into the payload AsyncFunction
+// Same accessor as skills.js's own (#69 gap 1: depositItems moves real items through a chest
+// and never told the ledger). No cross-module import — each payload keeps its own copy.
+const MET = () => { try { return globalThis.__metrics; } catch (_) { return null; } };
 
 // ---- constants (self-contained; skills.js keeps its own copies internal) ----
 const AIR = new Set(['air', 'cave_air', 'void_air']);
@@ -225,6 +228,10 @@ async function depositItems(ctx, chestPos, itemNames) {
   } finally { try { win.close(); } catch (_) {} }
   const total = Object.values(moved).reduce((a, b) => a + b, 0);
   if (total > 0) ctx.say(('DEPOT ' + Object.entries(moved).map(([k, v]) => `+${v} ${k}`).join(' ')).slice(0, 140));
+  // #69 gap 1: log the transaction (zero-moved included) — only reached once the chest was
+  // actually opened, so an unreachable/missing chest above is a failed APPROACH, not a
+  // zero-item VISIT, and does not get a chest record.
+  try { const m = MET(); if (m && m.chest) m.chest('deposit', [cp.x, cp.y, cp.z], moved); } catch (_) {}
   return { moved, total };
 }
 
@@ -475,12 +482,12 @@ S.define('harvestGrass', {
 // ---- registry + staleness bookkeeping (mirror the other payloads) ----
 const NAMES = ['tillFarmland', 'farmCycle', 'harvestGrass'];
 const fg = globalThis.__farmskills = {
-  version: 2, skills: NAMES,
+  version: 3, skills: NAMES,
   tillCell, plantCell,   // exposed so future skills reuse ONE implementation
   restore() { for (const n of NAMES) { try { delete S.registry[n]; } catch (_) {} } },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.farmskills = { version: 2, boundAt: Date.now(), stale: false };
+REG.farmskills = { version: 3, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.farmskills.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 1, skills: NAMES };
+return { installed: true, version: 3, skills: NAMES };

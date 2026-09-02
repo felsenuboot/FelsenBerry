@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 48;
+const ENGINE_VERSION = 49;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -722,9 +722,14 @@ function makeCtx(bot, task) {
           // propagate unchanged on a non-stuck failure, exhausted retries, or too little budget
           // left for a meaningful retry (a fresh attempt needs room to reach `stuck` again).
           if ((e && e.code) !== 'stuck' || attempt >= r2Max || (deadline - Date.now()) < 4000) throw e;
-          pushLog('info', `recovery R2 (attempt ${attempt + 1}/${r2Max}): reposition + re-issue (${Math.round((deadline - Date.now()) / 1000)}s budget left)`);
-          try { const m = MET(); if (m && m.recovery) m.recovery('R2', attempt + 1); } catch (_) {}
-          await ctx._reposition();   // best-effort; retry the goto regardless (a fresh A* from here may route even if we barely moved)
+          // best-effort; retry the goto regardless (a fresh A* from here may route even if we
+          // barely moved). Reposition BEFORE logging/emitting so `displaced` reports what
+          // actually happened, not what was about to be attempted — lets metrics.mjs score
+          // eng-2's #54-review prediction (the re-issued A*, not the reposition, is the win)
+          // by splitting retry outcomes on displaced=true vs false.
+          const displaced = await ctx._reposition();
+          pushLog('info', `recovery R2 (attempt ${attempt + 1}/${r2Max}): reposition${displaced ? '' : ' (no displacement)'} + re-issue (${Math.round((deadline - Date.now()) / 1000)}s budget left)`);
+          try { const m = MET(); if (m && m.recovery) m.recovery('R2', attempt + 1, { displaced }); } catch (_) {}
         }
       }
     },
@@ -1261,6 +1266,10 @@ function makeCtx(bot, task) {
           if (taken < want) short[name] = want - taken;
         }
       } finally { try { win.close(); } catch (_) {} }
+      // #69 gap 1: log the visit even when nothing came back (a chest that had none of what
+      // was asked is still a real transaction attempt, same doctrine as craft/taskRejected
+      // never dropping the zero case).
+      try { const m = MET(); if (m && m.chest) m.chest('withdraw', [cp.x, cp.y, cp.z], got); } catch (_) {}
       return { got, short };
     },
   };
@@ -1853,8 +1862,12 @@ async function ctxlessWithdrawTool(bot, chestPos, need) {
     const hit = win.containerItems()
       .filter((i) => satisfiesNeed(i.name, need))
       .sort((a, b2) => toolTierOf(b2.name) - toolTierOf(a.name))[0];
-    if (!hit) return null;
+    if (!hit) {
+      try { const m = MET(); if (m && m.chest) m.chest('withdraw', [cp.x, cp.y, cp.z], {}); } catch (_) {}
+      return null;
+    }
     await win.withdraw(hit.type, null, 1);
+    try { const m = MET(); if (m && m.chest) m.chest('withdraw', [cp.x, cp.y, cp.z], { [hit.name]: 1 }); } catch (_) {}
     return hit.name;
   } finally { try { win.close(); } catch (_) {} }
 }
@@ -3790,6 +3803,8 @@ S.define('depositToChest', {
       // DEPOT.md rule: chat is the shared ledger
       ctx.say(('DEPOT ' + Object.entries(moved).map(([k, v]) => `+${v} ${k}`).join(' ')).slice(0, 140));
     }
+    // #69 gap 1: log every visit, zero-moved included (e.g. chestFull on the first item).
+    try { const m = MET(); if (m && m.chest) m.chest('deposit', [chest.position.x, chest.position.y, chest.position.z], moved); } catch (_) {}
     return {
       chest: { x: chest.position.x, y: chest.position.y, z: chest.position.z, name: chest.name },
       moved, totalMoved: total, skipped, chestFull, freeSlotsAfter: bot.inventory.emptySlotCount(),
