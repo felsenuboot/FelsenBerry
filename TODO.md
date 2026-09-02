@@ -28,31 +28,20 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    poll test-driver-owned bots' agenda rung → alert IDLE streaks; tail both server logs for
    <Felsenuboot> chat = supervisor wake).
 
-## 1. IMMEDIATE queue (priority order)
-1. **#102 chopTrees fell-complete + elevated drops** — eng-3 was mid-work at wind-down; check
-   `git status`/last commits for WIP state + their handoff note in FEEDBACK. REQUIRED for human-bar
-   criterion 4 (a soak bot chops constantly; half-felled trees fail the trail check). Spec: fell the
-   WHOLE trunk column; collect/prevent canopy-stranded drops. Felix's screenshot = the incident.
-2. **SOAK #4 = the first formal HUMAN-BAR attempt** (after #102 + preflight green): fresh crude-named
-   bot on 25599 with --agenda, SOAK_BOT=<name> on the decider, canonical start timestamp from
-   decider.js's startup log, 60 min hands-off, then grade with **`node bench/humanbar.mjs --bot <name>
-   --since <ISO> --until <ISO> --label soak4`** (NEW combined instrument: direction-gate AND playcheck,
-   built+validated byte-identical vs soak-3's hand grade) + a WORLD SPOT-CHECK of its work sites
-   (criterion 4: no half-trees/stranded drops/scars). Pass = all four criteria → the /goal condition
-   is genuinely met. Soak-3 postmortem context: 1.5% SR, root causes both FIXED (#101 terrain-seek
-   landed cd30f4c; R2 EXONERATED — see FEEDBACK edeb3e3: R2 did its job every time, the gap was
-   destination-unreachability one level up, already covered by #95+#97-item-3, both field-confirmed).
-3. **Gear-race run #6** (after soak #4 verdict): Race book v2 in SCOREBOARD.md governs; gates were
-   R2-fix(→exonerated, moot) + #101(done) + preflight; world-race6; the WALL to beat: 0-of-4 runs
-   ever crafted a stone pickaxe (run #5 SUSPENDED, excluded). Stack at wind-down: skills v60,
-   survival v10, agenda v25, producer v7, dangerscan v5.
-4. **#103** death/respawn opens a needs_direction episode (agenda lane; spec'd to exact hook lines in
-   the issue). **#100-family residue:** #96 residual = #96 issue's unkitted-last-resort design Q (open),
-   #104 losAssumed tag (low, needs live sighting).
-5. **Held #95 follow-ups** (specific `why` for repeated identical failures; RESTOCK repeat-count feed)
-   — pull them if soak #4's data says so.
-6. **issue-manager sync pass** — much landed since the last one: #96 #98 #99 #100 #101 fixed/closed-
-   or-closable, #102-#104 filed, R2 exoneration comments, soak grades on #68.
+## 1. IMMEDIATE queue (priority order) — re-sequenced 2026-09-02 23:40 (Fable 5.1)
+1. **#102 chopTrees fell-complete + elevated drops** (eng-3, in progress — WIP in tree). Required for human-bar criterion 4.
+2. **Gear-progression drive** (eng-3): craft the better tool tier the moment materials are in hand — the race's
+   "stone wall" is partly this missing reflex (run #3 held 24 cobble, never crafted a stone pick).
+3. **SHELTER rung** (eng-3, agenda.js prio ~2.5) calling survival v11's `__survival.shelter.{should,enter,exit,status}`
+   (#105 primitives LANDED 79e0e1e, live-verified: dig-in-and-cap, 1x1 hut, dawn exit; threat/hunger exits not yet live-fired).
+   With it aboard the bot spends nights sealed + lit instead of fighting — criterion 3 by avoidance.
+4. **SOAK #4 = first formal HUMAN-BAR attempt** (after 1-3 + preflight): fresh crude name, --agenda, SOAK_BOT on the
+   decider, canonical timestamp, 60 min hands-off, `node bench/humanbar.mjs --bot <name> --since <ISO> --until <ISO>
+   --label soak4` + world spot-check of its work sites. Lead holds the timer. Pass = /goal met.
+5. **#106 stuck `.light` field** (engine-dev): block light reads constant 0 day/night; dangerscan's field may be the same →
+   LIGHT/POSTURE may run on a false "always dark". Investigate, propose fix (isDay + skyLight geometry composite).
+6. **Gear-race run #6** (test-driver, MuffelManfred reserved, world-race6, Race book v2) after soak #4's verdict.
+7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
 ## 2. Standing (unchanged)
 - Cavecrew reconnect + AFTER-playcheck of #70-75 (blocked on their server; monitor on resume).
