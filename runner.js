@@ -691,6 +691,12 @@ const server = http.createServer(async (req, res) => {
                 why:  a.direction.episode ? a.direction.episode.why : null,
                 eid:  a.direction.episode ? a.direction.episode.id  : null,
                 forMs: a.direction.episode ? (Date.now() - a.direction.episode.openedAt) : null,
+                // decider.js's ruleKey() (#68 Phase 3) keys on detail.lastError/detail.barren --
+                // omitted here until now, which silently collapsed every rule to lastError:'none'
+                // barren:'0' regardless of the real episode (caught seeding rules.json for the
+                // 2026-09-02 soak: the project_blocked->ascendToSurface rules, keyed on a specific
+                // lastError code, could never have matched).
+                detail: a.direction.episode ? a.direction.episode.detail : null,
                 opened: a.direction.opened, closed: a.direction.closed, promoted: a.direction.promoted,
               } : null,
               next: a.nextProject ? a.nextProject.skill : null };
