@@ -36,15 +36,17 @@
  * version stamps) specifically so running this harness can never inflate the very count it
  * is reporting.
  *
- * ADVANCEMENT_MAP is informational, not authoritative, on purpose: team-lead's brief mapped
- * "Isn't It Iron Pick?" to the DIAMOND pickaxe and stated "vanilla has no distinct
- * iron-pickaxe advancement" -- real vanilla's minecraft:story/iron_tools ("Isn't It Iron
- * Pick?") is actually about the IRON pickaxe, so that mapping looks likely wrong. Rather than
- * silently pick a side, this harness does NOT use advancement titles to decide a tier's
- * completion time at all -- it reports any advancement lines seen as extra context in the
- * output, and lets `Tool ready` + ledger inventory (both item-name-exact, no title-guessing)
- * be the only things that actually set a tier's clock. Flagged in FEEDBACK.md rather than
- * silently resolved either way -- Felix or team-lead should settle the real mapping.
+ * ADVANCEMENT_MAP is informational, not authoritative, BY DESIGN, independent of whether the
+ * mapping itself is right: the assignment brief's original text mapped "Isn't It Iron Pick?"
+ * to the DIAMOND pickaxe and stated "vanilla has no distinct iron-pickaxe advancement" --
+ * flagged as likely wrong (real vanilla's minecraft:story/iron_tools, that exact advancement,
+ * is normally about the IRON pickaxe) rather than silently resolved either way. RULING
+ * (team-lead, 2026-09-02): confirmed wrong -- `story/iron_tools` ("Isn't It Iron Pick?") IS
+ * the iron pickaxe; `story/mine_diamond` covers diamond acquisition. Corrected below. This
+ * harness's actual design choice stands regardless of the correct mapping: it does NOT use
+ * advancement titles to decide a tier's completion time at all -- only `Tool ready` lines and
+ * ledger inventory (both item-name-exact, no title-guessing) ever set a tier's clock.
+ * Advancement lines are reported as extra context in the output only.
  */
 import fs from 'fs';
 import path from 'path';
@@ -81,7 +83,8 @@ const ADVANCEMENT_MAP = {
   'Stone Age': 'wooden_pickaxe (used to mine stone)',
   'Getting an Upgrade': 'stone_pickaxe (constructed)',
   'Acquire Hardware': 'iron_ingot smelted (precursor, NOT iron_pickaxe possession)',
-  "Isn't It Iron Pick?": 'disputed mapping -- team-lead\'s brief says diamond_pickaxe; real vanilla iron_tools is normally about the iron pickaxe. Not used as ground truth either way.',
+  "Isn't It Iron Pick?": 'iron_pickaxe (ruled 2026-09-02: real vanilla story/iron_tools, corrects the assignment brief\'s original diamond mapping)',
+  'Diamonds!': 'diamond acquired (story/mine_diamond, precursor -- NOT diamond_pickaxe possession, same caveat as Acquire Hardware/iron)',
 };
 
 // ---------- server log parsing ----------
