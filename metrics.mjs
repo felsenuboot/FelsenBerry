@@ -360,19 +360,6 @@ if (dirRecs.length) {
       (gmed != null && gmed > 2500 ? '  *** expected <=2500ms, exceeded ***' : ''));
   }
 
-  if (has('decisions')) {
-    const src = flag('decisions');
-    if (typeof src === 'string' && fs.existsSync(src)) {
-      const decisions = fs.readFileSync(src, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-      const byHour = decisions.length ? (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) / 3600000 : 0;
-      const ruleHits = decisions.filter((d) => d.src === 'rule').length;
-      const llmCalls = decisions.filter((d) => d.src === 'llm').length;
-      const skipped = decisions.filter((d) => d.src === 'skipped_cap').length;
-      console.log(`  decider: ${decisions.length} decisions${byHour > 0 ? ` over ${byHour.toFixed(1)}h (${(llmCalls / byHour).toFixed(1)} LLM calls/hr vs 30/hr cap)` : ''}, rule-hit ${pct(decisions.length ? ruleHits / decisions.length : 0)}, skipped_cap ${skipped}`);
-    } else {
-      console.log(`  --decisions: no file at '${src}'`);
-    }
-  }
 } else {
   console.log('\n── direction ── (no `direction` events — this ledger predates Direction Episodes, or the bot never ran it)');
 }
@@ -397,6 +384,62 @@ if (dirRecs.length) {
     if (idleShare > 0.5) {
       console.log(`\n  *** CONTRADICTION (${bot}): ladder coverage shows ${pct(idleShare)} IDLE-transition share but ZERO \`direction\` records exist ***`);
       console.log('      Either Direction Episodes is not on this bot yet, or the trigger is dead while the ledger is live -- these two numbers can never honestly disagree once it is running.');
+    }
+  }
+}
+
+// ---------- decider (#68 LLM economics) ----------
+// decisions.jsonl is decider.js's own append-only log, one shared file for the whole fleet
+// (ONE daemon, IDLE_TRIGGER_SPEC §3b) -- not a per-bot ledger, so this reads independently of
+// --bot/--since and is NOT gated by whether direction records exist (a soak's economic story
+// is worth reading even mid-run, before any episode has closed). Same treatment as the
+// DIRECTION section: real numbers against the spec's own targets, not a demo.
+{
+  const src = flag('decisions', path.join(DIR, 'logs', 'decisions.jsonl'));
+  const exists = typeof src === 'string' && fs.existsSync(src);
+  console.log('\n── decider (LLM economics, #68) ──');
+  if (!exists) {
+    console.log(`  (no decisions.jsonl at '${src}' -- decider.js not running yet, or pass --decisions <path>)`);
+  } else {
+    const decisions = fs.readFileSync(src, 'utf8').split('\n').filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    if (!decisions.length) {
+      console.log('  decisions.jsonl exists but is empty -- decider running, nothing decided yet');
+    } else {
+      const byHour = (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) / 3600000;
+      const ruleHits = decisions.filter((d) => d.src === 'rule');
+      const llmCalls = decisions.filter((d) => d.src === 'llm');
+      const skipped = decisions.filter((d) => d.src === 'skipped_cap');
+      const LLM_CAP_PER_HR = 30;   // IDLE_TRIGGER_SPEC §7's hard ceiling
+      const llmPerHr = byHour > 0 ? llmCalls.length / byHour : null;
+      console.log(`  ${decisions.length} decisions${byHour > 0 ? ` over ${byHour.toFixed(2)}h` : ''}: ${rate(ruleHits.length, decisions.length)} rule-hit, ${rate(llmCalls.length, decisions.length)} LLM-miss`);
+      console.log(`  LLM calls/hr: ${llmPerHr != null ? llmPerHr.toFixed(1) : 'n/a'} vs the ${LLM_CAP_PER_HR}/hr cap` +
+        (llmPerHr != null && llmPerHr > LLM_CAP_PER_HR ? '   *** OVER CAP -- the persisted rate gate should have prevented this, investigate decider-state.json ***' : ''));
+      console.log(`  skipped_cap: ${skipped.length}${skipped.length > 0 ? '   <- overflow correctly logged, not spent (this IS the cap working, not a failure)' : ''}`);
+      // rule-of-twice candidates (§3b step 7): a (key -> decision) pair the LLM answered the
+      // SAME way two or more times is exactly what graduates into rules.json. Grouping by key
+      // and comparing decision payloads by value (not by object identity) is the whole point
+      // of this table -- it is #68's promised token trajectory ("shrink monotonically"), made
+      // checkable rather than asserted.
+      const byKey = {};
+      for (const d of llmCalls) {
+        const k = d.key || '(no key)';
+        (byKey[k] = byKey[k] || []).push(JSON.stringify(d.decision));
+      }
+      const candidates = [];
+      for (const [key, decs] of Object.entries(byKey)) {
+        const counts = {};
+        for (const d of decs) counts[d] = (counts[d] || 0) + 1;
+        for (const [dec, n] of Object.entries(counts)) if (n >= 2) candidates.push({ key, decision: dec, n });
+      }
+      candidates.sort((a, b) => b.n - a.n);
+      if (candidates.length) {
+        console.log(`  rule-of-twice candidates (same key -> same LLM decision, seen >=2x, not yet in rules.json):`);
+        for (const c of candidates.slice(0, 10)) console.log(`    ${String(c.n).padStart(2)}x  ${c.key}  ->  ${c.decision}`);
+        if (candidates.length > 10) console.log(`    ... and ${candidates.length - 10} more`);
+      } else if (llmCalls.length >= 2) {
+        console.log('  rule-of-twice candidates: none yet (every LLM-answered key so far is either unique or already inconsistent across repeats)');
+      }
     }
   }
 }
