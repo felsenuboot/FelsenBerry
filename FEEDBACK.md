@@ -3679,3 +3679,55 @@ question; composing client-side from two already-reliable reads is cheaper and s
 fix: n/a — proposal only, per team-lead's explicit instruction to coordinate with eng-3 before
 touching dangerscan.js. Ack requested before this or anyone builds it.
 github: felsenuboot/FelsenBerry#106 (root cause + proposed fix posted as a comment)
+
+### 2026-09-02 engine-dev — #105's two un-fired shelter exits (threat-interrupt, hunger) LIVE-FIRED,
+both confirmed working; a real death-mid-session edge case surfaced and is a non-issue by design
+type: verification (closes the "reviewed, not live-fired" gap team-lead named — "that phrase has
+burned us before")
+status: both exits confirmed via real live triggers, not drill()/fixture stand-ins; no code change
+needed, one honest side-finding recorded
+what: team-lead's second #105 follow-up — live-fire the threat-interrupt and hunger-with-nothing-
+to-eat exits rather than leaving them as reviewed-but-untested. Fresh disposable QA bot (ShltrQA2,
+port 3151, decider-excluded), same artificial-platform technique as the primitives' own fixture.
+
+**Threat-interrupt, real entity not a fabricated id**: sealed a dig-in shelter, then RCON `summon`ed
+a real zombie 1.5 blocks from the sealed pocket. `globalThis.__danger.threats` picked it up within
+the next scan (`{name:'zombie', d:1.5, id:6349}` — a real entity, matching this file's own drill()
+doctrine of preferring a real harmless/hostile id over `id:null` so distance/LOS are exercised for
+real). `enter()`'s promise resolved `exitReason:'threat'` — the shelter correctly handed control back
+rather than staying sealed against a threat now adjacent, dug out, and pathfinder-climbed to the
+surface (confirmed via position). Bot took some damage during/after the exit (10.5/20 HP) — expected
+and correct: SHELTER's job is to hand back cleanly once a threat appears, not to fight; that's
+REFLEX/POSTURE's job one layer up in agenda's ladder, unreachable from a sealed pocket by design.
+
+**Hunger-with-nothing-to-eat, real starvation not a fabricated food value**: `bot.food` is read-only
+from the client's own side (server-authoritative), so a real drain was needed rather than a
+monkey-patch — cleared all food from inventory, then RCON `effect give ... hunger 1000000 10`
+(vanilla's Hunger status effect, which accelerates real exhaustion/food-loss) to force it down in
+real time instead of waiting out a natural multi-minute drain. Food fell from 20 to 3 over about a
+minute of real time while sealed; `enter()`'s promise resolved `exitReason:'hunger'` right around
+`food<=6` with no food item held, exactly the designed condition — confirmed by the ledger, not
+inferred from timing alone.
+
+**One honest side-finding, not a defect**: the bot actually DIED mid-session (`logs/ShltrQA2.log`:
+"bot died — respawning" at 21:51:15Z) — starvation damage from the Hunger effect at the amplitude I
+used, not something the shelter code caused or could have prevented (food hit 0 briefly before the
+hunger-exit's own 500ms-cadence check caught up). The `enter()` promise still resolved cleanly, with
+a coherent `sealed:true lit:true` result — but at the RESPAWN location (world spawn, y~85), not the
+original test platform (y=151), because `digDownInto`/`torchHere`/the ring-cap fix all read the
+bot's CURRENT position fresh on every call and none of them assume continuity across a mid-flight
+teleport. This is a genuine, useful robustness property rather than a bug to chase: `shelterDigIn`
+needs no pre-existing kit beyond a pickaxe (ordinary spawn terrain needs none at all) and no
+positional continuity, so an unrelated mid-session death-and-respawn — itself outside SHELTER's own
+scope, and exactly the class of gap #103 (agenda.js, test-driver's lane) already tracks separately
+for the ladder overall — didn't corrupt or hang the shelter session; it just quietly re-executed
+against the bot's new reality and produced an honest, consistent result there instead. Nothing to
+fix in SHELTER itself; noting it because a silent "still active" hang across a death would have been
+the actual failure mode worth catching, and it didn't happen.
+
+**Acceptance bar, restated complete**: both primitives verified (prior entry), both cheap exit paths
+verified live (dawn, prior entry), now both remaining exits verified live (threat, hunger) — all
+four of #105's exit/trigger claims are measured, not just argued. No survival-suite regression
+(unchanged since the primitives entry — this session made no further code edits, verification only).
+fix: n/a — verification only, no code changed.
+github: felsenuboot/felcrew-mcp#105 (acceptance bar for the primitives half now fully measured)
