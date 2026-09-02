@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 22, enabled: true,
+  version: 23, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -1199,10 +1199,16 @@ A.setProject = (spec) => {
     totalWanted: res ? res.total(spec.args || {}) : null, progress: 0 };
   A.blocked = null;
   // 1-deep queue, staged at decision time (the decider/driver always answers current+next —
-  // no progress-threshold pre-staging). Left untouched when `next` is absent on a normal set
-  // (only an explicit clear wipes it, above) — see FEEDBACK.md for the open question on
-  // whether a bare setProject with no `next` should also drop a stale staged one.
+  // no progress-threshold pre-staging). Team-lead's ruling (2026-09-02) on the open question
+  // this used to flag: a plain setProject with no `next` DROPS any stale staged one by
+  // default. Rationale: setProject expresses FRESH intent — a next staged for a PREVIOUS
+  // decision context silently promoting after the new project completes is a ghost-decision
+  // footgun (a driver redirects the bot, the old plan resurrects itself, the bot veers off,
+  // and nobody would trace it quickly). `keepNext:true` is the explicit opt-in for the rare
+  // case that actually wants the old staged plan to survive an unrelated project change —
+  // never the default.
   if (spec.next) A.nextProject = Object.assign({}, spec.next, { stagedAt: now() });
+  else if (!spec.keepNext) A.nextProject = null;
   note(`project set: ${spec.skill}`);
   return { ok: true, project: A.project };
 };

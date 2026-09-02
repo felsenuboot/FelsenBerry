@@ -1,5 +1,6 @@
 // bench/fixtures/agenda-direction.js — Direction Episodes regression (research/IDLE_TRIGGER_SPEC.md
-// §4.3). Ten cases, the acceptance backbone for felcrew-mcp#68's trigger half.
+// §4.3). Eleven cases (the spec's original ten plus case 11, team-lead's setProject/nextProject
+// ruling), the acceptance backbone for felcrew-mcp#68's trigger half.
 //
 // VERSION NOTE: the spec was written as agenda v20->v21, but engine-dev-3 landed the ESCAPE
 // rung (#89 digOut) as v21 first (unrelated to this work), so Direction Episodes ships as v22
@@ -199,6 +200,27 @@ try {
   A.project = null;
   T('10f: after a markProductive-equivalent reset, the next close starts back at reopenCount=1 (not escalated further)',
     A.direction.reopenCount.unproductive_idle, 1);
+
+  // ---- 11: team-lead's ruling (2026-09-02) — a plain setProject with no `next` drops any
+  // stale staged nextProject by default; keepNext:true is the explicit opt-in that survives
+  // it. Rationale on record: a next staged for a PREVIOUS decision context silently
+  // promoting after an UNRELATED new project completes is a ghost-decision footgun — a
+  // driver redirects the bot, the old plan resurrects itself, nobody would trace it quickly.
+  if (A.setProject) {
+    A.setProject({ skill: 'chopTrees', args: {}, next: { skill: 'harvestGrass', args: {} } });
+    T('11a: project A + staged next B', A.nextProject && A.nextProject.skill, 'harvestGrass');
+    A.setProject({ skill: 'mineLane', args: {} });   // plain setProject C, no `next` field
+    T('11b: plain setProject with no next DROPS the stale staged next', A.nextProject, null);
+    // and no promote can spuriously fire later just because B is gone (there is nothing left
+    // to promote INTO — A._promoteCheck itself already proves this, case 3's own logic path)
+    T('11c: with the next cleared, _promoteCheck correctly refuses (nothing staged)',
+      A._promoteCheck ? A._promoteCheck({ skill: 'mineLane', repeat: false }, A.nextProject) : null, false);
+    A.setProject({ skill: 'chopTrees', args: {}, next: { skill: 'harvestGrass', args: {} } });
+    A.setProject({ skill: 'mineLane', args: {}, keepNext: true });
+    T('11d: keepNext:true is the explicit opt-in that preserves a stale staged next', A.nextProject && A.nextProject.skill, 'harvestGrass');
+  } else {
+    out.cases.push({ label: '11: setProject next-clearing ruling', PASS: null, skipped: true });
+  }
 
   out.passed = out.cases.filter((c) => c.PASS === true).length;
   out.skipped_n = out.cases.filter((c) => c.skipped).length;
