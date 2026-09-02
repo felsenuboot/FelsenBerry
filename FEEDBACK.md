@@ -2980,3 +2980,71 @@ it (place the held table) never gets attempted a second time.
 fix: n/a — grading + diagnosis. bench/gates/direction-soak3.json (written verdict).
 github: felsenuboot/felcrew-mcp#68 (posted), felsenuboot/felcrew-mcp#101 (new, the exact bug), #99 (cross-
 reference — proven working correctly in this same soak), #84 (cross-reference, related class)
+
+### 2026-09-02 engine-dev — #100 design argued (not yet built): predicate-keyed standdown, with two safety refinements found by walking every branch
+type: proposal (doctrine: argue before building)
+status: argued here per team-lead's steer; building next
+what: team-lead's #100 assignment — re-key standdown's ARMING from branch-result (`out.branch==='WALL_OFF'
+&& out.cannotHeal`) to a predicate (`threatsNow().length===0 && cannotHeal()`, regardless of which branch
+ran), covering both #99's generalization (any branch reaching a genuinely cannot-heal, calm state should
+arm standdown, not just WALL_OFF) and the post-victory `WALL_OFF` chat-spam #100 itself named. Explicitly
+asked to walk each branch for suppression risk before building — done below, and it surfaced two concrete
+refinements to the literal predicate, not just a rubber-stamp.
+
+**Confirmed the predicate is well-targeted, not guessed at**: re-checked the exact `#96` live-mob log
+(`FaulesFelix`, `FIGHT_BACK` killing a real zombie) that first surfaced this noise pattern. Food readings
+during the noisy window were `19, 18, 18, 17` — genuinely dipping BELOW `regenFood(18)` from the fight's
+own sprint-exhaustion, not staying comfortably above it as I'd first assumed from memory. `cannotHeal()`
+(`food<18 && no food item`) really was `true` for at least part of that window, so `team-lead`'s exact
+predicate does catch the observed case — this isn't solving an imagined problem.
+
+**Branch-by-branch walk, the actual ask**: standdown's own re-arm conditions (`stale || health dropped
+further || threatsNow().length>0`, checked fresh on every `enter()` call regardless of which branch armed
+it) already protect against the general case — ANY branch whose resolution leaves REAL ongoing danger will
+either keep hurting the bot (health-drop clears it) or leave a threat dangerscan can see (threat-reappear
+clears it). The real question is narrower: is there a branch outcome where genuine danger persists WITHOUT
+tripping either signal?
+- **CREEPER, BREAK_LOS, FIGHT_BACK, WALL_OFF**: no — by the time each returns, the threat is either
+  handled (dead, walled off, LOS broken) or still tracked by `threatsNow()`. Safe to arm.
+- **FLEE_HOME**: even on a failed/timed-out flee, the predicate's own `threatsNow().length===0` check is
+  independent of whether the flee itself succeeded — if a threat is genuinely still around, it's still in
+  the list regardless of `branchFleeHome`'s own result. Safe to arm.
+- **ENV (lava/fire/drowning) — REFINEMENT #1, exclude it entirely.** `branchEnv` does not verify the
+  hazard is actually gone before returning (no `resolved` field — it attempts mitigation and reports what
+  it tried). `pick()`'s own FIRST check on every call is `envHazard()` — if a genuinely still-active hazard
+  arms standdown (because `threatsNow()`/`cannotHeal()` happen to ALSO qualify at that instant) and the
+  ENTRY gate then short-circuits before `pick()` ever runs again, `envHazard()` never gets re-checked at
+  all until a real health-drop clears it. Fire/lava deal damage on a sub-second cadence so this window is
+  narrow, but it's the ONE branch class whose own header comment says "nothing else matters" — not worth
+  the risk for a noise fix. Excluding `ENV` from arming costs nothing (env hazards are rare enough that
+  losing standdown's noise-suppression there is not a real cost) and removes the ambiguity entirely.
+- **FLEE_AWAY — REFINEMENT #2, exclude its own `cornered:true` outcome.** This is not hypothetical: #94's
+  own root-cause diagnosis (this file's own history, same day) found dangerscan's threat list can read
+  empty WHILE a real melee attacker is still adjacent and dealing damage (the documented "self-blinding"
+  observation from RotzRudi's ledger). `branchFleeAway` already reports exactly the signal needed —
+  `cornered: gained < 3` — meaning its OWN attempt to create distance failed. Arming standdown on a
+  `threatsNow().length===0` reading that could itself be a stale/self-blinded snapshot, right after the
+  one branch whose own outcome says "I did not actually get away," is exactly the scenario the #94
+  diagnosis warns about. Excluding this one case is cheap and directly evidenced, not a hypothetical
+  worst-case.
+
+**Final predicate**:
+```js
+const dangerSettled = out && out.branch !== 'ENV' && threatsNow().length === 0
+  && !(out.branch === 'FLEE_AWAY' && out.cornered);
+if (dangerSettled && cannotHeal()) { /* arm standdown, distinct message */ }
+else { g.standdown = null; /* generic message, as today */ }
+```
+No change needed to standdown's own re-arm/clear logic (the entry-gate side) — it already re-checks fresh
+on every call regardless of which branch originally armed it, so generalizing the ARMING side doesn't
+require touching the CLEARING side at all.
+
+**Verification plan**: `bench/fixtures/survival-cannotheal.js` (must still pass — this is the exact file
+that exercises standdown's arm/clear logic, so it's the sharpest regression check available), plus the
+#94/#96/#98 preflight/fixture suite, plus a NEW case in that same fixture: post-victory low-HP-but-calm
+state (fabricate `threatsNow():[]`, `cannotHeal():true`, any non-ENV/non-cornered-FLEE_AWAY branch) should
+arm standdown and produce zero further re-entries until a real signal — the exact shape team-lead named.
+Live-verify per survival doctrine: reproduce the actual noisy sequence (real mob fight, no filler, letting
+food dip below 18 mid-fight) and confirm the post-victory spam is gone.
+fix: proposed here; building next.
+github: felsenuboot/felcrew-mcp#100
