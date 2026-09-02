@@ -37,4 +37,7 @@ setsid nohup node runner.js --name "$NAME" --port "$PORT" "$@" >> "logs/$NAME.lo
 PID=$!
 echo "$PID" > "$PIDFILE"
 echo "$PORT" > "pids/$NAME.port"
-echo "spawned $NAME (pid $PID, control port $PORT, log logs/$NAME.log)"
+# fleet-awareness meta: who spawned it, against which MC server, and why.
+# Convention (team law 2026-09-02): OWNER=<teammate> PURPOSE="<short why>" ./spawn.sh ...
+echo "${OWNER:-unowned}|${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}|${PURPOSE:-}" > "pids/$NAME.meta"
+echo "spawned $NAME (pid $PID, control port $PORT, owner ${OWNER:-unowned}, server ${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}, log logs/$NAME.log)"
