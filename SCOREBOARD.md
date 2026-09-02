@@ -1178,3 +1178,53 @@ explicit sign-off; (4) swap `localserver-race/server.properties`'s `level-name` 
 the standing law; (5) fresh never-used bot name, `OWNER=test-driver PURPOSE=...` env vars, `./list.sh`
 before and after spawn, `gearrace.mjs` as recorder of record from the start. Nothing on this list is
 done yet — standing by for team-lead's green light.
+
+### Run #6 — MuffelManfred, 127.0.0.1:25600 (`world-race6`, fresh, same seed) — PREP, HOLD for green light
+
+Prep done during the post-wind-down respawn (test-driver, 2026-09-02), ahead of soak #4's verdict
+per team-lead's queue order (soak #4 first, run #6 launches after unless told otherwise). Flying
+**Race book v2** (this file, immediately above) — v1 is superseded for this run.
+
+Fresh never-used crude name reserved: **MuffelManfred** (checked against `pids/*.meta`, both
+`usercache.json`s at `../localserver` and `../localserver-race`, and `logs/*.log` — clean on all
+three).
+
+Race server `127.0.0.1:25600` confirmed DOWN at prep time (2026-09-02, post-wind-down check) — will
+be brought up at launch time per the standing recipe (`level-name` swapped to `world-race6`, fresh
+regen, `world-race5` left on disk as archive, never touched).
+
+Pre-launch checklist status (v2's list, corrected per team-lead ruling 2026-09-02 — v2's text above
+predates two closures): (1) R2-wedge fix gate — **MOOT, not a gate**. R2 was EXONERATED (FEEDBACK
+`edeb3e3`): it did its one job correctly every firing; the stall was destination-unreachability one
+level up, already covered by `#95` + `#97`-item-3, both field-confirmed. Nothing to wait for here.
+(2) `#101` craftToolChain fix — **LANDED and lead-ACCEPTED** (`cd30f4c`, fixture 10/10 at the real
+pillar geometry, preflight 203/203). Live confirmation already in hand, no further engine-dev
+sign-off needed. (3) soak #4 verdict non-catastrophic or explicitly waived — **the only remaining
+gate**, PENDING, soak #4 not yet run. (4) world-race6 swap/regen — NOT DONE YET (do at launch);
+(5) fresh name reserved (`MuffelManfred`), `OWNER=test-driver PURPOSE=...` ready to set, `./list.sh`
+discipline and `gearrace.mjs` as recorder of record — ready to execute at green light.
+
+Also carrying forward per team-lead: if eng-3 lands `#102` (chopTrees fell-complete) before soak #4
+concludes, the run #6 stack will include it — record actual versions read from `/state` at spawn as
+always, don't assume the wind-down numbers below still hold.
+
+Engine versions at run start: **TBD at spawn** (`/state` read immediately after spawn is the
+source of truth — do not assume the wind-down stack numbers still hold without checking; last known
+at wind-down: skills v60, survival v10, agenda v25, producer v7, dangerscan v5, possibly `#102`
+folded in if landed by then).
+
+| Tier | Time from join | Notes |
+|---|---|---|
+| Join | pending | — |
+| Wooden pickaxe | pending | baselines to beat: run #4 T+59s (fastest), run #5 (suspended, not comparable) T+7m25s |
+| Stone pickaxe | pending — **the wall** | 0 of 4 comparable runs (#1-#4) have ever reached this; run #5 suspended mid-kit-assembly, excluded |
+| Iron pickaxe | pending | never yet reached live by this program |
+| Diamond pickaxe | pending | never yet reached live by this program |
+
+Steering calls: 0 so far (not launched). Deaths: 0 so far. Monitor: not armed yet — will run the
+standing 15s `/state` poll (IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus
+real-time `server.log` tail for `MuffelManfred`, per Race book v2's trigger table and branch plans
+(combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
+
+**STATUS: prep complete, standing by for team-lead's green light on run #6 (gated on soak #4's
+verdict per the queue).**
