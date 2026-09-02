@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 49;
+const ENGINE_VERSION = 50;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1349,10 +1349,17 @@ const ASSERTS = {
     const want = (r.picked || 0) + (r.unreachable || 0);
     return { rule: 'collectDrops.bestEffort', fail: false, want, got: r.picked || 0, yield: want > 0 ? (r.picked || 0) / want : null };
   },
+  // #85: `want` read `r.offered`, which no version of this skill has ever set (git history
+  // confirms it — the ONE hit for "offered" was this reader), so `want` was always null and
+  // every depositToChest task has been silently ungraded since this rule was written. Also
+  // `got` read `r.moved`, the PER-ITEM breakdown object, not a count — `got === 0` and
+  // `got / want` both misbehave against `{}`. Fixed on both sides: the skill now returns
+  // `offered` (what the deposit had a chance to move), and `got` reads `r.totalMoved` (the
+  // count already sitting on the result, same one `produce`/`huntAnimals` use in this table).
   depositToChest: (task) => {
     const r = task.result; if (!r) return null;
     const want = r.offered != null ? r.offered : null;
-    const got = r.moved != null ? r.moved : (r.deposited != null ? r.deposited : null);
+    const got = r.totalMoved != null ? r.totalMoved : null;
     if (want == null || got == null) return null;
     return { rule: 'depositToChest.moved', fail: got === 0 && want > 0, want, got, yield: want > 0 ? Math.min(1, got / want) : null };
   },
@@ -3780,9 +3787,11 @@ S.define('depositToChest', {
     const win = await withTimeout(bot.openContainer(chest), 8000, 'chest_open_timeout');
     const moved = {};
     let chestFull = false;
+    let offered = 0;   // #85: what the deposit ACTUALLY had a chance to move, for ASSERTS
     const skipped = [];
     try {
       const plan = win.items().filter((it) => (args.items ? args.items.includes(it.name) : !keepPred(it)));
+      offered = plan.reduce((a, it) => a + it.count, 0);
       for (const it of plan) {
         ctx.step();
         try {
@@ -3807,7 +3816,7 @@ S.define('depositToChest', {
     try { const m = MET(); if (m && m.chest) m.chest('deposit', [chest.position.x, chest.position.y, chest.position.z], moved); } catch (_) {}
     return {
       chest: { x: chest.position.x, y: chest.position.y, z: chest.position.z, name: chest.name },
-      moved, totalMoved: total, skipped, chestFull, freeSlotsAfter: bot.inventory.emptySlotCount(),
+      moved, totalMoved: total, offered, skipped, chestFull, freeSlotsAfter: bot.inventory.emptySlotCount(),
     };
   },
   doneMsg: (t) => (t.result.chestFull
