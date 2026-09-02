@@ -2588,3 +2588,61 @@ what: team-lead's item 4 -- 24 cobblestone mined ~17:42:09Z, zero held at WALL_O
 - **The pattern actually worth flagging**: those "recovered" events aren't one wall-off completing normally -- they're firing in rapid enter/recovered pairs (danger re-triggers immediately after each declared recovery), each apparently bailing early at critical HP per `branchWallOff`'s own `CRIT` threshold (its comment: "bail on NON-essential remaining cells... once health crosses this floor"). The bot took THREE deaths in under 30 seconds despite WALL_OFF being its designated coffin-defense the whole time -- that's a defense mechanism cycling too fast to actually defend, not a resource-accounting bug. This is squarely survival.js's active lane (engine-dev, mid #94/#98 iteration on WALL_OFF/near-death patterns already) -- flagging rather than diagnosing further myself, since they have newer context on this exact code than I do and are already deep in it.
 fix: n/a -- investigation only, no code change. The accounting question is closed; the rapid-cycling pattern is routed to engine-dev's lane, not built here.
 github: felsenuboot/felcrew-mcp#97 (comment to follow)
+
+### 2026-09-02 engine-dev-3 — #97 items 2/3: design arguments before building, per team-lead's standing instruction
+type: design argument
+status: item 3 argued here then built same session; item 2 argued here, DEFERRED (not built) -- explaining why below
+what: team-lead's remaining #97 priority order.
+
+**Item 3 (decider re-dispatch gap) -- building this.** test-driver's live evidence: three
+identical `chopTrees{types:oak,maxDist:32}` dispatches from a frozen position. Design choice:
+track, per bot, the position+why+lastError signature at the moment of the LAST dispatch
+attempt (`state.lastAttempt[bot]`). Before consulting rules.json OR spending an Andy call for
+a new episode, compare the CURRENT position+why+lastError against it. If all three are
+unchanged (bot hasn't moved, same stall reason, same underlying error) -- nothing observable
+about the situation has changed since the last attempt -- skip the decision entirely (saves
+the LLM call too, not just the wasted dispatch) and close the episode via **the SAME
+`dirClose` API #95 already built** (`closedBy:'frozen_repeat'`), rather than either
+blindly re-dispatching an identical failing call or leaving the episode open. This reuses
+existing, already-verified machinery (dirClose + reopen backoff) instead of inventing new
+agenda-side taxonomy -- deliberately the NARROW fix, not #95's held items 2/3 (a more
+specific `why`, RESTOCK's own repeat-count fed into direction). Test-driver's field evidence
+here is real and independent of soak #3, but I'm not treating it as grounds to unilaterally
+unhold those two bigger, agenda-side changes -- that's still team-lead's call once soak #3's
+numbers are in, per their explicit ruling on #95. This is decider.js-only, low blast radius,
+verifiable in isolation the same way SOAK_BOT was (no live bot needed to prove the tracking
+logic, only the wiring into a real dispatch needs a live check).
+
+**Item 2 (generalize stuck/ESCAPE detection beyond underground) -- deferring, not building
+blind.** Two reasons, both real, not just caution theater:
+1. **No live specimen anymore.** RotzRudi had already self-recovered onto real ground by the
+   time I looked (test-driver's own manual `come` intervention worked before I started
+   diagnosis) -- there is currently no live bot anywhere in the fleet actually stuck on an
+   isolated platform to verify a fix against, the same problem #54's fix avoided by using
+   KrachKuddel's preserved staged wedge. A staged fixture is buildable (I did exactly this for
+   #54's `reposition-cleanstate.sh`), but this needs to happen BEFORE the fix ships, not after.
+2. **Detection alone doesn't close the gap -- the missing piece is an ACTION, and that action
+   is safety-critical.** `ESCAPE`'s existing act() (`ascendToSurface`) is wrong for this case
+   -- the bot is already at/above the surface; going UP doesn't help. The only thing that
+   COULD help with zero inventory is a controlled, deliberate fall onto real ground, accepting
+   survivable damage (Minecraft fall damage is safe up to 3 blocks, then ~1 HP/block beyond
+   that -- RotzRudi's actual 5-6 block drop would have cost roughly 2-3 HP, comfortably
+   survivable at the health it had). But `findRepositionTarget`'s existing candidate search
+   (the SAME one `_reposition`/ESCAPE already use) only scans `by+1` down to `by-3` --  a
+   5-block window that would NOT have found RotzRudi's actual landing spot at all, so this
+   isn't a matter of relaxing `surfaceExposed`'s gate on the EXISTING mechanism; it needs a
+   genuinely new search (find the nearest edge with an ACCEPTABLE-damage drop within some
+   travel radius, verify the landing isn't lava/void/a mob's melee range) and a new skill to
+   execute it. A wrong fall-damage calculation, or a landing check that misses standing water
+   vs. lava, is the kind of bug that KILLS the bot it's meant to save -- worth building
+   carefully against a real staged repro, not shipping from reasoning alone. **Proposing, for
+   whoever picks this up next (myself included, once I've staged the fixture) rather than
+   building now**: a new `emergencyDescend`-class skill (survivable-fall search + execute),
+   triggered by a NEW, underground-independent detection arm on ESCAPE (or a sibling rung) that
+   fires when N consecutive project-start attempts across ANY skill produce zero position delta
+   and zero task start -- matching test-driver's own suggested detector shape exactly, just
+   without the `surfaceExposed` gate. Will stage the fixture and come back to this rather than
+   leave it as a permanent gap.
+fix: item 3 built this session (see the commit immediately following this entry). Item 2 is a
+proposal only -- no code change yet.
+github: felsenuboot/felcrew-mcp#97 (comment to follow, both items)
