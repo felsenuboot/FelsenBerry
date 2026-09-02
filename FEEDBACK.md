@@ -2014,3 +2014,71 @@ fix: survival.js (v6: `cannotHeal`/`hasFoodItem`/`sweepNearbyFood`, branchWallOf
 gate in `enter()`, distinct chat message, `g.brief()`/`g.cannotHeal`/`g.sweepNearbyFood` exposed for
 testing), bench/fixtures/survival-cannotheal.js (new), bench/preflight.sh (fixture list).
 github: felsenuboot/felcrew-mcp#92 (closing)
+
+### 2026-09-02 engine-dev — #54 walk-execution diagnosis, second pass: a real, previously-undocumented robustness gap found and demonstrated (`_reposition` never clears inherited control states); the live trigger for THIS wedge is narrowed but not yet nailed
+type: finding (diagnosis, continues predecessor's 54d54cc)
+status: one mechanism CONFIRMED as a genuine reproducible bug via direct instrumentation; whether it is
+THE historical trigger for this specific wedge is narrowed, not proven — reporting both honestly
+what: resumed at the staked geometry on the archived world-race2 (KrachKuddel/3161, forceload not
+needed — chunks already loaded from the original run). Predecessor's finding stood: `findRepositionTarget`
+called directly at the exact floored wedge cell (2,101,2) returns a real candidate (offset [2,0] ->
+{x:4.5,y:99,z:2.5}) every time, deterministically — candidate generation/validation is not the bug.
+Picked up the two remaining next-steps from that entry: instrument the walk loop directly, and attempt a
+controlled re-trigger to watch it execute in real time.
+
+**BASELINE, confirmed first**: replayed `_reposition`'s exact walk logic (lookAt + forward+jump, 1.5s,
+100ms poll) from a fresh, clean, grounded teleport to (2.5,101,2.5), sampling position every 50ms. **6/6
+identical runs succeed**, landing on the candidate in ~700ms via a clean jump-arc-then-drop. This
+confirms the maneuver ITSELF is sound and the geometry is genuinely crossable — the walk only fails when
+something about the STARTING STATE differs from clean/grounded/zero-velocity.
+
+**MECHANISM CONFIRMED, real bug**: `_reposition()` (skills.js ~693-722) never clears any inherited
+movement control state before issuing its own `forward`+`jump`. Deliberately left `sneak` active (a state
+_reposition could inherit from whatever ran immediately before it — the pathfinder library's own
+movement handling, or any other control-state-setting code upstream) and reran the walk: **3/3 identical
+runs fail**, landing at (3.95, 101.17, 2.5) — barely moved horizontally, Y stayed at ~101 (never
+completed the 2-block drop into the candidate cell), never within the 1.2-block arrival radius. This is
+a qualitative, deterministic match for the original incident's exact symptom (`candidateFound:true`,
+`displaced:false`, walk attempted but made essentially no progress) — sneaking near a ledge in vanilla
+prevents walking off the edge at all, which is precisely the maneuver R2 needs here. `_reposition` has no
+guard against this: it trusts whatever control state it's handed.
+
+**A second, related gap also demonstrated (different failure shape)**: chained `_reposition`'s walk
+immediately (zero gap) onto `_unstick`'s own 350ms jump+back hop — a genuine, adjacent real code
+neighbor (gotoR calls `_reposition` right after `_unstick` x3 exhausts and `stuck` throws). This reliably
+leaves the bot airborne (`onGround:false`) with real residual velocity when the walk begins, and reliably
+produces a DIFFERENT failure: OVERSHOOT past the candidate (finalPos ~1.5-2.4 blocks beyond target,
+`displaced:true` but `reachedTarget:false`), 5/5 runs. Less faithful to the original's specific
+`displaced:false` symptom, but the same root cause class: `_reposition` assumes a clean starting state it
+never verifies.
+
+**HONEST LIMITATION — not yet confirmed as the live trigger**: sampled `bot.getControlState('sneak')`
+every 100ms through a real, unmodified `bot.pathfinder.goto()` crossing this exact gap (same start
+cell, same drop) — it completed successfully in ~800ms with `sneak:false` throughout. So THIS specific
+crossing, under whatever Movements profile this diagnostic bot has by default, does not naturally engage
+sneak. The original incident ran under the `HAUL` profile specifically (per the staking entry) — I did
+not reproduce that exact profile here, and did not instrument a genuine live `stuck` throw's control
+state at the instant it fires (would need to actually stage a fresh wedge and catch it mid-flight,
+which risks contaminating whatever bot is used for it). So: candidate-generation is exonerated (repeat of
+predecessor's finding, now with a clean 6/6 positive control), a REAL and previously undocumented
+`_reposition` robustness gap is proven to exist and to produce the exact `displaced:false` symptom when
+triggered, but whether sneak (specifically, under HAUL) or the unstick-adjacent airborne case (or some
+third inherited state) is what actually fired 9 times in the original episode is narrowed, not nailed.
+
+**RECOMMENDATION for engine-dev-3's `_reposition` fix, actionable regardless of which exact inherited
+state turns out to be the historical culprit**: have `_reposition()` defensively reset its own starting
+conditions before walking — clear `sneak`/`sprint`/`back`/`left`/`right` explicitly (not just trust
+whatever's set), and optionally wait briefly (capped, e.g. 300-500ms) for `onGround===true` before
+issuing `forward`+`jump`. This closes BOTH demonstrated failure modes at once and converts `_reposition`
+from "trusts whatever state it inherits" to "always starts from a known-clean baseline" — the correct
+contract for a recovery primitive that has to work no matter what state preceded it. Cheap, safe (digguard
+untouched, no new hazard), and testable the same way this session's own repro scripts were built (a
+fixture can force `sneak:true` or leftover velocity before calling `_reposition` and assert it still
+reaches the candidate).
+
+Left running for continuity: world-race2 (127.0.0.1:25600/25601, unmodified, no forceload tickets open),
+KrachKuddel (3161) parked healthy at the wedge area. Whoever picks up the `_reposition` fix can reuse
+both directly rather than re-staging.
+fix: n/a — diagnosis + recommendation. The `_reposition` change itself is engine-dev-3's lane per
+team-lead's routing.
+github: felsenuboot/felcrew-mcp#54
