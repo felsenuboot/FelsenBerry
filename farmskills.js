@@ -442,6 +442,15 @@ S.define('harvestGrass', {
     ctx.setPhase('scanning', 'Looking for grass to cut.');
     const ids = [...GRASS].map((n) => (bot.registry.blocksByName[n] || {}).id).filter((x) => x != null);
     let cut = 0, i = 0, probes = 0;
+    // #91's doctrine (producer.js's mineProduct dug OhneHoseOtto into its own dead end by
+    // re-centring its search on the bot's CURRENT position every iteration, always picking
+    // the nearest-to-current hit, with no bound tying it back to where the call started):
+    // this loop has the exact same shape, so anchor it the same way. A `repeat:true`
+    // harvestGrass project (this skill's own IDLE role-work use, and Direction Episodes'
+    // new repeat-project grading) can run many outer-loop iterations across many
+    // invocations — "within `radius` of where I started" is what a caller asking for
+    // radius:16 actually means, not "within 16 of wherever I've wandered to by now".
+    const origin = bot.entity.position.clone();
     while (cut < cap) {
       ctx.step();
       // findBlocks' maxDistance is a 3D SPHERE, so without a vertical gate this can select
@@ -450,7 +459,7 @@ S.define('harvestGrass', {
       // skills.js). Grass is a surface feature — never chase it downward.
       const floorY = Math.floor(bot.entity.position.y) - 5;
       const found = bot.findBlocks({ matching: ids, maxDistance: radius, count: 24 });
-      const targets = found.filter((p) => !ctx.isProtected(p) && p.y >= floorY)
+      const targets = found.filter((p) => !ctx.isProtected(p) && p.y >= floorY && p.distanceTo(origin) <= radius)
         .sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position));  // nearest first
       if (!targets.length) break;
       let progressed = false;
@@ -482,12 +491,12 @@ S.define('harvestGrass', {
 // ---- registry + staleness bookkeeping (mirror the other payloads) ----
 const NAMES = ['tillFarmland', 'farmCycle', 'harvestGrass'];
 const fg = globalThis.__farmskills = {
-  version: 3, skills: NAMES,
+  version: 4, skills: NAMES,
   tillCell, plantCell,   // exposed so future skills reuse ONE implementation
   restore() { for (const n of NAMES) { try { delete S.registry[n]; } catch (_) {} } },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.farmskills = { version: 3, boundAt: Date.now(), stale: false };
+REG.farmskills = { version: 4, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.farmskills.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 3, skills: NAMES };
+return { installed: true, version: 4, skills: NAMES };

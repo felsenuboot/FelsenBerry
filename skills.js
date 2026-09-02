@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 55;
+const ENGINE_VERSION = 56;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -3283,6 +3283,15 @@ S.define('chopTrees', {
       if (!t.ok) throw fatal('tool_missing', 'no axe and could not acquire one', 'put an axe in depot chest B, or give the bot logs to craft from');
     }
     ctx.setPhase('searching', `Off to chop ${count} tree${count > 1 ? 's' : ''} (${types.join('/')}). Timber incoming.`);
+    // #91's doctrine, applied here before it produces a second specimen: findBlocks below is
+    // centred on the bot's CURRENT position on every one of up to `count` (<=16) iterations,
+    // always picking the nearest-to-current-position hit (the sort just below) — the exact
+    // "re-derive nearest from a moving reference point" shape that dug OhneHoseOtto into its
+    // own dead end via producer.js's unbounded ore chase, just with a smaller iteration cap
+    // and denser typical targets (so smaller in practice, not a different shape). Anchor to
+    // where THIS CALL started so a multi-tree chop explores a bounded area instead of
+    // marching progressively further from the task's own starting point with every tree.
+    const origin = bot.entity.position.clone();
 
     while (felled < count) {
       ctx.step();
@@ -3298,6 +3307,7 @@ S.define('chopTrees', {
         // aesthetic geofence: don't crater the view right next to base
         .filter((p) => ctx.harvestAllowed(p, 'chopTrees'))
         .filter((p) => { const below = bot.blockAt(p.offset(0, -1, 0)); return below && !logIdSet.has(below.type); })
+        .filter((p) => p.distanceTo(origin) <= maxDist)
         .sort((a, b2) => a.distanceTo(bot.entity.position) - b2.distanceTo(bot.entity.position));
       if (!hits.length) {
         if (felled === 0) throw fatal('not_found', `no ${types.join('/')} tree within ${maxDist} blocks`, 'move the bot elsewhere or widen types/maxDist, then restart');
