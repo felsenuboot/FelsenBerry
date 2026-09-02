@@ -72,6 +72,17 @@ function adg(args) {                                  // FNV-1a 32-bit, 8 hex
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
+// ---- continuous position trace gate (#69 gap 2): pure, so the heartbeat path is testable
+// without waiting real seconds for it — same discipline as #53's moveDetect and #54's
+// findRepositionTarget extractions ("a rule testable only by staging the bug does not stay
+// tested"). `from`/`to` are {x,y,z}; `lastEmitAt`/`now` are epoch ms. `from`/`lastEmitAt` of
+// null are "never emitted yet" and always fire (Infinity distance/elapsed).
+function shouldEmitPos(from, to, lastEmitAt, now) {
+  const d = from ? Math.sqrt((to.x - from.x) ** 2 + (to.y - from.y) ** 2 + (to.z - from.z) ** 2) : Infinity;
+  const since = lastEmitAt ? now - lastEmitAt : Infinity;
+  return d >= POS_MOVE_EPS || since >= POS_HEARTBEAT_MS;
+}
+
 // ---- route classes (4.8): distance band x vertical character ----
 function routeClass(from, to) {
   try {
@@ -201,15 +212,13 @@ function install(bot, opts = {}) {
         }
       }
       M._lastPos = { x: p.x, y: p.y, z: p.z };
-      // continuous position trace (#69 gap 2): distance-or-heartbeat gated, see POS_MOVE_EPS.
+      // continuous position trace (#69 gap 2): distance-or-heartbeat gated, see shouldEmitPos.
       try {
-        const from = M._posEmitPos;
-        const moved2 = from ? Math.sqrt((p.x - from.x) ** 2 + (p.y - from.y) ** 2 + (p.z - from.z) ** 2) : Infinity;
-        const since = M._posEmitAt ? Date.now() - M._posEmitAt : Infinity;
-        if (moved2 >= POS_MOVE_EPS || since >= POS_HEARTBEAT_MS) {
+        const now = Date.now();
+        if (shouldEmitPos(M._posEmitPos, p, M._posEmitAt, now)) {
           emit('pos', { tid: M.task ? M.task.tid : null, gid: M.goto ? M.goto.gid : null, pos: [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)], hp: bot.health });
           M._posEmitPos = { x: p.x, y: p.y, z: p.z };
-          M._posEmitAt = Date.now();
+          M._posEmitAt = now;
         }
       } catch (_) {}
       if (typeof bot.health === 'number') {
@@ -480,4 +489,4 @@ function install(bot, opts = {}) {
   return M;
 }
 
-module.exports = { install, classify, adg, routeClass, SALIENT, INV_KEYS, SCHEMA_V };
+module.exports = { install, classify, adg, routeClass, SALIENT, INV_KEYS, SCHEMA_V, shouldEmitPos, POS_MOVE_EPS, POS_HEARTBEAT_MS };
