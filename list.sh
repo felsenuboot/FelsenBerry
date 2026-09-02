@@ -12,7 +12,12 @@ for PIDFILE in pids/*.pid; do
   PID="$(cat "$PIDFILE")"
   PORT="$(cat "pids/$NAME.port" 2>/dev/null || echo '?')"
   META="$(cat "pids/$NAME.meta" 2>/dev/null || echo '?|?|')"
-  OWNER="${META%%|*}"; REST="${META#*|}"; SERVER="${REST%%|*}"; PURPOSE="${REST#*|}"
+  # 4-field format since #95 (owner|server|purpose|decider_exclude) -- parse all four so a
+  # DECIDER_EXCLUDE=1 bot's flag doesn't leak into the displayed PURPOSE text (it used to,
+  # visibly, as a stray trailing "|1").
+  OWNER="${META%%|*}"; REST="${META#*|}"; SERVER="${REST%%|*}"; REST="${REST#*|}"
+  PURPOSE="${REST%%|*}"; EXCLUDED="${REST#*|}"
+  [[ "$PURPOSE" == "$REST" ]] && EXCLUDED=""   # no 4th field present (older meta file)
   FOUND=1
   if ! kill -0 "$PID" 2>/dev/null; then
     printf '%-14s %-8s %-6s %-13s %-21s %s\n' "$NAME" "$PID" "$PORT" "$OWNER" "$SERVER" "dead (stale pidfile)"
@@ -29,6 +34,7 @@ for PIDFILE in pids/*.pid; do
       catch { console.log("api unreachable"); }
     })' 2>/dev/null || echo 'api unreachable')"
   [[ -n "$PURPOSE" ]] && STATE="$STATE — $PURPOSE"
+  [[ -n "$EXCLUDED" ]] && STATE="$STATE [decider-excluded]"
   printf '%-14s %-8s %-6s %-13s %-21s %s\n' "$NAME" "$PID" "$PORT" "$OWNER" "$SERVER" "$STATE"
 done
 [[ $FOUND -eq 0 ]] && echo '(no bots)'
