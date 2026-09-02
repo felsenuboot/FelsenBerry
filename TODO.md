@@ -71,3 +71,5 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
 - Instrument is scorekeeper; predictions get scored AT the prediction; deferred-gap comments are
   promissory notes (two honored tonight); ensureTool is NOT test-inert by default (opts.depot:false
   in fixtures); a TODO comment is not a tracker item.
+
+- **Push discipline**: every commit auto-pushes via .git/hooks/post-commit (installed 2026-09-02 after 113 commits sat unpushed for a day). If a clone lacks the hook, `git push` after every commit is law; check .git/push.log if GitHub looks stale.
