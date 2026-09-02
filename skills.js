@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 53;
+const ENGINE_VERSION = 54;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -728,19 +728,64 @@ function makeCtx(bot, task) {
       const deadline = Date.now() + timeoutMs;
       for (let attempt = 0; ; attempt++) {
         const remaining = deadline - Date.now();
-        try { return await ctx.goto(goal, Math.max(1, remaining)); }
+        try {
+          // TEST-ONLY fault injection (#54 R2 live proof). Staging a genuine wedge on synthetic
+          // geometry was tried and documented as falsified five separate ways (FEEDBACK.md,
+          // 2026-09-02) — the engine will not wedge on invented terrain, which says the
+          // recovery ladder is sound, not that it's proven. Team-lead's re-scoped standard:
+          // inject only the TRIGGER, keep the RESOLUTION entirely real. Armed externally via
+          // `globalThis.__r2Fault = {armed:true}` (a /eval call, before starting a goto-driving
+          // skill); consumed one-shot the instant it's read, so a bug that re-enters this
+          // branch on a later attempt shows up as a SECOND real episode, not silent reuse.
+          // Guarded on a global nothing production-facing ever sets — zero behaviour change
+          // unless a fixture deliberately arms it.
+          //
+          // #38 DOCTRINE, load-bearing: the last test hook of this exact shape (survival.js's
+          // `drill()`, a `pickOverride` parameter) was silently broken for its ENTIRE LIFE — it
+          // was captured but never called, so every historical claim built on it (including
+          // #38's own original bug report) was unknowingly exercising unrelated live
+          // conditions. A hook that cannot prove it fired manufactures false confidence, which
+          // is worse than no hook. So this one writes `globalThis.__r2FaultProof` as the
+          // episode unfolds — armed/fired/reposition/retry, each with its own timestamp and
+          // real outcome — and a fixture MUST read that back and assert on it, not trust that
+          // arming succeeded because the code looks right.
+          if (attempt === 0 && G.__r2Fault && G.__r2Fault.armed) {
+            const p = bot.entity.position;
+            G.__r2Fault = null;   // one-shot: consumed before the throw, not after
+            G.__r2FaultProof = { firedAt: Date.now(), attempt,
+              posAtFire: { x: p.x, y: p.y, z: p.z }, goal: goalPos(goal),
+              reposition: null, retry: null };
+            const e = new Error('R2 fault-injection: forced stuck (test-only, #54 proof)');
+            e.code = 'stuck'; e.injected = true;
+            throw e;
+          }
+          const r = await ctx.goto(goal, Math.max(1, remaining));
+          if (G.__r2FaultProof && G.__r2FaultProof.retry == null && attempt > 0) {
+            G.__r2FaultProof.retry = { ok: true, arrivedAt: Date.now() };
+          }
+          return r;
+        }
         catch (e) {
           // propagate unchanged on a non-stuck failure, exhausted retries, or too little budget
           // left for a meaningful retry (a fresh attempt needs room to reach `stuck` again).
-          if ((e && e.code) !== 'stuck' || attempt >= r2Max || (deadline - Date.now()) < 4000) throw e;
+          if ((e && e.code) !== 'stuck' || attempt >= r2Max || (deadline - Date.now()) < 4000) {
+            if (G.__r2FaultProof && G.__r2FaultProof.retry == null && attempt > 0) {
+              G.__r2FaultProof.retry = { ok: false, code: e && e.code, message: e && e.message, at: Date.now() };
+            }
+            throw e;
+          }
           // best-effort; retry the goto regardless (a fresh A* from here may route even if we
           // barely moved). Reposition BEFORE logging/emitting so `displaced` reports what
           // actually happened, not what was about to be attempted — lets metrics.mjs score
           // eng-2's #54-review prediction (the re-issued A*, not the reposition, is the win)
           // by splitting retry outcomes on displaced=true vs false.
           const displaced = await ctx._reposition();
+          if (G.__r2FaultProof && G.__r2FaultProof.reposition == null) {
+            const p = bot.entity.position;
+            G.__r2FaultProof.reposition = { displaced, at: Date.now(), posAfter: { x: p.x, y: p.y, z: p.z } };
+          }
           pushLog('info', `recovery R2 (attempt ${attempt + 1}/${r2Max}): reposition${displaced ? '' : ' (no displacement)'} + re-issue (${Math.round((deadline - Date.now()) / 1000)}s budget left)`);
-          try { const m = MET(); if (m && m.recovery) m.recovery('R2', attempt + 1, { displaced }); } catch (_) {}
+          try { const m = MET(); if (m && m.recovery) m.recovery('R2', attempt + 1, Boolean(e && e.injected) ? { displaced, injected: true } : { displaced }); } catch (_) {}
         }
       }
     },
