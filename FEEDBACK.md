@@ -1874,3 +1874,41 @@ IMPACT ON THE GRADE ABOUT TO LAND: this is almost certainly the dominant contrib
 PROPOSED FIX DIRECTION, not built (dangerscan.js/agenda.js are engine-dev-3's lane): either (a) LIGHT's `fire()` should require genuine darkness/no-torches-nearby in addition to `surfaceExposed===false`, so a lit or simply-canopied position doesn't trigger it, or (b) `surfaceExposed`'s own sky-scan (dangerscan.js) should distinguish "blocked by leaves/canopy" from "blocked by solid ground" if it currently treats them the same. Either fix should be checked against a REAL forest position's actual `surfaceExposed` value before landing, not assumed from this log alone.
 fix: n/a — confirmed finding, handed to engine-dev-3's lane. The single diagnostic read that found it is documented above as intentionally exempted from the grade's own criteria, not smuggled in.
 github: felsenuboot/felcrew-mcp#68 (cross-reference; likely warrants its own issue against dangerscan.js's surfaceExposed / LIGHT's fire() condition)
+
+### 2026-09-02 test-driver — GEAR-RACE run #2 concludes DNF: WALL_OFF heal-deadlock, survival saves the bot then imprisons it
+type: bug
+status: filed as felsenuboot/felcrew-mcp#92, engine-dev's lane (survival.js)
+what: run #2 (FrischFriedhelm, 25600/world-race2) took a skeleton hit mid-travel and lost HP 20->3
+in ~27s. Survival.js worked exactly as designed and saved the bot's life: BREAK_LOS engaged first
+(`skeleton shooting from 8 - breaking line of sight`, then an arrow-shadow cobble wall — per this
+file's own history, the first LIVE observation of that path, corner-step had always won before),
+then escalated to WALL_OFF (`Walling myself in to patch up. Back shortly.`) as damage continued.
+Both branches firing in one incident, live, is itself a notable first.
+THE DEADLOCK: `Stable again (BREAK_LOS, HP 3/20)` at 13:24:45.858 UTC, transitioning to `(WALL_OFF,
+HP 3/20)` at 13:25:47.506, then repeating IDENTICALLY every ~62s for **26 cycles over 25m44s**
+(last observed 13:50:29.962) with zero self-exit. Root cause: natural regen needs hunger>=18; the
+bot ate its one food item earlier and had food stuck at 9 with no path to more — REFLEX (the
+survival rung, prio 0) owns the agenda ladder while active, so NO driver `setProject` call can
+reach in and fix the food shortfall, and nothing inside the branch recognizes "healed" has become
+permanently unreachable. A second downstream lock surfaced at 13:49:28.310: `failed: collectDrops
+— health 3.0 <= guard` — the health guard blocks even the harmless drop-sweep, so the bot can't
+even pick up nearby food if any existed.
+Team-lead's ruling: timebox a self-exit (~13:48 UTC), conclude DNF if none — none came, so run #2
+is officially concluded. This is the FOURTH distinct engine finding from this single run (alongside
+`#88` food-routing, the harvestGrass one-shot footgun, and the fauna-scarce-spawn seed finding).
+fix: filed as #92 with full proposed-fix direction (WALL_OFF exit on `threat-clear AND (healed OR
+cannot-heal)`, plus the 60s re-announce churn and the collectDrops health-guard cascade as
+secondary items) — not mine to implement, survival.js is engine-dev's lane.
+github: felsenuboot/felcrew-mcp#92 (new)
+
+### 2026-09-02 engine-dev — #54 wedge diagnosis, first pass: candidate search is NOT the bug — a valid escape exists at the exact wedge point, right now
+type: finding (diagnosis, partial)
+status: rules OUT the "genuine geometry trap / no candidate exists" hypothesis with direct evidence; the walk-execution hypothesis is now the leading explanation, not fully confirmed
+what: world-race2 freed up (test-driver, run #2 concluded) — spawned a dedicated test bot (KrachKuddel, port 3161, no agenda) on that world specifically to run the plan from the earlier staking entries: call `S.recoveryDetect.findRepositionTarget` directly at wedge point B's exact coordinates, bypassing `_reposition`'s walk entirely, before touching anything else. Forceloaded the area, teleported to the precise center `(2.5, 101, 2.5)` (settles to `bx,by,bz = 2,101,2`, matching the original wedge's floored position exactly), then called the pure search function directly — a read, no movement, no digging.
+**Result: it found a real candidate.** Offset `[2, 0]` (the first-priority offset, and the SAME offset the original bot's 10th, successful attempt used) resolves to `{x:4.5, y:99, z:2.5}` — a genuine one-deep-dip standable cell (`y:99` air with a solid `grass_block` floor at `y:98` and two clear cells above), found via the same downward-scan logic the fixture already verified in isolation. Dumped the full 8-offset x 5-row scan alongside it: most offsets are either genuinely solid ground at the bot's own level (`[-2,0]`, `[-2,2]`) or a `void`/no-floor-within-range case (`[2,-2]`, entirely air from y=98 to y=102) that `findRepositionTarget` correctly skips.
+**This directly refutes the "geometry defeats all 8 candidates" reading of the original data.** The search is a pure function of `(bx, by, bz, world state)` with no randomness — called from the identical integer cell with an unchanged world, it will return the identical answer every time. If the original bot's 9 failed attempts genuinely originated from this same `(2,101,2)` cell (as their floored telemetry positions all read), the search would have found this SAME candidate on every one of those 9 attempts too — meaning candidate GENERATION and VALIDATION were very likely never the problem.
+**One honest discrepancy, not swept under the rug**: the candidate found here lands at `y:99`, but the ORIGINAL successful escape (recorded before engine-dev-3's full-float `base`/`candidate` telemetry existed) had the bot's own post-walk floored position at `y:100` — one block higher. Two explanations, and the historical data (floored-only, pre-dating the precision fix) cannot fully distinguish them: (a) sub-block position drift meant the 10th attempt's REAL `bx,by,bz` differed slightly from the 9 that failed (plausible in principle, from `_unstick`'s own 350ms hop-backward accumulating across repeated cycles, but would need the drift to cross an integer boundary specifically — not confirmed); (b) the candidate found was consistently `y:99`/similar every time, the WALK reliably found and approached it, but `_reposition`'s 1.5s dead-reckoning `forward`+`jump` toward a cell that requires dropping INTO a dip failed to actually complete the drop 9 times before succeeding on the 10th — a physics/execution timing issue, not a search issue.
+**Current lean, not a final verdict**: (b) is the more parsimonious read given the search's determinism and the fact that a real, findable candidate exists exactly where the search would have looked every single time. If true, the fix belongs in `_reposition`'s WALK phase (the forward+jump dead-reckoning into a dip/ledge), not in `findRepositionTarget`'s candidate logic — engine-dev-3's own instinct in the header note (asking whether R2 needs "smarter candidates") may need revising to "a more reliable walk," pending confirmation.
+NOT YET DONE: no fault-injection or live re-trigger attempted at this exact spot to directly observe a walk failure in real time (would need the bot to actually be stuck here first, which isn't a state I can cheaply reproduce without either waiting for another natural wedge or building a fault-injection hook analogous to engine-dev-3's `__r2Fault` for the WALK phase specifically rather than the `stuck` throw). Cleaned up: forceload ticket removed, KrachKuddel left healthy at the exact wedge point for whoever continues this.
+fix: n/a — diagnosis narrowed, not confirmed. Next step for whoever picks this up: either instrument `_reposition`'s walk loop directly (log actual position samples during the 1.5s window, not just before/after) or attempt a controlled re-trigger of the exact wedge to watch the walk execute in real time.
+github: felsenuboot/felcrew-mcp#54
