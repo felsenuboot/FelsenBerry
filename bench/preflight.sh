@@ -17,7 +17,7 @@ python3 - "$PORT" <<'PY'
 import json, sys, urllib.request
 port = sys.argv[1]
 total = passed = 0
-for f in ['stack-check', 'tier-choice', 'move-detect', 'agenda-ladder', 'agenda-deepkit', 'agenda-resume', 'agenda-idlework', 'assert-produce']:
+for f in ['stack-check', 'tier-choice', 'move-detect', 'agenda-ladder', 'agenda-deepkit', 'agenda-resume', 'agenda-idlework', 'assert-produce', 'gotoR-recovery', 'agenda-idlekit']:
     code = open('bench/fixtures/%s.js' % f).read()
     req = urllib.request.Request('http://127.0.0.1:%s/eval' % port,
                                  data=json.dumps({'code': code}).encode(),

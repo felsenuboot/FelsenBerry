@@ -26,6 +26,12 @@ const base = {
   toolCounts: { pickaxe: 2, sword: 1 },
   task: null, role: 'miner',
   pos: { x: 0, y: 60, z: 0 },
+  // #84: with no project, RESTOCK's floor now also considers idle role-work's own kit
+  // (roleWorkKit fallback in effectiveKit) — a miner's idle work at this y resolves to
+  // safeDescend/'underground', which wants sticks+a table same as any project would. A
+  // "healthy at work" baseline needs to carry them too, or every no-project case below
+  // measures the #84 fix firing correctly rather than the rung it's meant to test.
+  counts: { stick: 20, crafting_table: 1 },
 };
 const T = (label, over, expect) => {
   let got = null, err = null;
