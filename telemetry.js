@@ -40,6 +40,15 @@ const DIG_BATCH = 64;
 const POS_MOVE_EPS = 6;                // blocks of displacement before a fresh sample
 const POS_HEARTBEAT_MS = 30000;        // max gap between samples even standing still
 
+// Live incident (2026-09-02, NacktNorbert/3110, #84 investigation): ensureTool's real failure
+// message is a chronological trace ("depot:X | depot:Y | gather:... | planks:N | craft:... |
+// <the actual decisive reason>") — truncation from the tail cuts exactly the part that answers
+// "why", which is always LAST, not the boilerplate at the front. Measured case was 185 chars;
+// status.log's own pushLog cap (200) already held the full string, but this ledger truncation
+// (160) lost precisely "...and could not place one", the one clause that would have named the
+// real bug. Bumped past pushLog's 200 with headroom rather than tuned to one observed case.
+const TASK_ERR_MSG_MAX = 240;
+
 const INV_KEYS = ['torch', 'cobblestone', 'oak_log', 'oak_planks', 'bread', 'coal', 'raw_iron',
   'iron_ingot', 'diamond', 'stick', 'dirt', 'wheat', 'iron_pickaxe', 'stone_pickaxe',
   'wooden_pickaxe', 'iron_axe', 'iron_sword', 'shield', 'water_bucket'];
@@ -340,7 +349,7 @@ function install(bot, opts = {}) {
       emit('task_start', { tid, skill, adg: a, akey: null, src: 'driver', pos: pos3(), hp: bot.health, food: bot.food, prof: profName() });
       emit('task_end', {
         tid, skill, adg: a, outcome: error && error.code === 'kit_missing' ? 'kit_missing' : 'bad_input',
-        code: error ? error.code : null, msg: error && error.message ? String(error.message).slice(0, 160) : null,
+        code: error ? error.code : null, msg: error && error.message ? String(error.message).slice(0, TASK_ERR_MSG_MAX) : null,
         phase: 'preflight', phases: [], assert: null, yield: null, want: null, got: null,
         ms: 0, digs: 0, moved: 0, pos: pos3(), hp: bot.health, food: bot.food,
         kit_missing: error && error.missing ? error.missing : null,
@@ -371,7 +380,7 @@ function install(bot, opts = {}) {
       emit('task_end', {
         tid: task.id, skill: task.name, adg: sp.adg || adg(task.args),
         outcome, code: task.error ? task.error.code : null,
-        msg: task.error && task.error.message ? String(task.error.message).slice(0, 160) : null,
+        msg: task.error && task.error.message ? String(task.error.message).slice(0, TASK_ERR_MSG_MAX) : null,
         phase: (task.error && task.error.phase) || task.phase || null,
         phases: (task.phases || []).slice(0, 12),
         assert: sp.assert,

@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 51;
+const ENGINE_VERSION = 52;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -2063,7 +2063,20 @@ async function craftToolChain(bot, want, cfg, steps) {
       table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
     } catch (_) {}
   }
-  if (!table) {
+  // Live bug (2026-09-02, NacktNorbert/3110, #84 investigation): the placeCarriedTable() call
+  // at line ~2052 already tried to place whatever table we're ALREADY holding, if any — so
+  // reaching here means either we hold none, or we hold one and just failed to place IT. The
+  // old code checked only `!table` (a PLACED block) and crafted a brand-new one unconditionally,
+  // which does nothing for the second case: crafting an IDENTICAL fungible item does not change
+  // the local geometry that just rejected the one we already had, so retrying placeCarriedTable()
+  // right after crafting another was guaranteed to fail again for the same reason. Measured live:
+  // 5 consecutive ensureTool attempts at the same spot each crafted a fresh table (4 planks each,
+  // "the fluctuating plank count" that never converged), ending with 5 crafting_tables sitting
+  // uselessly in inventory. Only craft when genuinely holding zero — crafting more of what you
+  // can't place is not the fix; the fix is a better spot (still unbuilt, needs a live geometry
+  // reproduction of the actual placement failure before designing one, not a guess).
+  const alreadyHolding = () => bot.inventory.items().some((i) => i.name === 'crafting_table');
+  if (!table && !alreadyHolding()) {
     // no table anywhere and none carried: craft one and place it, as a player would
     await S.craftSafe(bot, 'crafting_table', 1);
     steps.push('craft:table');
@@ -2071,7 +2084,9 @@ async function craftToolChain(bot, want, cfg, steps) {
       table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
     }
   }
-  if (!table) return { ok: false, reason: 'no crafting table in reach and could not place one' };
+  if (!table) {
+    return { ok: false, reason: `no crafting table in reach and could not place one${alreadyHolding() ? ' (already holding one — not re-crafting)' : ''}` };
+  }
   const r = await S.craftSafe(bot, want, 1, { table: table.position });
   steps.push(`craft:${want}:${r.made || 0}`);
   // TAKE THE TABLE BACK. A table we placed is a tool, not litter — a player mines it up and
