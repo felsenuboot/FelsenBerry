@@ -100,7 +100,17 @@ the real server was the right next step rather than another controlled run.
 acceptance gate). Development resumed on that sequence: the movement work is an in-process
 watchdog plus a recovery ladder imitating Baritone's execution-loop guarantees in JS — Baritone
 itself stays a hard NO for a headless stack. Since then #53 (detection layer) and #55 (single
-ordered dig chain) have closed, and #54's R2 rung is built but reviewed-and-held, not deployed.
+ordered dig chain) have closed. #54's R2 rung is landed on main (2026-09-02, cherry-picked with
+its review fixes applied) but still held OFF the fleet: a real local server let engine-dev run
+the actual live wedge fixture for the first time, and it FALSIFIED four candidate obstruction
+mechanisms with mechanism-level explanations (a blocked gap is simply excluded from A*'s
+complete graph search rather than "tried"; mineflayer's client physics does not simulate
+entity-vs-entity collision for the bot's own movement AT ALL; two leaf_litter-class registry
+candidates walked through at full speed, so that quirk was never a general empty-boundingBox
+property). The gate is RE-SCOPED as a result (team-lead, 2026-09-02) rather than kept
+unmeetable: a fault-injection hook proving R2's resolution ACTION fires correctly on a live
+bot, plus the first NATURALLY-occurring firing-and-resolution observed in fleet telemetry,
+replaces "stage a wedge on invented geometry" as the deployable-to-cavecrew standard.
 
 **The live fleet is measured, not assumed.** `bench/playcheck.mjs` asks whether a bot looks like a
 person playing or standing around, and its before/after across the #67b deploy is 4/5 bots flat
@@ -163,11 +173,18 @@ runs the 35-case regression against a live bot in one command.
 Known honest gaps, so nothing here reads as more finished than it is:
 - **The un-fixtured soak has not been run.** Producing torches and self-healing a kit both
   work; that is not the same claim as five criteria met for three hours.
-- **Food is the one floor with no produce path**: the underground tier requires `foodItems: 4`
-  and `huntAnimals`' own kit gate requires `foodItems: 2`, so a foodless bot cannot hunt for
-  food. Team-lead's call: that is a GATE bug (hunting should be gated on a weapon, not on
-  already having food), queued to engine-dev-3, and NOT a soak blocker — the acceptance soak
-  gives food, scoping itself to the tool and torch self-sufficiency axis.
+- **Food still has no PRODUCE path** (the underground tier's `foodItems: 4` floor cannot be
+  synthesized the way torches/tools can), but the bootstrap-paradox HALF of this is now fixed
+  (2026-09-02, #45/#84, engine-dev-3): `huntAnimals`' own kit gate is weapon-based, not
+  food-based (it always was, since #45's original landing), and `ROLE_WORK.hunter` — which had
+  quietly kept pointing at `harvestGrass` under a comment saying "revisit when #45 ships" —
+  finally routes to it. A `role: 'hunter'` idle bot now hunts for its own food with zero
+  stored, and RESTOCK/TOOL correctly stop demanding food that bot can't produce (the same
+  `effectiveKit` fallback #84 built). **Still genuinely open** (filed #88): a bot with no role
+  assigned at all — the current gear-race fleet — has ZERO `ROLE_WORK` path of any kind, hunt
+  included, and stays parked on the drop-sweep forever. That is a bigger design question
+  (what should an unassigned bot default to?) than a hotfix, and sits with the upcoming
+  idle-trigger design workflow rather than being patched here.
 - survival.js CREEPER retreat is confirmed live; BREAK_LOS's arrow-shadow WALL path has still
   never run, because corner-step keeps succeeding first.
 - ashfinder / `/goto2` is merged and its security gap closed, but its MOVEMENT QUALITY is
