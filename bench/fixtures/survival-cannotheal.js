@@ -86,6 +86,32 @@ try {
   await V.trigger('hp');
   T('standdown stale past standdownMaxMs -> trigger() proceeds anyway (never silent forever)', V.fires > f4, true);
 
+  // ---- Section C (#100): standdown's arming predicate, tested per-branch via g.drill() —
+  // NOT V.trigger(), because these cases need to force WHICH branch runs (drill's own
+  // pickOverride bypasses the standdown entry-gate too, which is fine: it's the ARMING
+  // logic after the branch returns that's under test here, not the entry short-circuit
+  // Section B already covers). A fabricated threat (id:null) makes CREEPER/FLEE_AWAY
+  // resolve on their first 250ms poll with no real entity to chase — cheap, safe, matches
+  // this file's own established drill()/runBranch fabricated-threat precedent.
+  bot.food = 9;                       // < regenFood, no food item (still true from Section A's
+  bot.inventory.items = () => [];     // restore, done again here since Section B changed both)
+  globalThis.__danger = { threats: [] };
+
+  V.standdown = null;
+  await V.drill('ENV', { name: 'fire', d: 0, id: null });
+  T('#100: ENV is excluded from arming even when calm+cannotHeal', V.standdown, null);
+
+  V.standdown = null;
+  const flee = await V.drill('FLEE_AWAY', { name: 'zombie', d: 3, ranged: false, id: null });
+  T('#100: FLEE_AWAY reports cornered with no real entity to flee (sanity check on the drill setup)',
+    flee && flee.out && flee.out.cornered, true);
+  T('#100: FLEE_AWAY cornered:true is excluded from arming even when calm+cannotHeal', V.standdown, null);
+
+  V.standdown = null;
+  await V.drill('CREEPER', { name: 'creeper', d: 3, id: null });
+  T('#100: a NON-excluded branch (CREEPER) arms standdown when calm+cannotHeal — the actual #99/#100 generalization',
+    Boolean(V.standdown), true);
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${JSON.stringify(c.expect)}, got ${JSON.stringify(c.got)}`);
   return out;

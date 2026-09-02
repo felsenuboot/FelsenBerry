@@ -3048,3 +3048,40 @@ Live-verify per survival doctrine: reproduce the actual noisy sequence (real mob
 food dip below 18 mid-fight) and confirm the post-victory spam is gone.
 fix: proposed here; building next.
 github: felsenuboot/felcrew-mcp#100
+
+### 2026-09-02 engine-dev — #100 fix landed and verified (survival v10): predicate-keyed standdown, all three branch-exclusion cases proven precisely via g.drill()
+type: fix + verification
+status: shipped, no regression, the exact predicate logic verified precisely (not just observed in the
+wild) via controlled per-branch tests
+what: built the design argued above. `enter()`'s standdown-arming check is now `dangerSettled =
+out.branch !== 'ENV' && threatsNow().length === 0 && !(out.branch === 'FLEE_AWAY' && out.cornered)`,
+armed alongside `cannotHeal()` regardless of which branch produced the outcome.
+
+**NO REGRESSION**: full `bench/preflight.sh` 203/203 on a fresh bot post-injection (skills unchanged,
+survival v10). `flee-home-reachability.sh` still PASS (home-reachable/home-sealed both correct).
+
+**Precise verification, not just live observation**: added three new cases to
+`bench/fixtures/survival-cannotheal.js` (now 11/11) using `g.drill()` — which forces a SPECIFIC branch
+through the REAL `enter()` state machine, letting each of the three predicate outcomes be tested directly
+rather than hoping a live encounter happens to exercise all of them:
+- `ENV` (fabricated fire hazard, calm+cannotHeal otherwise satisfied): standdown stays `null` — confirmed
+  the exclusion works.
+- `FLEE_AWAY` with a fabricated (no-real-entity) threat, which — confirmed as a sanity check on the drill
+  setup itself — genuinely reports `cornered:true` (no entity to flee from, `gained` stays 0): standdown
+  stays `null` — confirmed the second exclusion works.
+- `CREEPER` (a branch NOT in either exclusion), same calm+cannotHeal conditions: standdown DOES arm —
+  confirmed the actual #99/#100 generalization fires for a branch other than `WALL_OFF`.
+
+**Live-mob check**: a real zombie encounter (contaminated test terrain from a full day of prior sessions
+at the same coordinates — multiple hazard types firing in sequence, not a clean single-threat repro) still
+showed the mechanism working as designed: the `"Walled off but can't heal..."` standdown message fired
+from a real `WALL_OFF` cannotHeal case, followed by a genuine ~20-second quiet period with zero repeated
+messages — where the pre-#100 code would have spammed every ~200-250ms for that whole stretch. Messier
+than a controlled repro, but consistent with, not contradicting, the fixture's precise result. The
+fixture's own `g.drill()` cases are the load-bearing verification here; the live encounter is a
+corroborating data point, not the primary proof, given how much accumulated test geometry sits at that
+one spot after today's sessions.
+fix: survival.js (`enter()`'s standdown-arming predicate, v10), `bench/fixtures/survival-cannotheal.js`
+(Section C, 3 new cases).
+github: felsenuboot/felcrew-mcp#100 (fix landed and reported) — closes the last open survival-lane item
+from today's finds (#92, #94, #96, #98, #99, #100 all now shipped and verified)

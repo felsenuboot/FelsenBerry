@@ -1,4 +1,15 @@
-// survival v9 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v10 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v10 (#100): standdown's arming was keyed to ONE branch's result (WALL_OFF + cannotHeal) --
+// #99 found the identical shape reachable through a different early-return in the same branch,
+// and #96's own live-mob verification found it reachable after FIGHT_BACK/FLEE_AWAY too (a
+// fight's own sprint/combat exhaustion can dip food below the regen floor, not just #92's
+// original starvation case). Re-keyed to a predicate -- threatsNow().length===0 && cannotHeal()
+// -- so it arms regardless of which branch produced the outcome, with two exclusions found by
+// walking every branch: ENV (branchEnv never verifies the hazard is actually gone, and it's the
+// one class whose whole point is "nothing else matters") and FLEE_AWAY's own `cornered:true`
+// (arming on a threatsNow()===0 reading right after the branch's own result says "did not
+// actually get away" risks the exact dangerscan self-blinding #94 already documented).
 //
 // v9 (#96): a real fleet bot (RotzRudi, gear-race run #3) died three times in one melee encounter
 // after its filler ran out mid-fight -- FLEE_HOME's melee path requires HP>=6, and once HP
@@ -125,7 +136,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 9,
+  enabled: true, version: 10,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -929,11 +940,31 @@ const enter = async (why, pickOverride) => {
     g.recovered++;
     pushLog('warn', `panic_recovered branch=${g.branch} hp=${Math.round(bot.health)} — driver decides resume vs abort`);
     try { const m = globalThis.__metrics; if (m && m.panic) m.panic('recovered', g.branch, bot.health); } catch (e) {}
-    // #92: a diagnosed cannot-heal outcome arms standdown (silences the redundant re-seal
-    // loop above) and gets a distinct, honest message instead of the generic "Stable again"
-    // — repeating THAT verbatim every ~62s is exactly the "looks like activity, is actually
-    // a stall" noise this codebase's own doctrine warns about.
-    if (out && out.branch === 'WALL_OFF' && out.cannotHeal) {
+    // #100: standdown's arming used to be keyed to ONE branch's result (WALL_OFF +
+    // cannotHeal) -- #99 found the identical "genuinely nothing left to do" shape reachable
+    // through a DIFFERENT early-return in the same branch, and #96's own live-mob
+    // verification separately found it reachable after FIGHT_BACK/FLEE_AWAY too (food
+    // dipping below the regen floor from a fight's own exhaustion, not just the original
+    // #92 starvation case). Re-keyed to a PREDICATE -- danger genuinely settled AND cannot
+    // heal -- so it arms correctly regardless of which branch produced the outcome, per the
+    // #94/#95 doctrine ("a branch may only defer to a fallback it has verified can act").
+    // Two exclusions, found by walking every branch rather than trusting the general case:
+    //  - ENV: branchEnv never verifies the hazard is actually gone (no `resolved` field),
+    //    and pick()'s own FIRST check on every call is envHazard() -- arming standdown here
+    //    could suppress that re-check until a real health-drop forces it, for the one
+    //    branch class whose own header comment says "nothing else matters". Costs nothing
+    //    to just exclude it; env hazards are rare and always re-checked when NOT suppressed.
+    //  - FLEE_AWAY's own `cornered:true`: not hypothetical -- #94's diagnosis (this file,
+    //    same day) found dangerscan's threat list can read empty WHILE a real melee
+    //    attacker is still adjacent (the "self-blinding" observation from RotzRudi's
+    //    ledger). Arming on a threatsNow()===0 reading right after the one branch whose OWN
+    //    result says "I did not actually get away" is exactly that risk.
+    // No change needed to standdown's own clear/re-arm logic (enter()'s entry gate) -- it
+    // already re-checks health-dropped/threat-reappeared fresh on every call regardless of
+    // which branch originally armed it.
+    const dangerSettled = out && out.branch !== 'ENV' && threatsNow().length === 0
+      && !(out.branch === 'FLEE_AWAY' && out.cornered);
+    if (dangerSettled && cannotHeal()) {
       g.standdown = { since: Date.now(), hp: bot.health };
       say('Walled off but can\'t heal — food stuck at ' + Math.round(bot.food) + '/20 with nothing to eat. ' +
         'Standing down at ' + Math.round(bot.health) + ' HP. Need food or new orders.');
@@ -1056,7 +1087,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 9, boundAt: Date.now(), stale: false };
+REG.survival = { version: 10, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -1067,7 +1098,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 9, home: g.home,
+  installed: true, version: 10, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
