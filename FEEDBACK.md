@@ -2175,3 +2175,22 @@ what: `closeEpisode` previously only ever fired through `A.setProject` (a real d
 Restarting the shared decider.js daemon to pick this up (it's a standalone process, not re-injected per-bot) — coordinated with test-driver first since it's live infrastructure serving gear-race run #3's RotzRudi concurrently; decider-state.json persists across the restart and every bot's own agenda ladder is fully independent of the daemon being up, so this should be a non-event for the race.
 fix: agenda.js v24 (`A.dirClose`, ~line 1224). decider.js (give-up branch, ~line 377). bench/fixtures/agenda-direction.js (case 12, new).
 github: felsenuboot/felcrew-mcp#95 (comment posted, fix landed)
+
+### 2026-09-02 engine-dev — #94 distribution: 5/5 runs confirm a systematic BREAK_LOS near-death, not RNG
+type: finding (distribution, follow-up to the #93 audit entry's 2-run observation)
+status: n=5 now, pattern confirmed systematic
+what: team-lead's follow-up ask — run `induced-stress-sequencing.sh` a few more times so #94's near-death
+pattern has n>2 before anyone shapes a fix. Ran 3 more (fresh isolated bot KlammKlaus, 127.0.0.1:25599,
+teleported 200 blocks from EngineDreckDave/eng-3's live #95 repro — needed `forceload add` first, a plain
+`/tp` to an ungenerated chunk silently failed to move the client at all, matching the exact lesson #54's
+own fixtures already learned the hard way). Kept exposure to the shared decider brief (stopped the bot
+right after each run) per the "avoid drawing Andy calls if avoidable" ask.
+
+**Full distribution, n=5 across both sessions**: 0.33, 0.17, 2.33, 0.33, 0.33 HP. Every single run correctly
+fired BREAK_LOS against the real skeleton and showed **zero thrash** (criterion #3's own actual purpose —
+correct sequencing under simultaneous stress — passes cleanly every time). Every single run also FAILED the
+`hpMin<6` near-death check. This is no longer 2 data points that could be unlucky RNG: **5/5, median 0.33 HP,
+is a systematic pattern.**
+fix: n/a — distribution gathered, root-cause/fix work is the natural next step but not attempted here
+(out of today's remaining scope).
+github: felsenuboot/felcrew-mcp#94 (updated with the distribution)
