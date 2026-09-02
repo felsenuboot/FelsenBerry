@@ -1,6 +1,17 @@
-# IDLE_TRIGGER_SPEC — Direction Episodes (agenda v21)
+# IDLE_TRIGGER_SPEC — Direction Episodes
 
-**Status:** FINAL synthesized specification (2026-09-02).
+**Status:** FINAL synthesized specification (2026-09-02). SHIPPED (2026-09-02): all four phases
+built and live-verified — see FEEDBACK.md's Phase 1/3 entries and felcrew-mcp#68.
+
+**VERSION NOTE:** this spec was written against agenda v20, landing Direction Episodes as
+v21. Before it landed, engine-dev-3's #89 (digOut/ascendToSurface) claimed v21 first for the
+unrelated ESCAPE rung — Direction Episodes shipped as **v22** instead (a number, not a
+functional change), and the follow-on setProject/nextProject ruling (§1.1i) bumped it once
+more to **v23**. Nothing below keys off the literal version number — every consumer
+(`bench/fixtures/agenda-direction.js`, `metrics.mjs`) checks for `A._directionCheck`'s
+existence instead, exactly so a version bump elsewhere in the file never invalidates this
+spec's own text. Read every "v21" below as "the version that ships Direction Episodes,
+whatever that turns out to be."
 **Problem (Felix):** bots idle too often; nothing triggers the LLM when a toolchain finishes, fails, or a bot has no direction. Measurement is half the request: idling must become a number.
 **Base design:** Direction Episodes (failure-first, judge winner 146/144/131 summed, 2-of-3 judges' pick), with grafts from the events-minimal design (log marker, /state observability, rules-before-LLM, poll-as-sweep) and the queue-ahead design (promotion placement + hygiene, gap_ms cross-check, contradiction alarm). Every judge must_fix is resolved in §8.
 
@@ -122,10 +133,11 @@ if (p && p.repeat && (p.barrenRuns || 0) >= DIRECTION_BARREN_RUNS)
 ```
 tick() early-returns (busy 789, !alive 800, externalNav 803–811) mean an edge during a /goto2 flight is reported when nav releases — latency, not loss: the comparison is level-based, an edge cannot be missed entirely.
 
-**(i) `A.setProject` (line 993)** gains two optional spec fields, backward-compatible:
+**(i) `A.setProject` (line 993)** gains three optional spec fields, backward-compatible:
 - `spec.by` — `'driver' | 'decider' | 'human' | 'promoted'` (default `'manual'`): stamped into the episode close.
 - `spec.next` — `{skill, args?, tool?, restockFloor?, repeat?}`: validated (must have `skill`), stored as `A.nextProject = Object.assign({}, spec.next, {stagedAt: now()})`. **Staged at decision time** — the decider/driver always answers current+next; there is NO progress-threshold pre-staging (nearly_done dropped, §8 J1-3).
-- At the top of the function (both the set and the `spec == null` clear branch): if `A.direction.episode`, `closeEpisode(spec ? (spec.by || 'manual') : 'cleared', spec && spec.skill, {now: now()})`. Clearing the project also clears `A.nextProject` (it was chosen to follow the old plan).
+- `spec.keepNext` — bool, default `false`. **RULING (team-lead, 2026-09-02, agenda v23), amending this section after Phase 1 shipped:** a plain `setProject` call with **no** `spec.next` field DROPS any stale previously-staged `A.nextProject`, rather than leaving it in place. Rationale: `setProject` expresses FRESH intent — a `next` staged for a PREVIOUS decision context silently promoting after an UNRELATED new project completes is a ghost-decision footgun (a driver redirects the bot, the old plan resurrects itself, the bot veers off, and nobody would trace it quickly). `spec.keepNext: true` is the explicit opt-in for the rare case that genuinely wants an old staged plan to survive an unrelated project change — never the default. Covered by `bench/fixtures/agenda-direction.js` case 11.
+- At the top of the function (both the set and the `spec == null` clear branch): if `A.direction.episode`, `closeEpisode(spec ? (spec.by || 'manual') : 'cleared', spec && spec.skill, {now: now()})`. Clearing the project also clears `A.nextProject` (it was chosen to follow the old plan) — now the SAME rule a normal set follows by default, not a special case.
 
 **(j) `A.dirDispatch(eid, spec)` — the race-safe entry point (mandatory in ALL modes, §8 J1-5/J3-6):**
 ```js
