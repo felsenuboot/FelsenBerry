@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 59;
+const ENGINE_VERSION = 60;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -170,6 +170,12 @@ const MAX_BELOW = 5;   // default: never select a target more than this far unde
 // look; the surface seen from inside a cave is a different journey, and one the caller must
 // decide on deliberately rather than discover by timeout.
 const MAX_ABOVE = 10;
+// #101: how far craftToolChain's terrain-seek (seekPlaceableSpot) will walk to find placeable
+// ground once it's holding a table it can't place where it stands. Team-lead's ruling: "cheap
+// stone-tool travel law applies" -- a short walk, not a cross-map trip; wide enough to clear a
+// self-dug pillar's immediate isolation (the live case this was built for needed only 2-3
+// blocks) with real margin, narrow enough that a genuinely marooned bot still fails fast.
+const TERRAIN_SEEK_RADIUS = 10;
 // --- movement DETECTION layer (#53) ---
 // A new best distance-to-goal is what "progress" means; anything less is thrashing.
 const PROGRESS_EPS = 0.5;
@@ -1754,6 +1760,66 @@ function payableTierExcluding(bot, need, exclude) {
   return null;
 }
 
+// #101: expanding-ring terrain-seek — find WALKABLE GROUND nearby (real footing, clear feet
+// and head — the same standability test findRepositionTarget already uses one module up, not
+// placeCarriedTable's reach-based "air with a solid face" test, see this function's own
+// in-body comment for why that distinction matters), for a bot stranded somewhere with
+// nothing placeable in reach. Built as a REUSABLE primitive (team-lead's ruling, 2026-09-02)
+// rather than a craftToolChain-only patch: #97 item 2's eventual generalized "no legal path"
+// recovery wants the exact same "find somewhere workable within a short walk" search, and
+// building it once here means that later work cites this instead of reimplementing it.
+//
+// Live root cause this exists for (soak #3, MatschMoritz, felcrew-mcp#101): the bot stood
+// on an isolated single-block pillar (self-dug mining leftover) holding a crafting_table it
+// could never place — EVERY adjacent cell within placeCarriedTable's own narrow 8-cell/dy:0-1
+// search was open air with zero solid faces anywhere, a real, not-buggy "genuinely nothing
+// here" read (confirmed live, FEEDBACK.md 2026-09-02) — yet a placeable spot existed just a
+// few blocks away the whole time. 177 identical failures over an hour, one position, because
+// nothing ever looked further than the bot's own feet.
+//
+// Deliberately square rings (chebyshev distance), not circles: simpler, and "close enough"
+// for a short-walk search where the exact shape of the search boundary doesn't matter.
+// Checks dy -2..+2 per ring (a bot descending/ascending a couple of blocks while walking a
+// ring out is normal terrain, not a stretch) — NOT #97 item 2's much deeper isolated-platform
+// case (a multi-block controlled fall), which is intentionally out of scope here; this is a
+// short walk to firm ground, not an emergency descent.
+async function seekPlaceableSpot(bot, maxRadius = 10) {
+  const origin = bot.entity.position.floored();
+  // Found live building this fixture (2026-09-02): an EARLIER version of this search looked
+  // for "air with any solid adjacent face" directly, the same test placeCarriedTable applies
+  // to its OWN immediate-reach candidates. That is the wrong question here: placeCarriedTable
+  // places by REACH from wherever the bot already stands, it never requires standing IN the
+  // target cell. A cell can be "air with a solid face" while floating in mid-air next to a
+  // pillar with nothing beneath it — a real face by the letter of the check, but nowhere a
+  // bot can actually walk to and stand. What this function needs to find is WALKABLE GROUND
+  // (a real floor to stand on, matching findRepositionTarget's own standability test one
+  // module up) — the table-placement decision itself is correctly left to
+  // placeCarriedTable()'s own local reach-based search once the bot has actually arrived.
+  for (let r = 1; r <= maxRadius; r++) {
+    const ring = [];
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;   // ring perimeter only
+      for (let dy = -2; dy <= 2; dy++) ring.push(origin.offset(dx, dy, dz));
+    }
+    for (const at of ring) {
+      const below = bot.blockAt(at.offset(0, -1, 0));
+      const feet = bot.blockAt(at);
+      const head = bot.blockAt(at.offset(0, 1, 0));
+      if (!below || below.boundingBox !== 'block') continue;          // needs real footing
+      if (!feet || feet.boundingBox !== 'empty') continue;            // feet must be clear
+      if (!head || head.boundingBox !== 'empty') continue;            // head must be clear
+      // #86 doctrine: a checker-matches-executor reachability probe before committing to the
+      // (expensive) real travel — skip a candidate the WORK planner can't actually path to
+      // rather than burning gotoT's full timeout discovering that live. The probe can be
+      // wrong, so this only orders the search, never discards a candidate outright: if the
+      // whole ring at this radius fails the probe, the NEXT radius is still tried, and the
+      // caller's own gotoT is the final, authoritative check either way.
+      if (_reachOf(bot, at)) return at;
+    }
+  }
+  return null;
+}
+
 // Bounded goto for the acquisition path. A raw bot.pathfinder.goto() never times out —
 // the first live ensureTool run hung indefinitely on one, stalling the whole chain with
 // two logs in the bag. Always clear the goal on the way out so the loser can't poison the
@@ -2193,6 +2259,41 @@ async function craftToolChain(bot, want, cfg, steps) {
     steps.push('craft:table');
     if (await placeCarriedTable()) {
       table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
+    }
+  }
+  // #101: still holding one, still couldn't place it here -- the alreadyHolding guard above
+  // correctly refuses to craft a pointless SECOND table (that's #86's own fix, working as
+  // intended), but it was never paired with anything that tries PLACING the one already held
+  // from somewhere else. Bounded terrain-seek: walk a short distance to genuinely placeable
+  // ground and try again, rather than give up on the spot the bot happens to be standing on.
+  // TERRAIN_SEEK_RADIUS caps the search so a genuinely marooned bot (nothing placeable within
+  // a short walk) still fails HONESTLY into the existing kit_missing/direction-episode path
+  // (post-#95 that means a fresh decider look on backoff, not silent rot) instead of
+  // searching forever.
+  if (!table && alreadyHolding()) {
+    const spot = await seekPlaceableSpot(bot, TERRAIN_SEEK_RADIUS);
+    if (!spot) {
+      steps.push(`terrain-seek:none-within-${TERRAIN_SEEK_RADIUS}`);
+    } else {
+      const arrived = await gotoT(bot, spot.x, spot.y, spot.z, 1, 15000);
+      // let physics settle after arrival (still airborne/sliding right when gotoT resolves
+      // is common) before placeCarriedTable() reads bot.entity.position.floored() for its
+      // own candidate cells -- computing candidates from a not-yet-settled position can
+      // target the wrong cell entirely once the bot's actual resting spot differs.
+      if (arrived) await new Promise((r) => setTimeout(r, 300));
+      if (arrived && await placeCarriedTable()) {
+        // no settle delay needed here: placeCarriedTable()'s steps.push('place:table') only
+        // fires once bot.placeBlock() has resolved, and mineflayer's placeBlock only resolves
+        // after its OWN world model already reflects the type change at the target cell (see
+        // node_modules/mineflayer/lib/plugins/place_block.js -- it awaits the blockUpdate event
+        // before returning). A "placed, but findBlock finds nothing" symptom was chased hard
+        // while building this fix; root cause turned out to be a stale, long-lived debug bot
+        // connection that had never reconnected since an earlier skills.js edit (payloads are
+        // injected at spawn/reconnect, not hot-reloaded), not a real world-model race. Noting
+        // this so nobody re-chases the same dead end.
+        table = bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 });
+      }
+      steps.push(`terrain-seek:${Math.round(spot.x)},${Math.round(spot.y)},${Math.round(spot.z)}:${table ? 'placed' : (arrived ? 'arrived,no_place' : 'unreachable')}`);
     }
   }
   if (!table) {
