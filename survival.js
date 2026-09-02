@@ -1,4 +1,21 @@
-// survival v5 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v6 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v6 (#92): WALL_OFF's only exit was "healed" (HP>=regenHp AND food>=regenFood), timeboxed
+// to 60s. If food is stuck below the regen threshold with nothing left to eat, "healed" can
+// never become true — the branch just burns the full 60s every time, digs out, and then the
+// 'hp' health-listener backstop (critical HP correctly bypasses the re-entry lockout, #65)
+// re-triggers on the very next food/health tick and reseals from scratch. Live-observed: 26
+// identical cycles over 25m44s, zero self-exit, DNF. Fixed at two levels: (1) branchWallOff
+// now exits as soon as (threat-clear AND (healed OR cannot-heal)), not just on "healed" —
+// cannot-heal is food<regenFood with no food item carried, checked via the same FOODS list
+// skills.js's kit gate uses; (2) orchestration-level g.standdown remembers a diagnosed
+// cannot-heal-and-threat-clear outcome so the SAME unresolved condition doesn't re-seal on
+// every subsequent tick — any genuine change (HP actually drops, or a live threat reappears)
+// clears it immediately and is handled for real, same as always; a 10-minute hard expiry
+// re-checks anyway so this can never go silent forever. Also: a one-shot sweepNearbyFood()
+// attempt right at the cannot-heal exit, since the general skills.js health guard correctly
+// blocks combat-adjacent risk but also blocked the harmless act of grabbing a food drop two
+// blocks away — exactly the thing that would resolve the deadlock on its own.
 //
 // v5 (#65): four fixes from one live-testing session against real mobs, all in the
 // survival/don't-get-stuck path the acceptance soak depends on:
@@ -59,10 +76,11 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 5,
+  enabled: true, version: 6,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
+  standdown: null,       // #92: {since, hp} once a cannot-heal/threat-clear outcome is diagnosed
   cfg: {
     lockoutMs: 10000,     // re-entry lockout after a completed recovery
     hpPanic: 8,           // backstop trigger when dangerscan is absent
@@ -73,6 +91,7 @@ const g = {
     regenHp: 16,          // wall-off waits for this HP...
     regenFood: 18,        // ...and this food (natural regen needs >= 18)
     maxRunMs: 90000,      // hard cap on one panic run
+    standdownMaxMs: 600000, // #92: force a fresh re-check at least this often, never silent forever
   },
   filler: ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite', 'granite', 'netherrack'],
 };
@@ -80,6 +99,13 @@ globalThis.__survival = g;
 
 const AIR = new Set(['air', 'cave_air', 'void_air']);
 const HAZARD = new Set(['lava', 'fire', 'soul_fire', 'campfire', 'soul_campfire', 'magma_block']);
+// #92: same canonical list as skills.js's own kit-gate FOODS (duplicated locally, matching
+// this file's own established pattern of not cross-requiring another independently-injected
+// payload — see `filler` above, which duplicates skills.js's FILLERS the same way).
+const FOODS = new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken',
+  'cooked_rabbit', 'cooked_cod', 'cooked_salmon', 'baked_potato', 'apple', 'golden_apple',
+  'enchanted_golden_apple', 'carrot', 'beetroot', 'melon_slice', 'sweet_berries', 'glow_berries',
+  'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp']);
 
 const pushLog = (lvl, msg) => {
   try {
@@ -130,6 +156,10 @@ const resumeGuard = () => {
 const findItem = (pred) => bot.inventory.items().find(pred);
 const bestSword = () => findItem((i) => /_sword$/.test(i.name)) || findItem((i) => /_axe$/.test(i.name));
 const fillerItem = () => { for (const n of g.filler) { const it = findItem((i) => i.name === n); if (it) return it; } return null; };
+// #92: "cannot heal" — hunger is below the natural-regen floor AND there is nothing left to
+// eat to raise it. Distinct from "hasn't healed yet" (which just needs more time/food).
+const hasFoodItem = () => bot.inventory.items().some((i) => FOODS.has(i.name));
+const cannotHeal = () => bot.food < g.cfg.regenFood && !hasFoodItem();
 
 const shieldUp = async (ent) => {
   try {
@@ -448,6 +478,39 @@ const branchFleeHome = async (t) => {
   }
 };
 
+// #92 item 3: the general skills.js task guard (ctx.step(), minHealth default 6) correctly
+// blocks combat-adjacent risk, but it also blocks the completely harmless act of walking a
+// couple of blocks to a food drop — exactly the thing that would resolve a cannot-heal
+// standdown on its own. survival.js is the one place that has ALREADY verified the threat is
+// genuinely clear (that's cannot-heal's own precondition), so it's the right place to attempt
+// this directly rather than fighting the generic guard through skills.js's task queue.
+// Self-contained: goto only, no digging, capped to a short walk and a handful of drops.
+const sweepNearbyFood = async (radius = 10) => {
+  try {
+    const me = bot.entity.position;
+    const drops = Object.values(bot.entities).filter((e) => {
+      if (!e || e.name !== 'item' || !e.position || e.isValid === false) return false;
+      if (e.position.distanceTo(me) > radius) return false;
+      // metadata not in yet: assume collectable rather than excluding it — skills.js's own
+      // collectDrops makes the identical call for the identical race (item entity spotted
+      // before its metadata packet arrives). A wasted goto attempt on a non-food item is
+      // cheap and bounded; silently walking past real food because we checked one tick too
+      // early is the worse failure for a cannot-heal bot.
+      let it = null;
+      try { it = e.getDroppedItem(); } catch (_) { return true; }
+      return Boolean(!it || FOODS.has(it.name));
+    }).sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me));
+    if (!drops.length) return { swept: 0 };
+    let swept = 0;
+    for (const e of drops.slice(0, 3)) {
+      if (!bot.entities[e.id]) { swept++; continue; }
+      const r = await ownedGoto(new goals.GoalNear(e.position.x, e.position.y, e.position.z, 1), 6000);
+      if (r === 'arrived' && !bot.entities[e.id]) swept++;
+    }
+    return { swept };
+  } catch (e) { return { swept: 0, error: e.message }; }
+};
+
 // BRANCH 3 — coffin: seal, eat, regen, dig out away from the threat.
 const branchWallOff = async (t) => {
   if (!fillerItem()) {
@@ -523,9 +586,17 @@ const branchWallOff = async (t) => {
   let lastHp = bot.health;
   let resealed = false;
   let lastFoodCheck = 0;
+  let cannotHealHit = false;
   while (Date.now() - t0 < 60000) {
     if (bot.health >= g.cfg.regenHp && bot.food >= g.cfg.regenFood) break;
     if (bot.health <= 0) break;
+    // #92: healing is IMPOSSIBLE once food is stuck below the regen threshold with nothing
+    // left to eat — waiting out the rest of this 60s changes nothing (eatUp() below already
+    // retries every second and keeps failing the same way). Once the threat is genuinely gone
+    // (dangerscan's own live list, not just "wasn't hit this exact tick") and HP has stopped
+    // falling, stop waiting on a condition that can never become true from inside a sealed
+    // box — this is the exit branchWallOff never had, root cause of #92's 26-cycle stall.
+    if (threatsNow().length === 0 && bot.health >= lastHp && cannotHeal()) { cannotHealHit = true; break; }
     // #65: this used to wait passively for up to 60s on the assumption a "sealed" coffin
     // stops incoming damage entirely, checking only once per 1000ms. Live-traced a bot
     // holding stable for 33s then dropping 5.5 -> 0.8 HP in ~4s during this exact wait —
@@ -573,7 +644,21 @@ const branchWallOff = async (t) => {
     const exit = bot.blockAt(feet.offset(away[0], 0, away[1]));
     if (isSolid(exit)) { await bot.dig(exit); dug = [exit.position.x, exit.position.y, exit.position.z]; }
   } catch (e) {}
-  return { branch: 'WALL_OFF', sealed: open === 0, placed, openFaces: open, bailed, hp: bot.health, food: bot.food, exit: dug };
+
+  // #92: one self-contained attempt to solve our own cannot-heal deadlock before handing
+  // control back — see sweepNearbyFood's own comment for why this bypasses the general
+  // skills.js health guard rather than routing through it.
+  let sweep = null;
+  if (cannotHealHit) {
+    sweep = await sweepNearbyFood();
+    if (sweep.swept) await eatUp();
+  }
+  const stillCannotHeal = cannotHealHit && cannotHeal();
+  return {
+    branch: 'WALL_OFF', sealed: open === 0, placed, openFaces: open, bailed,
+    hp: bot.health, food: bot.food, exit: dug,
+    cannotHeal: stillCannotHeal, threatClear: threatsNow().length === 0, sweep,
+  };
 };
 
 // ================= ORCHESTRATION =================
@@ -612,6 +697,18 @@ const enter = async (why, pickOverride) => {
   const critical = Boolean(bot.entity) && bot.health > 0 && bot.health < g.cfg.hpPanic;
   if (!pickOverride && !critical && Date.now() - g.lastEnd < g.cfg.lockoutMs) return;
   if (!bot.entity || bot.health <= 0) return;
+  // #92: once WALL_OFF has already diagnosed THIS exact situation as cannot-heal with the
+  // threat genuinely clear, a stray food/health tick re-firing the 'hp' backstop must not
+  // re-seal the bot — that IS the heal-deadlock (26 identical cycles, 25m44s, zero self-exit).
+  // Any genuine new development breaks through immediately, same as always: HP actually
+  // getting worse, or a live threat reappearing, both clear standdown and fall through to a
+  // real pick() below. Never applies to an explicit drill()/pickOverride call. A hard expiry
+  // forces a fresh re-check periodically regardless, so this can never go silent forever.
+  if (g.standdown && !pickOverride) {
+    const stale = Date.now() - g.standdown.since > g.cfg.standdownMaxMs;
+    if (stale || bot.health < g.standdown.hp || threatsNow().length > 0) g.standdown = null;
+    else return;
+  }
   g.active = true; g.fires++; g.startedAt = Date.now();
   const guarded = suspendGuard();
   let out = null;
@@ -650,7 +747,18 @@ const enter = async (why, pickOverride) => {
     g.recovered++;
     pushLog('warn', `panic_recovered branch=${g.branch} hp=${Math.round(bot.health)} — driver decides resume vs abort`);
     try { const m = globalThis.__metrics; if (m && m.panic) m.panic('recovered', g.branch, bot.health); } catch (e) {}
-    say('Stable again (' + g.branch + ', HP ' + Math.round(bot.health) + '/20). Awaiting orders.');
+    // #92: a diagnosed cannot-heal outcome arms standdown (silences the redundant re-seal
+    // loop above) and gets a distinct, honest message instead of the generic "Stable again"
+    // — repeating THAT verbatim every ~62s is exactly the "looks like activity, is actually
+    // a stall" noise this codebase's own doctrine warns about.
+    if (out && out.branch === 'WALL_OFF' && out.cannotHeal) {
+      g.standdown = { since: Date.now(), hp: bot.health };
+      say('Walled off but can\'t heal — food stuck at ' + Math.round(bot.food) + '/20 with nothing to eat. ' +
+        'Standing down at ' + Math.round(bot.health) + ' HP. Need food or new orders.');
+    } else {
+      g.standdown = null;
+      say('Stable again (' + g.branch + ', HP ' + Math.round(bot.health) + '/20). Awaiting orders.');
+    }
   } catch (e) {
     g.failures++;
     pushLog('error', 'panic run failed: ' + e.message);
@@ -744,7 +852,11 @@ g.drill = async (name, threat) => {
   await enter('drill:' + String(name || '').toUpperCase(), () => branchFor(name, threat));
   return { ...g.lastEvent, bench: true };
 };
-g.brief = () => ({ state: g.active ? 'panic:' + (g.branch || '?') : 'ready', branch: g.lastBranch, fires: g.fires, recovered: g.recovered, failures: g.failures });
+g.brief = () => ({ state: g.active ? 'panic:' + (g.branch || '?') : (g.standdown ? 'standdown' : 'ready'), branch: g.lastBranch, fires: g.fires, recovered: g.recovered, failures: g.failures, standdown: g.standdown });
+// #92: exposed for fixture/live testing, same pattern as dangerscan.js's columnOpen ->
+// g.columnOpen and skills.js's findRepositionTarget -> S.recoveryDetect.
+g.cannotHeal = cannotHeal;
+g.sweepNearbyFood = sweepNearbyFood;
 g.snapshot = () => ({ ...g.brief(), home: g.home, cfg: g.cfg, lastEvent: g.lastEvent, active: g.active });
 g.restore = () => {
   g.enabled = false;
@@ -760,7 +872,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 5, boundAt: Date.now(), stale: false };
+REG.survival = { version: 6, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -771,7 +883,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 5, home: g.home,
+  installed: true, version: 6, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),

@@ -1945,3 +1945,72 @@ what: picked up the WIP state preserved in the wind-down commit (6d8b75c) — `d
 `bench/preflight.sh 3162`: 180/180 (assert-produce correctly SKIPPED — bot held nothing craftable to assert on). Unaffected by the jget bug either way: preflight's 13 fixtures are pure JS evaluated via `/eval` + parsed in Python, never touching bash's `jget`.
 fix: `dangerscan.js` needed no further change (v5 as committed in 6d8b75c is correct). `bench/lib/common.sh` jget() fixed. `bench/fixtures/dangerscan-canopy.sh` hardened with retry-past-transient polling (kept as legitimate defensive hardening for a real, separate, rarer RCON-fill-lag race observed once during diagnosis; comment corrected to not misattribute the original failure to it).
 github: felsenuboot/felcrew-mcp#68 (comment posted, canopy sub-finding closed out), felsenuboot/felcrew-mcp#93 (new, jget blast-radius)
+
+### 2026-09-02 engine-dev — #92 CLOSED: WALL_OFF heal-deadlock fixed, live-verified on real damage across multiple cycles (survival v6)
+type: fix + verification
+status: shipped and live-verified with real server-side damage/hunger, not drill()/synthetic branch override
+what: run #2's WALL_OFF heal-deadlock (26 identical seal cycles, 25m44s, zero self-exit) traced to two
+gaps: branchWallOff's only exit was "healed" (HP>=16 AND food>=18), timeboxed to 60s with no other
+escape; and even after that 60s timeout expired, the 'hp' health-listener backstop's critical-HP lockout
+bypass (#65, correctly needed for a genuine re-attack) re-triggered on the very next food/health tick and
+resealed from scratch, forever, since nothing recognized "healed" had become permanently unreachable.
+
+FIX, two levels, both required:
+1. `branchWallOff`'s wait loop now exits as soon as (threat-clear AND (healed OR cannot-heal)), not just
+   on healed. `cannotHeal()` = food<18 with no food item carried (FOODS list duplicated locally from
+   skills.js's own kit-gate set, matching this file's existing `filler`/FILLERS duplication pattern —
+   these are independently-injected payloads, not modules that can cross-require).
+2. Orchestration-level `g.standdown = {since, hp}` remembers a diagnosed cannot-heal+threat-clear
+   outcome so the identical unresolved condition can't re-seal the bot on every subsequent tick. Any
+   genuine new development breaks through immediately and re-arms for real: HP actually drops below the
+   standdown's own recorded value, or a live threat reappears (`threatsNow().length>0`) — both checked
+   fresh on every trigger, never a stale read. A 10-minute hard expiry (`standdownMaxMs`) forces a fresh
+   re-check regardless, so this can never go silent forever even in an unanticipated edge case — same
+   "silent + zero-cost needs an explicit edge-case policy" doctrine this file's own history already
+   established for `keepNext`. Never applies to an explicit `drill()`/pickOverride call.
+Bundled secondary items from the issue: the 60s re-announce churn is gone as a direct consequence (the
+early exit means "Stable again" doesn't get a chance to repeat identically), and a diagnosed cannot-heal
+outcome now gets its own honest message ("Walled off but can't heal — food stuck at N/20...") instead of
+the generic one. Item 3 (collectDrops health-guard cascade): added a self-contained `sweepNearbyFood()`
+inside survival.js itself (goto-only, no digging, capped to 3 drops/6s each) that fires once at the
+cannot-heal exit — survival.js already knows the threat is genuinely clear at that point, so it's the
+right place to bypass the general skills.js health guard rather than fighting it through the task queue.
+
+VERIFIED, not trusted on the strength of the diff:
+- `bench/fixtures/survival-cannotheal.js` (new, follows agenda-escape.js's save/restore-injection
+  pattern): 7/7 assertions, run live and repeatably against a real bot — Section A is a pure-function
+  check of `cannotHeal()`'s food/inventory logic (zero side effects); Section B calls the REAL `enter()`
+  via `g.trigger()` (not a drill() override) to prove the standdown gate's four cases: armed+unchanged
+  = silent no-op, HP-dropped = re-arms and proceeds, live-threat-present = re-arms and proceeds, stale
+  past `standdownMaxMs` = proceeds anyway. Wired into `bench/preflight.sh`'s fixture list (safe for any
+  bot regardless of `--agenda`, since it only touches `__survival` — present in the default payload
+  stack unconditionally).
+- LIVE, with genuinely REAL health/hunger, not fabricated: spawned a disposable QA bot (HungerHannes,
+  25599), drained its REAL server-side food via `/effect give ... hunger` (not a client-side field
+  poke — confirmed it survives server resync, unlike an early attempt at faking `bot.food` which the
+  next health packet silently overwrote), teleported it >40 blocks from home so WALL_OFF is pick()'s
+  only route regardless of HP, then applied REAL `/damage` to force entry. Result: WALL_OFF fired,
+  sealed, and exited via the new cannot-heal path in ~4 seconds (not the old 60s), armed standdown, and
+  held that state through **130+ seconds of continuously falling real food (down to 0) with ZERO
+  re-seal cycles** — the old code would have completed 2+ full 62-second loops in that same window.
+  Re-armed correctly and immediately on a genuine further HP drop (6->3, then 3->2->1 across two more
+  real `/damage` hits): fires counter incremented each time, full cycle ran again, standdown re-armed
+  fresh. The distinct new chat message fired verbatim as designed. A real dropped bread item near the
+  bot got consumed via the bot's own autoEat+incidental-pickup path during this window and `cannotHeal()`
+  correctly re-evaluated against the resulting real food increase (10->15, still <18, correctly still
+  true) — confirming the logic is live-reactive to real state, not just internally consistent.
+  Two earlier live attempts (a skeleton at point-blank range, then a zombie at close range) killed the
+  test bot before reaching the state under test — BREAK_LOS's known point-blank weakness and FLEE_HOME
+  reporting "recovered" while still under active melee are PRE-EXISTING, out-of-scope issues (matching
+  this file's own #65 header notes), not regressions from this fix; noted here so they aren't
+  rediscovered as new bugs. `sweepNearbyFood`'s own metadata-race handling was aligned with
+  collectDrops's established "assume collectable on an unread-metadata exception" convention after a
+  synthetic `/summon minecraft:item` test produced a non-tracked entity (a server-version NBT quirk in
+  the test rig, not a bot bug) — the ground-truth confirmation instead came from the real dropped-bread
+  case above.
+
+engine v6 bump (was v5/#65). Cleaned up: QA bot stopped, no leftover mobs/effects on the local server.
+fix: survival.js (v6: `cannotHeal`/`hasFoodItem`/`sweepNearbyFood`, branchWallOff early-exit, `g.standdown`
+gate in `enter()`, distinct chat message, `g.brief()`/`g.cannotHeal`/`g.sweepNearbyFood` exposed for
+testing), bench/fixtures/survival-cannotheal.js (new), bench/preflight.sh (fixture list).
+github: felsenuboot/felcrew-mcp#92 (closing)
