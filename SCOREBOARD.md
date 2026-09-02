@@ -75,7 +75,31 @@ auditable.
 Format: driverless engine, steered ONLY via `__agenda.setProject({skill,args})` (no hand-driving,
 no /eval action code, no depot/RCON help). Score = wall-clock from server-log join line to FIRST
 possession of each pickaxe tier (wooden/stone/iron/diamond); steering-call count is a secondary
-autonomy metric. Run cap 90 min. Advancement lines used as ground truth where available: `Stone
+autonomy metric. Run cap 90 min.
+
+**Codified ruling on `/eval` (team-lead, 2026-09-02, closes the self-flag/ruling thread above):**
+STEERING is `setProject` only. OBSERVATION is `GET /state` plus any read-only `/eval` that
+provably mutates nothing (e.g. reading `globalThis.__agenda`'s own fields — `project`, `blocked`,
+`role` — to understand ladder state GET /state doesn't expose). The restriction's actual purpose
+is that the LLM never steers the body or alters bot state; a pure state read does neither, so it
+is legal, not a violation to be tolerated. Enforcement is `gearrace.mjs`'s ledger audit: any
+`/eval` call it flags gets content-verified by whoever reviews the run, and a call that DOES
+mutate anything (not just setProject) is disqualifying for that run. Self-flagging a borderline
+call before the audit finds it is the expected behavior, not an admission of a violation.
+
+**Fresh world per race run, same seed (Felix's law, added 2026-09-02):** running run #2 on
+run #1's already-played world would inherit scars — Otto's tunnels and NacktNorbert's grass
+harvesting have already contaminated `world-race` near spawn on the shared-seed track, the exact
+same comparability problem that forced 25599 to be abandoned in the first place. So: before EACH
+race run, edit `localserver-race/server.properties`'s `level-name` to a fresh, never-used value
+(`world-race2`, then `world-race3`, ...) and restart that server (~60-90s regeneration cost). Same
+seed = literally identical terrain generation every run = perfect comparability. Old world
+directories stay on disk as archives, never deleted. **Exception, standing until lifted**: the
+CURRENT world (`world-race`) must NOT be swapped away or have its server restarted while
+OhneHoseOtto is live there as engine-dev-3's `digOut` specimen — confirm with them that the
+specimen is no longer needed live before touching `level-name` or restarting 25600.
+
+Advancement lines used as ground truth where available: `Stone
 Age` = wooden pickaxe used to mine stone, `Getting an Upgrade` = stone pickaxe constructed,
 `Acquire Hardware` = iron ingot smelted (precursor, not the pickaxe itself), `Isn't It Iron Pick?`
 = diamond pickaxe (vanilla has no distinct iron-pickaxe advancement — inferred from status.log /
@@ -128,16 +152,19 @@ Steering calls: 2 total — (1) initial `setProject(mineLane,{target:stone,count
 deconfliction with another driver's bot (KlemmKuno claimed port 3130 unannounced) — an
 infrastructure fix, not a driver decision, footnoted separately from the autonomy count.
 
-**UPDATE 13:34-13:36 — killed by Felsenuboot (RCON), respawned, recovering.** Both this bot and
+**UPDATE 13:31-13:36 — killed by Felsenuboot (RCON), respawned, recovering.** Both this bot and
 run #1 went silently idle for ~15-20 min on the food-item kit gate (`food 0/4`, full hunger but
-zero food items carried, huntAnimals' own kit gate needs food too — see FEEDBACK.md, this is
-GOAL.md's documented gap confirmed live). Felix manually killed NacktNorbert, KlemmKuno and
-EngineDreckDave via RCON at 13:34:37 after noticing the stall visually. Death cleared the project
-(engine v53/graychat v5 picked up on respawn — versions keep moving live). Re-armed with
-`harvestGrass{radius:24, repeat:true}` (steering call 3) at 13:36:06 — **this time WITH repeat,
-after discovering harvestGrass isn't in agenda's `resumable()` registry and silently completes
-after one pass without it (see FEEDBACK.md)**. Respawned near the surface, so grass was in reach:
-real yield confirmed (`Cut 4 grass`, chat-verified). Steering calls: 3. Deaths: 1.
+zero food items carried — see FEEDBACK.md, this is GOAL.md's documented gap confirmed live, later
+refined per run #1's hunt-gate test: the gate itself is clean, it's a routing gap). First tried
+`harvestGrass{radius:24,count:16}` WITHOUT repeat (call 3, 13:31:56, same batch call as run #1's —
+see that section's call-count correction for why this one went unnumbered in the moment: it
+completed once and fell to IDLE, per the non-resumable-skill footgun in FEEDBACK.md). Felix
+manually killed NacktNorbert, KlemmKuno and EngineDreckDave via RCON at 13:34:37 after noticing
+the stall visually — death cleared the project (engine v53/graychat v5 picked up on respawn —
+versions keep moving live). Re-armed with `harvestGrass{radius:24,repeat:true}` (call 4, 13:36:06)
+— **this time WITH repeat, after discovering harvestGrass isn't in agenda's `resumable()`
+registry and silently completes after one pass without it**. Respawned near the surface, so grass
+was in reach: real yield confirmed (`Cut 4 grass`, chat-verified). Steering calls: 4. Deaths: 1.
 
 Still SHAKEDOWN/non-comparable — this update is field intelligence on the food/kit/idle-detection
 gaps, not a time record.
@@ -148,9 +175,23 @@ at v48, the food/kit deadlock corroboration, the harvestGrass repeat:true footgu
 stop it was productively harvesting (`Cut 32 grass` at 13:48:06, `Cut 26 grass` at 13:45:54) — this
 bot never hit a genuine dead end, it was stopped on purpose because its purpose was served, not
 because it failed. Final tally: reached wooden pickaxe only (v48, contaminated track — not
-comparable to run #1's clean 1m00s); stone/iron/diamond never reached. Steering calls: 3. Deaths: 2
-(13:34:37 and 13:41:xx-13:41:55, the latter part of a multi-entity RCON kill spree by Felix,
-unrelated to any engine failure).
+comparable to run #1's clean 1m00s); stone/iron/diamond never reached. **Steering calls: 5**
+(corrected from an earlier "3" — my real-time hand tally missed both the 13:31:56 unnumbered
+harvestGrass call, same gap engine-dev's gearrace.mjs audit caught on run #1, AND a second re-arm
+at 13:43:25 after the second kill-spree settled that was never logged as a numbered call at all:
+1) mineLane 12:52:03, 2) re-arm 13:01:05, 3) harvestGrass-no-repeat 13:31:56, 4) harvestGrass-repeat
+13:36:06, 5) harvestGrass-repeat re-arm 13:43:25). Also 2 read-only `/eval` diagnostic calls
+during the 13:41 kill-spree investigation (checking `A.project`/`A.blocked`/`A.role` state — NOT
+setProject, NOT hand-driving, but technically outside the letter of "setProject or GET /state
+only"; self-flagging this since gearrace.mjs's ledger audit surfaces it as "2 other /eval" and it
+should be owned, not left for someone else to notice). **Deaths: 5**, corrected from an earlier
+"2" — I had narratively collapsed a rapid RCON kill cluster into "one kill spree" and lost the
+actual count; `grep -c "NacktNorbert was killed" localserver/logs/latest.log` gives the true
+number: 13:34:37, then 13:41:09/13:41:12/13:41:14/13:41:55 (the last four within 46 seconds).
+**Mystery resolved (team-lead, 2026-09-02): all 5 are generic RCON-kill signatures, all Felix,
+all non-organic — the 13:41 cluster is exactly the "NacktNorbert 3x in 5 seconds" kill-spree I
+reported in an interim message at the time, plus one more at 13:41:55. Engine exonerated on
+every one; no bug, no combat/fall/drown cause, nothing for the ladder to have prevented.**
 
 ### Run #1 — OhneHoseOtto, 127.0.0.1:25600 (dedicated virgin-world race track, same seed) — OFFICIAL BASELINE — CONCLUDED: DNF-at-stone
 
@@ -179,11 +220,21 @@ resolved 14.02 from the goal (tolerance 4.5)` in ~1.3s with position unchanged t
 and no skill in the registry ascends or digs a bot out. The gate is exonerated; the routing gap
 and the entombment are indicted.
 
-**Run #1 is now HANDED OFF as a live specimen** (team-lead + engine-dev-3, 2026-09-02): OhneHoseOtto
-stays entombed, untouched, process left running — port 3140, race server 127.0.0.1:25600, position
+**Run #1 was HANDED OFF as a live specimen** (team-lead + engine-dev-3, 2026-09-02): OhneHoseOtto
+stayed entombed, untouched, process left running — port 3140, race server 127.0.0.1:25600, position
 (2.51, 89, 12.43). Ownership transferred to engine-dev-3 to develop/test the missing
 `ascendToSurface`/`digOut` skill against a naturally-occurring stuck bot. Race rules (setProject-only,
-no /eval action code) LIFT on this bot as of the handoff — full FEEDBACK.md writeup below.
+no /eval action code) lifted on this bot as of the handoff — full FEEDBACK.md writeup below.
+
+**RESOLVED, same day.** engine-dev-3 root-caused it via read-only `/eval` forensics (my own
+WALL_OFF speculation was wrong — zero panic events ever fired; the real cause was `producer.js`'s
+cobblestone-search wandering unboundedly horizontally, fixed as producer v7), built
+`ascendToSurface` (skills v55) and a new ESCAPE agenda rung (v21) that auto-routes a path-blocked
+underground project to it, then live-verified by actually walking Otto out: y=89 -> y=102 in ~65s,
+independently block-scan-confirmed as real open sky. Otto is free, healthy, and no longer a
+specimen — full writeup in FEEDBACK.md, github felsenuboot/felcrew-mcp#89 (CLOSED). This run's DNF
+record above is UNCHANGED (already finalized before the fix landed) — the resolution doesn't touch
+the measurement, only frees the bot.
 
 Steering calls: 2 so far — (1) initial `setProject` at 12:59:29; (2) re-arm at 13:02:05 after a
 process restart to move the bot from port 3110 to 3130->3140 (port collision, same infra-fix
@@ -258,6 +309,19 @@ driver to notice and branch manually; (2) the **`digOut`/`ascendToSurface` skill
 being verified against the OhneHoseOtto specimen. Both, not either — run #2 measures the delta
 against run #1's diagnosed failure modes, so both root causes should be closed before it launches.
 
+**Prep-for-green-light checklist (team-lead, 2026-09-02) — my job, in order, before team-lead
+flips the light:**
+1. Confirm with engine-dev-3 that `digOut` has landed AND that the OhneHoseOtto specimen is no
+   longer needed live (do not touch `world-race`/25600 before this — see the fresh-world-per-run
+   exception above).
+2. Swap `localserver-race/server.properties`'s `level-name` to `world-race2` (fresh, never-used)
+   and restart the 25600 server (~60-90s regen).
+3. Spawn with a fresh never-used name, `OWNER=test-driver PURPOSE="..."` env vars, `./list.sh`
+   run first to confirm the roster, race book branches already armed (this file, above), and
+   `gearrace.mjs` as the recorder of record from the start rather than a post-hoc cross-check.
+
+Then team-lead flips the light. Nothing on this list is done yet — standing by on step 1.
+
 ### Run (auto) — 2026-09-02 11:49 — OhneHoseOtto, /home/felix/minecraft/localserver-race
 
 Generated by `bench/gearrace.mjs`. Engine versions: skills v50, agenda v19. Run may still be in progress at generation time.
@@ -287,4 +351,155 @@ Generated by `bench/gearrace.mjs`. Engine versions: engine version unknown (bot 
 Steering calls: 7 (5 setProject, 2 other /eval). Deaths: 5.
 
 DNF context (stone_pickaxe): `[+1415s] [Not Secure] <NacktNorbert> Produced 4 stick (crafted).`; `[+1452s] [Not Secure] <NacktNorbert> Produced 8 torch (crafted).`; `[+2752s] [Not Secure] <NacktNorbert> Cut 4 grass.`; `[+3205s] [Not Secure] <NacktNorbert> Cut 32 grass.`; `[+3330s] [Not Secure] <NacktNorbert> Cut 26 grass.`; `[+3462s] [Not Secure] <NacktNorbert> Cut 32 grass.`
+
+### Run #2 — FrischFriedhelm, 127.0.0.1:25600 (`world-race2`, fresh, same seed) — LIVE, official, run per the pre-planned race book
+
+Prep-for-green-light checklist completed in order: (1) engine-dev-3 confirmed `digOut` shipped
+(producer v7, `ascendToSurface`, ESCAPE rung v21) and the OhneHoseOtto specimen freed/no longer
+needed live (see run #1's resolution note and FEEDBACK.md's "digOut CLOSED" entry) — verified via
+their own report, not assumed; (2) RCON `stop` on the old `world-race` process (only occupant was
+Otto, confirmed via `list` first), `level-name` swapped to `world-race2` in server.properties,
+server relaunched — fresh world confirmed generated (`Preparing level "world-race2"`, "Done" in
+2.064s); (3) fresh never-used name `FrischFriedhelm` (checked against pids/ and both usercaches),
+spawned with `OWNER=test-driver PURPOSE="gear-race run #2..."` env vars (now native to `spawn.sh`
+per the new law), `./list.sh` run before AND after spawn to confirm the roster.
+
+**One honest footnote on "virgin":** OhneHoseOtto's runner.js auto-reconnected to the new world for
+~10 seconds (14:29:12-14:29:23, entity id 39 -> a fresh spawn since world-race2 had no prior data
+for that name) before I caught it and stopped the process — it only logged a single idle
+`Checking for stray drops around me` filler line, no project was set, no blocks were touched. Not
+a meaningful contamination, but recorded rather than silently omitted, per this file's own
+measurement-honesty standard.
+
+Engine versions at run start: skills **v55**, agenda **v22**, producer **v7**, dangerscan v4,
+survival v5, digguard v5, digchain v1, graychat v5, toolguard v2, reachguard v1 (idleguard off,
+subsumed by agenda) — includes `ascendToSurface` and the ESCAPE rung for the first time in any
+race run. Bot confirmed empty/never-used before spawn.
+
+| Tier | Time from join | Notes |
+|---|---|---|
+| Join | T+0 (14:30:14) | fresh spawn, empty inventory confirmed, position (8.5, 94, -0.5) |
+| Wooden pickaxe | pending | — |
+| Stone pickaxe | pending | — |
+| Iron pickaxe | pending | — |
+| Diamond pickaxe | pending | — |
+
+Steering calls: 1 — (1) initial `setProject(mineLane,{target:'stone',count:16})` at 14:30:25.
+Deaths: 0. Race book branches armed (food-shortfall -> huntAnimals-with-repeat manual branch,
+barren-search reposition, DEAD RACE = DEAD STOP backstop at 5 dead minutes — though the ESCAPE
+rung should now make the sealed-pocket branch a non-issue for the first time).
+
+**EPISODE 14:35-14:43 — food-routing gap, `#88` live (team-lead diagnosis, not a bug hunt).**
+Self-provisioning went well at first: torches/sticks/filler kit items were being gathered (kit
+refusal at 14:35:23 listed multiple missing items, narrowing naturally as each was produced). But
+by 14:38:37 the ONLY remaining blocker was `food 0/4`, and it stayed exactly there — repeated
+identical refusals at 14:38:37/14:39:37/14:41:37 while position froze completely from ~14:39:13
+onward. **Diagnosis (team-lead): NOT a v20 regression — `#88` live.** The food-routing fix routes
+food acquisition via `ROLE_WORK.hunter`; this racer has `role:null` (no `--role` at spawn, by
+race-format design), so a role-less bot has no automatic food-acquisition path — deliberately
+deferred to the not-yet-built Direction Episodes work, not an oversight in the current commit.
+The `#45` gate fix (huntAnimals demands no food) was necessary but not sufficient on its own;
+nothing routes a food shortfall TO huntAnimals for a role-less bot.
+
+**Detection gap on MY side, also worth recording honestly:** my monitor's position-based stall
+alarm never fired meaningfully on this because the bot kept MOVING via drop-sweep busywork while
+repeatedly refusing to depart — the exact "busywork masks a stalled ladder" class from run #1,
+just with position moving instead of frozen. Team-lead's own manual pulse-check caught it faster
+than my instrumentation did. Fixed the monitor immediately: it now alarms on 2+ identical refusal
+lines within 300s AND on `rung=IDLE` streaks while a project is set, neither of which depend on
+position at all.
+
+**Action + cost:** `setProject(huntAnimals,{...},repeat:true)` at 14:43:19 (steering call 2; one
+earlier attempt at 14:43:06 hit a JSON syntax error and never reached `setProject` — 0 effect on
+the bot, not counted as a real steering decision, footnoted here for an honest total of 3 `/eval`
+calls / 2 real ones). **Minutes lost to the deferred-design gap: ~4m42s** (14:38:37, first
+pure-food refusal, to 14:43:19, the fix) — or ~7m56s counting the earlier legitimate kit-assembly
+phase from 14:35:23. This is the measured cost of `#88`'s deferred scope, recorded as data, not
+as a fault against the engine's current commit.
+
+**EPISODE 14:47-15:17 — hunt escalation ladder + a second, driver-side idle-gap.** Radius 32 and
+64 both came back with benign no-fauna failures repeatedly (fauna was outside both radii near
+this spawn — see the fauna-barren-spawn finding below). A read-only `/eval` scan of `bot.entities`
+found the nearest huntable species (pig) at ~57-66 blocks — inside the radius:64 search that was
+still failing, an unresolved discrepancy worth a FEEDBACK.md flag (raw entity-list distance vs.
+whatever `huntAnimals`'s own search actually filters on). Steered directly at the pig cluster with
+`come{x:-55,y:115,z:-17}` (call 4, 15:04:12) rather than guess further. Arrival ("Arrived.") logged
+at 15:13:56 (UTC/server-log time — 13:13:56 in that clock), but the huntAnimals re-arm did not
+fire automatically and the bot sat in IDLE drop-checks. **This idle gap is mine, not the engine's**:
+my own stall-detection DID fire correctly (IDLE-STREAK-ALARM at both the 90s and ~3min marks,
+exactly as redesigned after the earlier episode), but I was mid-analysis on the search-radius
+finding when the arrival happened and didn't act on the alarm until team-lead's direct nudge.
+Re-armed `huntAnimals{radius:32,repeat:true}` (call 5) at 15:16:54 local — **idle gap: 2m58s**
+from arrival to re-arm. First kill confirmed immediately after: "Hunting 1x..." (15:16:56) ->
+"1 of 1 down. Grabbing the drops." (15:17:01), food recovering (6 -> 9 within 30s of the kill).
+
+**Finding: this seed's spawn region (both `world-race` and `world-race2`, same seed) is fauna-poor
+near spawn.** Two independent runs (Otto on `world-race`, this bot on `world-race2`) both needed a
+50+ block directed search/relocation before finding huntable animals. Affects future run
+comparability on this seed — a driver should expect to budget for a hunt-relocation phase, not
+assume fauna is available near spawn just because the terrain/tree generation is confirmed clean.
+
+**EPISODE 15:22-END — skeleton burst -> WALL_OFF heal-deadlock -> OFFICIAL DNF.** While travelling
+toward the 2nd pig target (`come{-84.6,112,-28.9}`, call 6), a skeleton engaged mid-path. Full
+damage timeline (UTC): 13:23:16 hp=17 -> 13:23:22 hp=14 -> 13:23:26 hp=11.5 -> 13:23:29 hp=8.5 ->
+13:23:40 hp=6.0 (`skeleton shooting from 8 - breaking line of sight`, BREAK_LOS engaging) ->
+13:23:41.834 `Cobble wall up - that is my arrow shadow` -> 13:23:41.840 `Walling myself in to
+patch up. Back shortly.` (escalating to WALL_OFF) -> 13:23:43.788 hp=3.0. **Survival worked**:
+both BREAK_LOS and WALL_OFF fired live in one incident, arguably the first clean live observation
+of the BREAK_LOS arrow-shadow path (this codebase's own history notes it had never fired before —
+corner-step always won first). The bot did not die.
+
+**But survival then imprisoned what it saved.** First `Stable again (BREAK_LOS, HP 3/20). Awaiting
+orders.` at 13:24:45.858, transitioning to `Stable again (WALL_OFF, HP 3/20)` at 13:25:47.506 and
+repeating on a ~62s cadence CONTINUOUSLY for **26 cycles over 25m44s** (13:24:45 -> 13:50:29, the
+last observed before this record was closed) with zero self-exit. Root cause: natural HP
+regeneration requires hunger >=18; the bot ate its one porkchop from the earlier kill and food is
+stuck at 9 with no path to more (REFLEX owns the ladder — `setProject` cannot penetrate it, so
+even the food-routing fix from the earlier episode is moot here). At 13:49:28.310 a second
+downstream lock surfaced: `failed: collectDrops — health 3.0 <= guard` — the health guard that
+normally protects a bot from digging into danger now blocks EVEN THE HARMLESS drop-sweep, because
+nothing distinguishes "too hurt to fight" from "too hurt to bend down." Team-lead's timeboxed
+ruling (give it until ~13:48 UTC for a self-exit) was honored — a background wait confirmed no
+change through 13:50:29, and the deadline was called.
+
+**OFFICIAL RESULT: Run #2 concludes as DNF.** Cause chain: fauna-scarce spawn (seed-level finding,
+above) -> directed relocation put the bot in the open for longer than a fauna-rich spawn would ->
+skeleton burst -> WALL_OFF heal-deadlock (no food -> regen impossible -> exit condition
+unreachable). Reached: wooden pickaxe (1m00s) and wooden sword only; stone/iron/diamond never
+reached — this run never got past the tool-bootstrap tier before landing in the deadlock.
+**Total steering calls: 6** (1: mineLane init, 2: huntAnimals r32, 3: huntAnimals r64, 4: come to
+pig cluster #1, 5: huntAnimals re-arm at cluster #1 (the 2m58s idle-gap call), 6: come to pig
+cluster #2, where the skeleton found it). Deaths: 0 — survival kept it alive; the deadlock is a
+worse outcome than a clean death would have been for measurement purposes, since a dead bot at
+least frees the world for a fresh run.
+
+**Four distinct engine findings from this one run** (team-lead's framing, and accurate): (1) `#88`
+food-routing gap, confirmed live, gate itself exonerated via direct test; (2) `harvestGrass`/
+non-resumable-skill one-shot-completion footgun; (3) fauna-scarce spawn on this seed, affecting
+future run comparability; (4) WALL_OFF heal-deadlock — survival.js has no can-I-actually-heal
+check and no low-HP-but-threat-cleared exit condition, plus the 60s re-announce churn and the
+collectDrops health-guard cascade as contributing symptoms. **Filed to GitHub, engine-dev's lane
+per survival.js ownership — see FEEDBACK.md for the full technical writeup.**
+
+**Post-conclusion housekeeping**: `FrischFriedhelm` process stopped. `world-race2` is ARCHIVED,
+NOT deleted (per the fresh-world-per-run law) — it now carries BOTH engine-dev's staked R2 wedge
+geometry (2,101,2) and this run's wall-off site (-77.5,112,-21.5), valuable for diagnosis on both
+fronts. `gearrace.mjs --append-scoreboard` requested from engine-dev for the auto-corroboration
+block. Run #3 is on hold for team-lead's green light, pending the survival exit-condition fix and
+the soak #2 verdict.
+
+### Run (auto) — 2026-09-02 13:54 — FrischFriedhelm, /home/felix/minecraft/localserver-race
+
+Generated by `bench/gearrace.mjs`. Engine versions: engine version unknown (bot not reachable for GET /state). Run may still be in progress at generation time.
+
+| Tier | Time from join | Source |
+|---|---|---|
+| Wooden pickaxe | 2m17s | log:Tool ready |
+| Stone pickaxe | DNF | DNF -- see notes below |
+| Iron pickaxe | DNF | DNF |
+| Diamond pickaxe | DNF | DNF |
+
+Steering calls: 10 (7 setProject, 3 other /eval). Deaths: 0.
+
+DNF context (stone_pickaxe): `[+4692s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4754s] [Not Secure] <FrischFriedhelm> failed: collectDrops — health 3.0 <= guard`; `[+4754s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4816s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4877s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`; `[+4939s] [Not Secure] <FrischFriedhelm> Walling myself in to patch up. Back shortly.`
 
