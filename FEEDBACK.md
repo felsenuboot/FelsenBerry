@@ -3513,3 +3513,96 @@ github: felsenuboot/felcrew-mcp#96 (subsumed — this is the completion of its o
 direction, at the right layer: before dusk, not after departure), felsenuboot/felcrew-mcp#105 (new,
 this design, so it doesn't rot as a FEEDBACK-only footnote) — note: felcrew-mcp is this repo's old
 name, GitHub transparently redirects it to felsenuboot/FelsenBerry; same repo, same tracker.
+
+### 2026-09-02 engine-dev — #105 NIGHT-SHELTER primitives BUILT and live-verified (survival.js
+v11): shelterDigIn()/shelterHut() both work end-to-end; live testing found and fixed 3 real bugs
+the design couldn't have caught on paper
+type: fix + build (team-lead's split: primitives are my half, the agenda.js SHELTER rung is eng-3's)
+status: built, live-verified end-to-end on a disposable QA bot (ShltrQA, port 3150, 25599,
+DECIDER_EXCLUDE=1), no regression (`bench/fixtures/survival-cannotheal.js` 11/11), committed
+what: built exactly the design argued above (`shelterDigIn`, `shelterHut`, a stock-based selector,
+`inShelter`/exit-predicate state, exposed as `__survival.shelter.{should,enter,exit,status}`) — but
+live testing on a real server surfaced three genuine bugs the design document, written before any
+code existed, had no way to catch. Reporting all three plainly rather than quietly patching around
+them, because each one changes a claim the original design made.
+
+**BUG 1 — the light-level trigger doesn't work on this server; switched to `bot.time.isDay`.** The
+design's whole point (1) was "gate on real light level, not a clock, so it generalizes to
+cavecrew's frozen daylight." Live-tested via RCON `time set` both directions, with fresh relogs to
+rule out a stale cache: `bot.blockAt(pos).light` reads a stuck 0 in broad daylight AND at midnight
+(frozen, not day/night-reactive at all — a harsher cousin of basekeeping.js's documented #17), and
+`.skyLight` reads a constant 15 in open sky REGARDLESS of time of day (it is static sky-exposure
+GEOMETRY, not a brightness value — a fact about this Minecraft version's lighting model I had
+wrong going in, not a bug in either field). Neither field answers "is it dark right now" on this
+world. `bot.time.isDay` updated correctly and immediately every time. Switched the trigger/dawn-exit
+to `isDaylight()` (reads `bot.time.isDay`). **This still satisfies the original requirement**:
+CAVECREW_HANDOFF.md pins that server's daylight at MORNING, so `isDay` reads a constant `true` there
+and SHELTER correctly never fires — same generalization the light-based design wanted, carried by
+the signal that actually worked when tested for real rather than the one that sounded more robust
+on paper. `surfaceExposed` (dangerscan's geometry field) is unaffected and still gates exposure.
+This is worth its own tracker item independent of #105 — LIGHT/POSTURE (agenda.js) both consume
+`s.light` from the SAME dangerscan field and may be reading the same stuck value; filing separately
+since it's a distinct root cause from #17 (stuck low always, not "next to a fresh torch") and
+affects code outside my lane.
+
+**BUG 2 — the cap has no reference on ANY flat ground, not just my test platform.** First live
+attempt: dig 2 down, try to place the cap at `feet.offset(0,2,0)`, got `no_reference` — EVERY face
+of that cell is air (below: the just-dug head space; above and all 4 sides: never touched, and on
+flat ground — natural OR my artificial test platform — genuinely open air at that height, since
+that is exactly the cell the bot originally stood in). This is not a test-setup artifact; it is
+the same geometry `branchWallOff`'s own comment already names for its roof cell ("no orthogonal
+reference on open ground") — WALL_OFF solves it by placing its 4 head-level RING cells first, each
+referencing the wall block directly beneath. Dig-in had no ring (a straight shaft has no placed
+wall to reference), so it needed the same trick: place one ring cell at cap height (its OWN
+reference is the natural ground one level down, one column over — solid on ordinary terrain) before
+the cap itself becomes placeable. Fixed by trying the cap first (cheap, some real geometry — a
+ledge, a rim — already has a reference) and falling back to placing ring cells one at a time,
+re-trying the cap after each, stopping as soon as one succeeds. Costs 1-2 blocks on flat ground
+instead of the design's claimed "one block," still both self-supplied from the dig in the common
+case (dirt/stone ground).
+
+**BUG 3 — the hand-rolled pillar-jump exit never gained height; replaced with pathfinder's own
+scaffolding-climb.** My first `pillarUp()` (jump, wait for Y to rise, then `placeBlock` a filler
+block at "current feet minus one") never actually gained a single level in live testing — placing
+a block at that position is placing it exactly where the bot's own hitbox already is, which
+`placeBlock`'s collision handling silently refuses (empty catch, no error, no height gain — the
+kind of failure that's easy to miss without a live position check, which is exactly what the fixed
+version above checks for and this one skipped). Rather than re-deriving correct jump-placement
+timing by hand, reused what's already proven in this codebase: `bot.pathfinder.movements.
+scafoldingBlocks` is a real, already-used mineflayer-pathfinder capability (skills.js deliberately
+CLEARS it during builds specifically to stop it spending materials as scaffolding — meaning it is
+armed by default and does exactly this climb automatically). Replaced the custom jump/place loop
+with a plain `ownedGoto(GoalBlock(...))` to the pre-dig position; pathfinder's own scaffolding move
+handled the climb-out correctly on the very next try, for both the dig-in exit and the leftover-hole
+recovery path. Simpler AND correct — the custom code was strictly worse on both axes.
+
+**What's confirmed working, live, end to end**: dig-in (2 down, self-sealed via the ring-first fix,
+torch placed, `sealed:true lit:true`, dawn-triggered exit climbed back to the exact start position)
+and hut (13/13 cells placed via `branchWallOff`'s own cell list, `sealed:true openFaces:0`, dawn
+exit dug one wall and stepped out) — both selected correctly by carried filler stock (0 filler ->
+digin; 20 cobblestone -> hut), both correctly skipped for a stone-sword-equipped bot even at night
+(`gearTier():3 -> should():false`), both correctly triggered/cleared on real `bot.time.isDay`
+transitions via live RCON `time set` in both directions. **Not live-fired**: the `threatsNow()`
+mid-shelter interrupt and the hunger-with-nothing-to-eat exit — both are straightforward reuses of
+functions this file already exercises extensively elsewhere (`threatsNow()` throughout every
+branch; the hunger check is the same shape as `cannotHeal()`), reviewed but not staged live this
+session (a live-mob repro or a real multi-minute starve-down was more setup than this session's
+remaining time budget), noted honestly rather than claimed.
+
+**API for eng-3's agenda.js SHELTER rung** (my half is done; theirs starts here — ack-before-edit,
+their file): `__survival.shelter.should()` — pure boolean predicate, safe to call every tick, ANDs
+surface-exposure + confirmed night + gear-tier-below-stone + not-already-panicking + not-already-
+sheltering. `__survival.shelter.enter()` — fire-and-forget (same convention as this file's own
+`enter()`/`g.drill()`; do not await it directly in a rung's `act()` — poll `.status().active`
+instead, same idiom as `oursRunning()` elsewhere), resolves once the bot has genuinely left
+shelter with `{kind, ok, sealed, lit, exitReason}`. `__survival.shelter.exit(reason)` — call to
+force an early exit (the design's third exit condition, "a project the ladder deems worth the
+risk" — SHELTER itself only auto-exits on dawn/starvation/an appeared threat; anything else is the
+ladder's call). `__survival.shelter.status()` — snapshot for polling/telemetry.
+fix: `survival.js` (`g.shelter`, `shelterDigIn`/`shelterHut`/selector/exit state machine,
+`isDaylight`/`gearTier`/`torchHere`/`digDownInto` helpers — v11).
+github: felsenuboot/felcrew-mcp#105 (build lands here; design entry above stays as the argued
+record, this entry supersedes its light-level-trigger and pillar-exit claims with what actually
+shipped), felsenuboot/FelsenBerry#106 (new: dangerscan.js's `.light` field reads stuck/unreliable,
+separate from #104's raycast-budget finding and from #17 — cross-referenced both) — flagging for
+whoever owns dangerscan.js, since LIGHT/POSTURE (agenda.js) consume the same field.

@@ -1,4 +1,30 @@
-// survival v10 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v11 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v11 (#105, NIGHT-SHELTER): every branch above is a REACTION to a threat already engaged.
+// Six survival-lane fixes in one day (#92/#94/#96/#98/#99/#100) all harden that reaction, and
+// gear-race runs #1-#5 still died or nearly died at night every time (SCOREBOARD.md) because
+// nothing upstream of combat ever considers NOT fighting. A human at wood/stone tier digs in
+// at dusk instead. This adds `g.shelter` — a proactive, PRE-combat primitive pair, deliberately
+// separate from the panic state machine above (REFLEX/POSTURE still sit above it in agenda's
+// ladder and can always preempt): `shelterDigIn()` (dig 2 down, cap with the block just dug —
+// free, no carried filler needed — torch inside, pillar back out) and `shelterHut()` (reuses
+// branchWallOff's own 13-cell box-build below, proactively, no threat to face first). Exposed
+// as `__survival.shelter.{should,enter,exit,status}` for agenda.js's own SHELTER rung (a
+// separate lane, ack-before-edit) to drive. Trigger is real-night (`bot.time.isDay`) +
+// surface-exposure + gear-tier. The ORIGINAL design (FEEDBACK.md, "NIGHT-SHELTER behavior
+// design") argued for a light-LEVEL read specifically to avoid a clock dependency — live
+// testing during this file's own fixture found that plan doesn't survive contact with this
+// server's mineflayer client: `bot.blockAt(pos).light` reads a stuck 0 at noon AND at
+// midnight (frozen, not day/night-reactive at all), and `.skyLight` reads a constant 15 in
+// open sky regardless of time (it is static sky-EXPOSURE geometry, not brightness) — neither
+// field answers "is it dark right now" on this world. `bot.time.isDay` is the one signal that
+// updated correctly and immediately under a live `time set` both directions (see
+// `isDaylight()`'s own comment below for the full trace). This still generalizes to
+// cavecrew's frozen daylight exactly as intended: CAVECREW_HANDOFF.md pins it at MORNING, so
+// `isDay` reads a constant `true` there and this correctly never fires — same outcome the
+// light-based design wanted, carried by the signal that actually works when tested for real.
+// Full design + this correction: FEEDBACK.md 2026-09-02 "NIGHT-SHELTER behavior design" and
+// its live-fixture follow-up; tracker felsenuboot/FelsenBerry#105 (formerly felcrew-mcp).
 //
 // v10 (#100): standdown's arming was keyed to ONE branch's result (WALL_OFF + cannotHeal) --
 // #99 found the identical shape reachable through a different early-return in the same branch,
@@ -136,7 +162,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 10,
+  enabled: true, version: 11,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -152,8 +178,12 @@ const g = {
     regenFood: 18,        // ...and this food (natural regen needs >= 18)
     maxRunMs: 90000,      // hard cap on one panic run
     standdownMaxMs: 600000, // #92: force a fresh re-check at least this often, never silent forever
+    // #105 NIGHT-SHELTER
+    shelterHutFiller: 10,   // >= this many carried filler blocks -> hut; below -> dig-in
+    shelterMaxWaitMs: 900000, // #92/#65-style hard expiry: never wait silent-forever on a wrong signal
   },
   filler: ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite', 'granite', 'netherrack'],
+  shelter: { active: false, kind: null, since: 0, exitRequested: false, exitReason: null, extraFiller: [] },
 };
 globalThis.__survival = g;
 
@@ -215,11 +245,63 @@ const resumeGuard = () => {
 // ---- gear helpers ----
 const findItem = (pred) => bot.inventory.items().find(pred);
 const bestSword = () => findItem((i) => /_sword$/.test(i.name)) || findItem((i) => /_axe$/.test(i.name));
-const fillerItem = () => { for (const n of g.filler) { const it = findItem((i) => i.name === n); if (it) return it; } return null; };
+// #105: `g.shelter.extraFiller` — block names dug by `shelterDigIn` on THIS shelter session
+// that aren't in the fixed `g.filler` list above (e.g. terracotta, sand: live-caught during
+// this feature's own fixture on badlands terrain — the "the block just dug IS the cap
+// material" design point is only true when that block happens to already be in `g.filler`;
+// terracotta isn't). Empty outside an active shelter session, so this is a no-op for
+// WALL_OFF/BREAK_LOS/every other `fillerItem()` caller the rest of the time.
+const fillerNames = () => g.filler.concat(g.shelter.extraFiller || []);
+const fillerItem = () => { for (const n of fillerNames()) { const it = findItem((i) => i.name === n); if (it) return it; } return null; };
+const fillerCount = () => { const names = fillerNames(); return bot.inventory.items().reduce((n, i) => n + (names.includes(i.name) ? i.count : 0), 0); };
+const torchItem = () => findItem((i) => i.name === 'torch');
 // #92: "cannot heal" — hunger is below the natural-regen floor AND there is nothing left to
 // eat to raise it. Distinct from "hasn't healed yet" (which just needs more time/food).
 const hasFoodItem = () => bot.inventory.items().some((i) => FOODS.has(i.name));
 const cannotHeal = () => bot.food < g.cfg.regenFood && !hasFoodItem();
+
+// #105: same tier order as skills.js's own TIER_RANK (skills.js:1623) — duplicated locally,
+// same established pattern as `filler`/`FOODS` above (this file never cross-requires another
+// independently-injected payload). Only weapon + worn armor matter for "can this bot fight
+// through a night" — tools (pickaxes) don't help in combat.
+const GEAR_TIER_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, copper: 2.5, golden: 2, wooden: 1 };
+const gearTierOf = (name) => GEAR_TIER_RANK[String(name || '').split('_')[0]] || 0;
+const gearTier = () => {
+  let best = 0;
+  const weapon = bestSword();
+  if (weapon) best = Math.max(best, gearTierOf(weapon.name));
+  for (const slot of [5, 6, 7, 8]) { // the 4 armor slots (helmet/chestplate/leggings/boots, mineflayer's fixed indices)
+    const it = bot.inventory.slots[slot];
+    if (it) best = Math.max(best, gearTierOf(it.name));
+  }
+  return best;
+};
+
+// #105: dangerscan's own geometry-backed `state`/`surfaceExposed` (globalThis.__danger —
+// same object threatsNow() below already reads), degrading to nulls when dangerscan isn't
+// installed — same optional-payload posture as everywhere else in this file.
+const readDanger = () => {
+  const d = globalThis.__danger;
+  return { state: d ? d.state : null, surfaceExposed: d ? d.surfaceExposed : null };
+};
+// #105: NOT a light-level read, despite the original design (FEEDBACK.md, "NIGHT-SHELTER
+// behavior design") arguing for exactly that. Live-verified during this feature's own fixture
+// (ShltrQA, 2026-09-02, real local server) that BOTH of mineflayer's exposed light fields are
+// unusable here: `bot.blockAt(pos).light` reads a stuck 0 in broad daylight AND at night (a
+// frozen/uninitialized value, not day/night-reactive at all — a different, harsher bug than
+// basekeeping.js's documented #17), and `.skyLight` reads a constant 15 in an open-sky column
+// REGARDLESS of time of day (confirmed via RCON `time set` both ways plus a fresh relog each
+// time to rule out a stale cache) — it is the static "how exposed to open sky is this column"
+// geometry value, not a time-varying brightness. Neither field answers "is it dark right now".
+// `bot.time.isDay` DID update correctly and immediately on every `time set` tested (day, night,
+// and back) — this file falls back to it as the only signal that actually works. This still
+// satisfies the "not hard-coded per server" requirement in practice: CAVECREW_HANDOFF.md's own
+// frozen daylight is pinned at MORNING (line 5, "frozen morning daylight"), so `isDay` reads a
+// constant `true` there and this correctly never fires — the same generalization the original
+// design wanted from a light read, just carried by the one signal that was actually reliable
+// when tested against the real server. `surfaceExposed` (dangerscan's geometry-backed field)
+// still does the exposure gating, unaffected by this — only the darkness signal changed.
+const isDaylight = () => { try { return bot.time ? Boolean(bot.time.isDay) : null; } catch (e) { return null; } };
 
 const shieldUp = async (ent) => {
   try {
@@ -820,6 +902,239 @@ const branchFleeAway = async (t) => {
   }
 };
 
+// ================= SHELTER (#105) =================
+// Proactive, not reactive: nothing here runs on its own timer. agenda.js's own SHELTER rung
+// (a separate lane) polls `shouldShelter()` and calls `enter()`/`exit()` — this file only
+// owns the PRIMITIVES and the wait/exit state machine once inside. Deliberately independent
+// of `g.active`/`enter()`/`pick()` above (the panic reflex): a real threat is REFLEX/POSTURE's
+// job, which sit above SHELTER in agenda's ladder and can always preempt it — this loop also
+// watches `threatsNow()` itself, as a second, cheap, non-load-bearing check (composition-rot
+// doctrine: never trust a deferral you haven't verified will actually happen in time).
+
+// #105: the trigger — surface-exposure + real night + gear-tier (see isDaylight()'s own
+// comment above for why this reads `bot.time.isDay` rather than a light level, and why that
+// still generalizes to cavecrew's frozen-at-morning daylight). `surfaceExposed==null`/
+// `isDaylight()==null` (dangerscan not installed, or `bot.time` unavailable) fails OPEN to
+// "don't shelter" — same degradation posture as S.reachOf's own FLEE_HOME reuse (v8): a
+// missing signal should never manufacture a false trigger.
+const shouldShelter = () => {
+  if (g.shelter.active) return false;
+  const d = readDanger();
+  if (d.surfaceExposed !== true) return false;
+  if (isDaylight() !== false) return false;             // only a CONFIRMED night reading fires
+  if (d.state === 'panic') return false;               // REFLEX/POSTURE already own this
+  if (gearTier() >= GEAR_TIER_RANK.stone) return false; // stone-or-better can fight the night
+  return true;
+};
+const shelterDawn = () => { const d = readDanger(); return d.surfaceExposed === true && isDaylight() === true; };
+const shelterStarving = () => bot.food <= 6 && !hasFoodItem();
+
+// #105: place a torch on the floor block beneath current feet. Deliberately duplicated from
+// agenda.js's own `torchInline` (same technique: equip, place against the floor, up-face)
+// rather than calling into it — this file never cross-requires another independently-injected
+// payload (see the `filler`/`FOODS` comment above).
+const torchHere = async () => {
+  try {
+    const t = torchItem();
+    if (!t) return false;
+    const feet = bot.entity.position.floored();
+    const ref = bot.blockAt(feet.offset(0, -1, 0));
+    if (!isSolid(ref)) return false;
+    if (!bot.heldItem || bot.heldItem.name !== 'torch') await bot.equip(t, 'hand');
+    await bot.placeBlock(ref, new Vec3(0, 1, 0));
+    return true;
+  } catch (e) { return false; }
+};
+
+// #105: is the ground under the bot's OWN feet solid, safe (no hazard), and at least 3 deep
+// (so a 2-down dig still leaves the bot standing on something solid, not opening into a cave
+// or the void one level further down)? Deliberately conservative — a marooned/floating bot
+// (bridge, glass floor, thin ledge) should fail this and fall back to the hut, not risk a dig.
+const diginStandable = () => {
+  const feet = bot.entity.position.floored();
+  for (let dy = 1; dy <= 3; dy++) {
+    const b = bot.blockAt(feet.offset(0, -dy, 0));
+    if (!isSolid(b) || HAZARD.has(b.name) || b.name === 'water') return false;
+  }
+  return true;
+};
+
+// #105: dig straight down `n` blocks (mineflayer physics free-falls the bot into each gap —
+// no pathfinder goal needed for a 1-cell drop). Aborts honestly on a hazard or an undiggable
+// block rather than digging blind. Digs whatever tool the bot has equipped/best-available;
+// dirt/grass need no tool at all, matching the "needs only a pickaxe and one block" design —
+// and often not even the pickaxe, on ordinary ground.
+const digDownInto = async (n) => {
+  let descended = 0;
+  const dugNames = [];
+  for (let i = 0; i < n; i++) {
+    const feet = bot.entity.position.floored();
+    const below = bot.blockAt(feet.offset(0, -1, 0));
+    if (!below || AIR.has(below.name)) { descended++; await sleep(300); continue; } // already open
+    if (HAZARD.has(below.name) || below.name === 'water') return { ok: false, descended, dugNames, reason: 'hazard_below' };
+    try { await bot.dig(below); if (!dugNames.includes(below.name)) dugNames.push(below.name); }
+    catch (e) { return { ok: false, descended, dugNames, reason: 'cannot_dig' }; }
+    const t0 = Date.now();
+    while (Date.now() - t0 < 2000 && Math.floor(bot.entity.position.y) >= feet.y) await sleep(100);
+    if (Math.floor(bot.entity.position.y) >= feet.y) return { ok: false, descended, dugNames, reason: 'no_descent' };
+    descended++;
+  }
+  return { ok: true, descended, dugNames };
+};
+
+// PRIMITIVE 1 — dig-in-and-cap. Cheap: on flat ground, sealing costs 1-2 blocks (one ring
+// cell to give the cap a reference, see below, plus the cap itself) — both self-supplied
+// from the dig, no carried filler required (`g.shelter.extraFiller` below covers whatever
+// was actually dug, not just the fixed `g.filler` list). Needs a tool only where the ground
+// itself does (stone/etc.); dirt/grass need no tool at all.
+const shelterDigIn = async () => {
+  say('! Digging in for the night.');
+  const startFeet = bot.entity.position.floored();
+  const dug = await digDownInto(2);
+  // whatever came out of the ground is fair cap/pillar material for THIS session, even if it
+  // isn't one of `g.filler`'s fixed names (live-caught: terracotta, during this feature's own
+  // fixture) — reset in shelterEnter's finally so this never leaks into a later WALL_OFF/
+  // BREAK_LOS call once the shelter session ends.
+  g.shelter.extraFiller = dug.dugNames || [];
+  if (!dug.ok) {
+    // partial dig, if any — climb back out of whatever hole exists rather than leaving the
+    // bot part-way down an open shaft (pathfinder's own scaffolding-climb move, same as the
+    // real exit path below).
+    if (dug.descended > 0) await ownedGoto(new goals.GoalBlock(startFeet.x, startFeet.y, startFeet.z), 8000);
+    return { kind: 'digin', ok: false, reason: dug.reason, sealed: false, lit: false };
+  }
+  const lit = await torchHere();
+  if (!lit) pushLog('warn', 'kit_violation: no torch for the shelter dig-in — sealing dark');
+  const feet = bot.entity.position.floored();
+  const cap = feet.offset(0, 2, 0);
+  // #105 (live-caught, ShltrQA fixture): the cap has NO reference on its own — on ANY flat
+  // ground (natural or artificial), `feet.offset(0,2,0)` is exactly where the bot originally
+  // stood, one head-height above open air on every side, same as `branchWallOff`'s own roof
+  // cell (survival.js, "no orthogonal reference on open ground"). WALL_OFF solves this by
+  // placing its 4 head-level RING cells first — each of THOSE has a reference (the wall block
+  // directly below it), and the center cap then references the ring. Dig-in has no ring built
+  // (the shaft's own natural walls at feet/head level are untouched terrain, not a placed
+  // wall), so it needs the same one-cell-wide ring at cap height before the cap itself is
+  // placeable — each ring cell's OWN reference is the natural ground one level down and one
+  // column over, which IS solid on ordinary terrain (confirmed live: a 3x3 dirt platform's
+  // untouched columns are solid exactly where a ring cell would need them).
+  const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let r = await placeAt(cap);   // cheap check first — some geometry (a ledge, a rim) already has a reference
+  for (const s of sides) {
+    if (r === 'placed' || isSolid(bot.blockAt(cap))) break;
+    await placeAt(cap.offset(s[0], 0, s[1]));   // one ring cell — stops as soon as the cap itself succeeds
+    r = await placeAt(cap);
+  }
+  const sealed = isSolid(bot.blockAt(cap));
+  if (r !== 'placed' && !sealed) pushLog('warn', `shelter dig-in: cap not placed (${r}) — sealing incomplete`);
+  return { kind: 'digin', ok: true, sealed, lit, cap: [cap.x, cap.y, cap.z], startY: startFeet.y, restY: feet.y };
+};
+
+// PRIMITIVE 2 — 1x1 hut. `branchWallOff`'s own cell list and `placeAt` loop (lines above),
+// run PROACTIVELY: no live threat to face first, no shield needed. Needs ~10-13 filler blocks.
+const shelterHut = async () => {
+  say('! Boxing myself in for the night.');
+  const p = bot.entity.position;
+  const feet = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
+  const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const cells = [];
+  for (const dy of [0, 1]) for (const s of sides) cells.push(feet.offset(s[0], dy, s[1]));
+  for (const s of sides) cells.push(feet.offset(s[0], 2, s[1]));
+  cells.push(feet.offset(0, 2, 0));
+  let placed = 0;
+  const fails = [];
+  for (const c of cells) { const r = await placeAt(c); if (r === 'placed') placed++; else if (r !== 'occupied') fails.push(c); }
+  for (const c of fails.slice()) { const r = await placeAt(c); if (r === 'placed') { placed++; fails.splice(fails.indexOf(c), 1); } }
+  const lit = await torchHere();
+  if (!lit) pushLog('warn', 'kit_violation: no torch for the shelter hut — sealing dark');
+  const open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;
+  if (open) pushLog('warn', `shelter hut: ${open} face(s) still open — not arrow-tight`);
+  return { kind: 'hut', ok: true, sealed: open === 0, lit, placed, openFaces: open, cells };
+};
+
+// selector, by carried stock — falls back to the OTHER primitive if the preferred one's own
+// precondition fails, and fails honestly (never a silent no-op) if neither can act, matching
+// #101's terrain-seek doctrine ("a genuinely marooned bot still fails fast and honestly").
+const shelterBuild = async () => {
+  const preferHut = fillerCount() >= g.cfg.shelterHutFiller;
+  if (preferHut) return await shelterHut();
+  if (diginStandable()) return await shelterDigIn();
+  if (fillerCount() >= 4) return await shelterHut();  // degraded hut: fewer cells sealed, still something
+  return { kind: null, ok: false, reason: 'no_viable_primitive' };
+};
+
+// exit: dig the cap (dig-in) or one wall (hut), then pillar back up if needed.
+const shelterExitBuild = async (built) => {
+  try {
+    if (built.kind === 'digin') {
+      const cap = new Vec3(built.cap[0], built.cap[1], built.cap[2]);
+      const b = bot.blockAt(cap);
+      if (isSolid(b)) await bot.dig(b);
+      // #105 (live-caught, ShltrQA fixture): a hand-rolled jump-and-place-underfoot pillar
+      // never gained height — placeBlock's own collision rules refuse a block at the exact
+      // cell the bot's hitbox occupies, which is what a naive "place below current feet"
+      // attempt does. mineflayer-pathfinder already has a proven scaffolding-climb move
+      // (`Movements.scafoldingBlocks`, actively used elsewhere in this codebase — see
+      // skills.js's own comments on clearing it during builds to avoid spending materials as
+      // scaffolding by accident) — reusing that via a plain goto is simpler and more reliable
+      // than reimplementing pillar-jump timing by hand.
+      await ownedGoto(new goals.GoalBlock(cap.x, cap.y, cap.z), 8000);
+    } else if (built.kind === 'hut') {
+      const feet = bot.entity.position.floored();
+      for (const s of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const c = bot.blockAt(feet.offset(s[0], 0, s[1]));
+        if (isSolid(c)) { await bot.dig(c); break; }
+      }
+    }
+  } catch (e) { pushLog('warn', 'shelter exit dig failed: ' + e.message); }
+};
+
+// __survival.shelter — the exposed API. `enter()` is fire-and-forget from the caller's side
+// (same convention as `enter()`/`g.drill()` above, and TOOL/PROJECT's own task-not-await
+// rule in agenda.js): it self-manages `g.shelter.active` for the agenda to poll, and resolves
+// once the bot has genuinely left shelter.
+const shelterEnter = async () => {
+  if (g.shelter.active) return { error: 'already sheltering' };
+  g.shelter.active = true; g.shelter.since = Date.now(); g.shelter.exitRequested = false; g.shelter.exitReason = null;
+  const guarded = suspendGuard();
+  try { if (globalThis.__skills && globalThis.__skills.stop) globalThis.__skills.stop('shelter'); } catch (e) {}
+  try { bot.pathfinder.setGoal(null); } catch (e) {}
+  let built = null, exitReason = 'unknown';
+  try {
+    built = await shelterBuild();
+    g.shelter.kind = built.kind;
+    if (!built.ok) { exitReason = 'build_failed:' + built.reason; return { ...built, exitReason }; }
+    pushLog('warn', `shelter_enter (${built.kind}) sealed=${built.sealed} lit=${built.lit}`);
+    const t0 = Date.now();
+    let lastEat = 0;
+    while (Date.now() - t0 < g.cfg.shelterMaxWaitMs) {
+      if (g.shelter.exitRequested) { exitReason = g.shelter.exitReason || 'external'; break; }
+      if (threatsNow().length > 0) { exitReason = 'threat'; break; }  // hand back to REFLEX/POSTURE
+      if (shelterDawn()) { exitReason = 'dawn'; break; }
+      if (shelterStarving()) { exitReason = 'hunger'; break; }
+      if (Date.now() - lastEat > 1000) { lastEat = Date.now(); if (bot.food <= 17 && hasFoodItem()) await eatUp(); }
+      if (bot.health <= 0) { exitReason = 'dead'; break; }
+      await sleep(500);
+    }
+    if (Date.now() - t0 >= g.cfg.shelterMaxWaitMs) exitReason = 'max_wait';
+    await shelterExitBuild(built);
+    pushLog('warn', `shelter_exit (${exitReason})`);
+    return { ...built, exitReason };
+  } finally {
+    if (guarded) resumeGuard();
+    g.shelter.active = false; g.shelter.kind = null; g.shelter.extraFiller = [];
+  }
+};
+const shelterExit = (reason) => {
+  if (!g.shelter.active) return false;
+  g.shelter.exitRequested = true; g.shelter.exitReason = reason || 'external';
+  return true;
+};
+g.shelter.should = shouldShelter;
+g.shelter.enter = shelterEnter;
+g.shelter.exit = shelterExit;
+g.shelter.status = () => ({ active: g.shelter.active, kind: g.shelter.kind, since: g.shelter.since, gearTier: gearTier(), fillerCount: fillerCount(), isDay: isDaylight(), ...readDanger() });
+
 // ================= ORCHESTRATION =================
 
 // #98: straight-line distance to home says nothing about whether a PATH exists — terrain, water,
@@ -1087,7 +1402,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 10, boundAt: Date.now(), stale: false };
+REG.survival = { version: 11, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -1098,10 +1413,11 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 10, home: g.home,
+  installed: true, version: 11, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
   branches: ['ENV', 'CREEPER', 'BREAK_LOS', 'FLEE_HOME', 'WALL_OFF', 'FIGHT_BACK', 'FLEE_AWAY'],
+  shelter: ['digin', 'hut'],  // #105: proactive, exposed via __survival.shelter.{should,enter,exit,status}
   replaces: 'panicguard.js',
 };
