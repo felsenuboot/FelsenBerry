@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 52;
+const ENGINE_VERSION = 53;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1971,8 +1971,19 @@ async function craftToolChain(bot, want, cfg, steps) {
         : 'no wood in reach';
       return { ok: false, reason: `need ${plankBill()} planks, have ${plankSupply()} worth, and ${why}` };
     }
+    // #86 forensics (NacktNorbert/3110, live gear-race run): raw-distance candidates can
+    // include ones the bot cannot actually reach (a cliff/gap it can't cross), and every
+    // failed gotoT burns its FULL 20s timeout — two unreachable candidates alone cost the
+    // ~90s that produced the observed "gather:wood(0/2 reached)" stall. Reuse the SAME
+    // checker-matches-executor reachability probe #70 built for relocate targets (~2s
+    // getPathTo search, no movement) to try the likely-reachable candidates FIRST — a
+    // genuinely unreachable one then costs ~2s to skip instead of 20s to fail at. Never
+    // discards a candidate: the probe can be wrong, so an unreachable-per-probe candidate is
+    // still tried, just last.
+    const probed = found.map((p) => ({ p, ok: _reachOf(bot, p) }));
+    const ordered = [...probed.filter((x) => x.ok), ...probed.filter((x) => !x.ok)].map((x) => x.p);
     let reached = 0;
-    for (const p of found) {
+    for (const p of ordered) {
       if (plankSupply() >= plankBill()) break;
       const blk = bot.blockAt(p);
       if (!blk) continue;
