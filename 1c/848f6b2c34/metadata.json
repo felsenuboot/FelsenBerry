@@ -3,7 +3,7 @@
   "checkpoint_id": "1c848f6b2c34",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "SCOREBOARD.md"
   ],
@@ -13,6 +13,10 @@
       "transcript": "/1c/848f6b2c34/0/full.jsonl",
       "compact_transcript": "/1c/848f6b2c34/0/transcript.jsonl",
       "content_hash": "/1c/848f6b2c34/0/content_hash.txt",
+      "prompt": ""
+    },
+    {
+      "metadata": "/1c/848f6b2c34/1/metadata.json",
       "prompt": ""
     }
   ],

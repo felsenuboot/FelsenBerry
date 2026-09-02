@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "1c848f6b2c34",
+  "session_id": "79d693b5-f314-487d-a1b4-42a09df4b00d",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-02T21:06:50.3392179Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "SCOREBOARD.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "2ba00d925eb4",
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-02T21:06:50.33873218Z",
+    "agent_lines": 50,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 50,
+    "total_lines_changed": 50,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
