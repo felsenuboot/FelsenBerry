@@ -1,0 +1,25 @@
+{
+  "label": "soak1",
+  "at": "2026-09-02T15:01:19.964Z",
+  "pass": false,
+  "reasons": [
+    "latency p50 65s -- must be <=60s",
+    "latency p90 214s -- must be <120s"
+  ],
+  "opened": 12,
+  "closed": 13,
+  "unclosed": 0,
+  "latency_p50_ms": 64713,
+  "latency_p90_ms": 214328,
+  "llm_calls": 5,
+  "llm_calls_per_hr": 9.3,
+  "skipped_cap": 0,
+  "closedBy_decider": 9,
+  "decider_interventions_matched": 9,
+  "undirected_time_fraction_by_bot": {
+    "EngineDreckDave": {
+      "opened": 12,
+      "fraction": 0.4902490638339131
+    }
+  }
+}
