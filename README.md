@@ -1,3 +1,38 @@
+# FelsenBerry
+
+**An autonomous Minecraft bot engine: a sparse-LLM brain over a deterministic body.**
+The LLM thinks once (sets a project, answers a stall); code runs forever. The FEL crew fleet on
+Felix's servers is the engine's continuous field test. MIT licensed.
+
+**The name.** *Felsenuboot* (Felix's tag) + *Baritone* → FelsenBaritone → FelsenBerry. The plan was to
+salvage Baritone; the research verdict was a hard NO for a headless stack, and the engine grew its own
+in-process recovery ladder in JS instead. The name outlived the plan and stayed.
+
+**Repo history.** Born as `felcrew-mcp` (an MCP server for the fleet), the engine grew inside it until
+it *was* the repo. Renamed to FelsenBerry on 2026-09-02; issues, history and redirects preserved. The
+short-lived v0.1.0 spin-out is archived (FelsenBerry-v0-spinout) and folded into
+`research/felsenberry-v1-spinout/`. Canonical checkout: `~/ghq/github.com/felsenuboot/FelsenBerry`
+(`~/minecraft/bots` is a compatibility symlink; the local test servers live beside it in `~/minecraft/`).
+
+**Where to look.**
+| Question | File |
+|---|---|
+| What is the goal, and how do we know we've met it? | `GOAL.md` (THE HUMAN BAR: 4 criteria on one observed hour) |
+| What changed, in order? | `CHANGELOG.md` (milestones), `git log` (everything) |
+| What's next, and how do I restart the operation? | `TODO.md` (breaking-point doc + restart recipe) |
+| Field findings and doctrines (append-only engineers' inbox) | `FEEDBACK.md` |
+| Benchmarks: gear-race runs, soaks, the retrospective, Race book | `SCOREBOARD.md` |
+| The idle-trigger architecture (Direction Episodes) | `research/IDLE_TRIGGER_SPEC.md` |
+| Engine payloads | `skills.js` `agenda.js` `survival.js` `producer.js` `decider.js` `dangerscan.js` … |
+| Instruments | `bench/` (`preflight.sh`, `humanbar.mjs`, `gearrace.mjs`, `playcheck.mjs`, `metrics.mjs`) |
+| Tracker | github.com/felsenuboot/FelsenBerry/issues |
+
+**Versioning.** Engine payloads carry their own `ENGINE_VERSION`/`version` constants; repo tags mark
+milestones (`v0.2.0` = the state at the rename: Direction Episodes built, survival chain #92→#100 fixed,
+gear-race + human-bar instruments live).
+
+---
+
 # Minecraft Bot Infrastructure
 
 Self-owned mineflayer bot fleet for Felix's server — no MCP dependency. Each bot is a

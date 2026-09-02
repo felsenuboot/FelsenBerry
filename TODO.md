@@ -1,5 +1,6 @@
 # Breaking point 2026-09-02 ~23:55 — WIND-DOWN for model switch (successor: Fable 5.1)
 
+Canonical checkout: ~/ghq/github.com/felsenuboot/FelsenBerry (~/minecraft/bots = symlink; servers in ~/minecraft/). GitHub: felsenuboot/FelsenBerry (renamed from felcrew-mcp 2026-09-02).
 Everything stopped by user order mid-night-shift. All findings/state in FEEDBACK.md
 (append-only), SCOREBOARD.md (races + laws + Race book v2 + retrospective), the tracker
 (felsenuboot/felcrew-mcp, 104 issues), GOAL.md (**THE HUMAN BAR** — the formalized
