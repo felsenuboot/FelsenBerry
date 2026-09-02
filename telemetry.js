@@ -30,6 +30,15 @@ const SCHEMA_V = 2;
 const SAMPLE_MS = 500;                 // odometer / vitals sampler
 const GUARD_ROLLUP_MS = 60000;         // guard counters, only when something changed
 const DIG_BATCH = 64;
+// Continuous position trace (#69 gap 2): a `pos` event outside task/goto spans, so playcheck
+// can tell "moving" from "task open but wedged in place" directly instead of inferring it from
+// span coverage, and so roads-v2 has waypoints to mine for real foot traffic. Cost-gated on
+// PURPOSE, not a bare timer: emit on real displacement (route shape, cheap while idle) OR a
+// heartbeat ceiling (so a frozen bot still produces repeated-same-position records instead of
+// silence, which a reader could otherwise mistake for "no signal" rather than "stuck here").
+// Piggybacks the existing 500ms sampler tick — no second interval, no extra position read.
+const POS_MOVE_EPS = 6;                // blocks of displacement before a fresh sample
+const POS_HEARTBEAT_MS = 30000;        // max gap between samples even standing still
 
 const INV_KEYS = ['torch', 'cobblestone', 'oak_log', 'oak_planks', 'bread', 'coal', 'raw_iron',
   'iron_ingot', 'diamond', 'stick', 'dirt', 'wheat', 'iron_pickaxe', 'stone_pickaxe',
@@ -124,6 +133,7 @@ function install(bot, opts = {}) {
                                // every bot permanently look like it has a leaked goto.
     task: null,                // current task span
     goto: null,                // current goto span
+    _lastGotoGid: null,        // most recently CLOSED goto span's id (see M.recovery)
     lastSample: 0,
     odometer: 0,
     _lastPos: null,
@@ -131,6 +141,7 @@ function install(bot, opts = {}) {
     _digs: 0, _digsSinceBatch: 0, _placed: 0,
     _toolSeen: null,
     _guardPrev: {},
+    _posEmitPos: null, _posEmitAt: 0,     // continuous position trace gate (#69 gap 2)
   };
 
   const emit = (ev, fields) => {
@@ -190,6 +201,17 @@ function install(bot, opts = {}) {
         }
       }
       M._lastPos = { x: p.x, y: p.y, z: p.z };
+      // continuous position trace (#69 gap 2): distance-or-heartbeat gated, see POS_MOVE_EPS.
+      try {
+        const from = M._posEmitPos;
+        const moved2 = from ? Math.sqrt((p.x - from.x) ** 2 + (p.y - from.y) ** 2 + (p.z - from.z) ** 2) : Infinity;
+        const since = M._posEmitAt ? Date.now() - M._posEmitAt : Infinity;
+        if (moved2 >= POS_MOVE_EPS || since >= POS_HEARTBEAT_MS) {
+          emit('pos', { tid: M.task ? M.task.tid : null, gid: M.goto ? M.goto.gid : null, pos: [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)], hp: bot.health });
+          M._posEmitPos = { x: p.x, y: p.y, z: p.z };
+          M._posEmitAt = Date.now();
+        }
+      } catch (_) {}
       if (typeof bot.health === 'number') {
         if (M._lastHp != null && bot.health < M._lastHp) {
           const dmg = M._lastHp - bot.health;
@@ -284,7 +306,7 @@ function install(bot, opts = {}) {
       M.task = {
         tid: task.id, skill: task.name, adg: adg(task.args), t0: Date.now(),
         moved: 0, dmg: 0, digs: 0, placed: 0, deaths: 0, gotos: 0, wedges: 0,
-        unsticks: 0, retries: 0, toolBreaks: 0, crow: 0, assert: null,
+        unsticks: 0, retries: 0, recoveries: 0, toolBreaks: 0, crow: 0, assert: null,
         guard0: guardCounts(),
       };
       let akey = null;
@@ -319,7 +341,7 @@ function install(bot, opts = {}) {
 
   M.taskEnd = (task, assertResult) => {
     try {
-      const sp = M.task && M.task.tid === task.id ? M.task : { moved: 0, dmg: 0, digs: 0, deaths: 0, gotos: 0, wedges: 0, unsticks: 0, retries: 0, toolBreaks: 0, crow: 0, guard0: {} };
+      const sp = M.task && M.task.tid === task.id ? M.task : { moved: 0, dmg: 0, digs: 0, deaths: 0, gotos: 0, wedges: 0, unsticks: 0, retries: 0, recoveries: 0, toolBreaks: 0, crow: 0, guard0: {} };
       // Tri-state, not boolean-in-disguise: assert is the graded RULE NAME whenever
       // assertTask actually graded this task (pass or fail alike), and null ONLY when
       // genuinely ungraded (assertResult absent — no ASSERTS entry, or not enough result
@@ -352,7 +374,7 @@ function install(bot, opts = {}) {
         digs: sp.digs, placed: sp.placed, moved, crow,
         spl: outcome === 'ok' && moved > 0 ? Math.round((crow / Math.max(moved, crow)) * 1000) / 1000 : null,
         dmg: Math.round(sp.dmg * 10) / 10, deaths: sp.deaths,
-        gotos: sp.gotos, wedges: sp.wedges, unsticks: sp.unsticks, retries: sp.retries,
+        gotos: sp.gotos, wedges: sp.wedges, unsticks: sp.unsticks, retries: sp.retries, recoveries: sp.recoveries,
         panics: gd('panics'), reach_viol: gd('reach_viol'), dig_blocked: gd('dig_blocked'),
         pos: pos3(), hp: bot.health, food: bot.food,
         held: heldInfo(), danger: dangerInfo(),
@@ -384,6 +406,9 @@ function install(bot, opts = {}) {
     try {
       const s = M.goto;
       if (!s) return;
+      M._lastGotoGid = s.gid;    // recovery() fires from the caller's catch, after this span
+                                 // has already closed — this is how it links back to the
+                                 // FAILED span rather than reporting gid:null.
       M.goto = null;
       if (s.unsticks > 0 && M.task) M.task.wedges++;
       emit('goto', {
@@ -404,6 +429,22 @@ function install(bot, opts = {}) {
     } catch (_) {}
   };
   M.retry = () => { try { if (M.task) M.task.retries++; } catch (_) {} };
+  // R2+ recovery-ladder rung fired mid-goto (#54: gotoR/_reposition). `attempt` is the rung's
+  // own 1-based retry counter within its caller. `extra` is optional and rung-specific (e.g.
+  // R2: {displaced}) — kept loose so a future rung (R3 dig-escalation, movement-scarring's
+  // proposal) needs no telemetry.js change, only a new `rung` value plus whatever it reports.
+  // `gid` is the FAILED goto span's id, not the current one: gotoEnd's `finally` always runs
+  // before the caller's `catch`, so M.goto is already null here (see `_lastGotoGid`). A reader
+  // pairs this record with the goto immediately before it (the failure) and the goto
+  // immediately after it on the same tid (the retry's own outcome) — which is how the
+  // DISPLACEMENT term and the RE-PLAN term get scored separately without a bespoke join key,
+  // per eng-2's #54-review prediction that the re-issued A*, not the reposition, is the win.
+  M.recovery = (rung, attempt, extra) => {
+    try {
+      if (M.task) M.task.recoveries = (M.task.recoveries || 0) + 1;
+      emit('recovery', { tid: M.task ? M.task.tid : null, gid: M._lastGotoGid || null, rung, attempt, ...(extra || {}), pos: pos3() });
+    } catch (_) {}
+  };
   M.placed = () => { try { M._placed++; if (M.task) M.task.placed++; } catch (_) {} };
   M.craft = (item, times, made, reason) => emit('craft', { tid: M.task ? M.task.tid : null, item, want: times, got: made, reason: reason || null });
   M.chest = (kind, at, moved) => emit('chest', { tid: M.task ? M.task.tid : null, kind, at, moved });

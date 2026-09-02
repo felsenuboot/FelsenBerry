@@ -256,6 +256,70 @@ if (notes.length) {
   console.log('\n── ladder coverage ── (no `note` events — this ledger predates the agenda, or the bot never ran it)');
 }
 
+// ---------- recovery ladder (#54) ----------
+// R2's own acceptance criterion is its own firing frequency (its sink did not exist until
+// telemetry.js grew M.recovery — see FEEDBACK.md, "M.recovery emits into a sink that DOES NOT
+// EXIST"). Beyond "did it fire", eng-2's review left a PREDICTION on record before this could be
+// measured: the re-issued A* is where the wins come from, not the dead-reckoned reposition —
+// scored here so the data can confirm or refute it, not argument. A recovery event's `gid`
+// points at the FAILED goto span that triggered it (M.goto is already cleared by the time the
+// rung fires — see telemetry.js's M.recovery comment); the RETRY's own outcome is simply the
+// next `goto` record in the same run's seq order, because gotoR's control flow is strictly
+// sequential (gotoEnd(stuck) -> recovery emit -> reposition -> next goto -> gotoEnd). No bespoke
+// join key needed.
+const recoveries = recs.filter((r) => r.ev === 'recovery');
+if (recoveries.length) {
+  console.log('\n── recovery ladder (rung firing frequency; #54) ──');
+  const gotosByRun = new Map();
+  for (const g of gotos) { if (!gotosByRun.has(g.run)) gotosByRun.set(g.run, []); gotosByRun.get(g.run).push(g); }
+  for (const list of gotosByRun.values()) list.sort((a, b) => a.seq - b.seq);
+  const byRung = {};
+  for (const r of recoveries) (byRung[r.rung] = byRung[r.rung] || []).push(r);
+  for (const [rung, list] of Object.entries(byRung).sort((a, b) => b[1].length - a[1].length)) {
+    if (list.length < MIN_N) { console.log(`  ${rung}   n=${list.length} (suppressed)`); continue; }
+    const paired = list.map((r) => {
+      const after = (gotosByRun.get(r.run) || []).find((g) => g.seq > r.seq);
+      return { ...r, retryRes: after ? after.res : null };
+    });
+    const byRes = {};
+    for (const p of paired) byRes[p.retryRes || 'unknown'] = (byRes[p.retryRes || 'unknown'] || 0) + 1;
+    console.log(`  ${rung}   n=${list.length}   retry outcome: ${Object.entries(byRes).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(' ')}`);
+    const withDisplaced = paired.filter((p) => typeof p.displaced === 'boolean');
+    if (withDisplaced.length) {
+      const arrivedAfterDisplace = withDisplaced.filter((p) => p.retryRes === 'arrived' && p.displaced);
+      const arrivedNoDisplace = withDisplaced.filter((p) => p.retryRes === 'arrived' && !p.displaced);
+      console.log(`       displaced reported ${withDisplaced.length}/${list.length}   ` +
+        `retry-arrived with displaced=true: ${arrivedAfterDisplace.length}   with displaced=false: ${arrivedNoDisplace.length}` +
+        `   <- eng-2's prediction: if "false" dominates, the re-plan is doing the work, not the reposition`);
+    } else {
+      console.log('       (no `displaced` field on these records — rung does not report it yet, so the reposition-vs-replan split cannot be scored)');
+    }
+  }
+} else {
+  console.log('\n── recovery ladder ── (no `recovery` events — R2 has not fired, or its emit is not deployed yet)');
+}
+
+// ---------- chest transactions (#69 gap 1) ----------
+// M.chest() existed in telemetry.js's public API with zero call sites for a while (the mirror
+// bug of R2's: a sink that exists but nothing calls it, vs a call into a sink that did not
+// exist). Once wired, this is the direct measurement playcheck was inferring from
+// depositToChest's `collected` field.
+const chestEvents = recs.filter((r) => r.ev === 'chest');
+if (chestEvents.length) {
+  console.log('\n── chest transactions (#69) ──');
+  const byKind = {};
+  for (const c of chestEvents) (byKind[c.kind] = byKind[c.kind] || []).push(c);
+  for (const [kind, list] of Object.entries(byKind).sort((a, b) => b[1].length - a[1].length)) {
+    const items = {};
+    for (const c of list) for (const [name, n] of Object.entries(c.moved || {})) items[name] = (items[name] || 0) + n;
+    const total = Object.values(items).reduce((a, b) => a + b, 0);
+    const topItems = Object.entries(items).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k}:${v}`).join(' ');
+    console.log(`  ${kind.padEnd(10)} n=${list.length}  total items ${total}  (${topItems})`);
+  }
+} else {
+  console.log('\n── chest transactions ── (no `chest` events — #69 wiring not deployed yet, or no deposits/withdrawals this window)');
+}
+
 // ---------- interventions / tokensSpent=0 tripwire (#52/M1) ----------
 // Consumes runner.js's intervention events (POSTs to a decision-making control-plane
 // endpoint — /eval, /goto, /chat, etc.). Respects --bot/--since same as everything else
