@@ -2378,3 +2378,106 @@ prompted a sweep of `findBlocks`-in-a-loop call sites.
 fix: n/a — doctrine note. See #94 (survival v7, commit 805b657) and #95 (open, engine-dev-3's lane) for
 the two shipped/diagnosed instances.
 github: felsenuboot/felcrew-mcp#94, #95 (cross-reference)
+
+### 2026-09-02 test-driver — elevated isolated-platform stranding (new wedge, distinct from #89's underground case)
+type: bug
+status: open
+what: Gear-race run #3 (RotzRudi, world-race3): after 3 rapid deaths to Zombie (vanilla drops
+full inventory on each death, and by the 3rd death the bag was permanently empty), the server
+relocated the bot's respawn point to (-2.5,109,~3-4) — a single isolated `acacia_leaves` block
+floating in open air, 5-6 blocks straight down to the nearest ground with nothing to land on
+partway. The fleet's default pathfinder `Movements` caps a single drop at `maxDropDown:3`, and with
+zero inventory to bridge/tower with, NO legal skill (`chopTrees`, `mineLane`, a direct `come` to
+ground level) could move the bot even one block. The existing `ascendToSurface`/ESCAPE rung (v21,
+#89) is scoped to underground sealed pockets and never triggered here (this isn't underground,
+`surfaceExposed:true`). Separately, the spot was permanently dark (`light:0`, no torches ever) and
+mob-attractive, and at the moment of conclusion a creeper sitting 3.3-3.5 blocks away — unable to
+path up onto the platform, but visible to `dangerscan` across the gap — kept `danger.state` pinned
+at `"panic"` continuously, which appears to hold `REFLEX` from ever handing control back to
+`PROJECT`: every project set after the 3rd death sat with `task:null` indefinitely, never even
+attempting a move. Result: DEAD RACE = DEAD STOP invoked, ~19 consecutive dead minutes, DNF at
+stone_pickaxe despite a clean 3m42s wooden pickaxe earlier in the same run. Full narrative in
+SCOREBOARD.md's run #3 conclusion.
+Separately noted, not yet explained: 24 cobblestone was mined at 19:42:09 but WALL_OFF reported
+`kit_violation: no filler blocks` at 19:46:34 with no logged consumption in between — possible
+inventory-accounting gap, flagging rather than guessing.
+fix: (1) generalize the "stuck, no legal path" detector so it isn't underground-scoped — e.g. if N
+consecutive project attempts across ANY skill produce zero position delta and zero task start,
+promote to ESCAPE (or a new rung) regardless of y-level/surfaceExposed. (2) decider retry logic
+should track "did this exact skill+args already fail from this exact position" and reposition (or
+escalate with a distinct `why`) instead of re-dispatching an identical failing call — this run saw
+3 straight identical `chopTrees{types:oak,maxDist:32}` dispatches from a frozen position before I
+intervened. (3) `danger.state` staying pinned at `"panic"` against a threat that cannot path to the
+bot blocks REFLEX indefinitely — a reachability check before an unreachable-but-visible threat
+holds the ladder hostage would close this. (4) consider whether vanilla's respawn-point relocation
+(triggered by the bot's own mining/chopping disturbing the original spawn's safety) should be
+guarded against landing on a floating/unsupported block at all.
+github: felsenuboot/felcrew-mcp#97 (filed)
+
+### 2026-09-02 engine-dev — composition-rot sweep (audit-only, per team-lead's assignment): one real finding, several handoffs confirmed clean
+type: audit
+status: AUDIT-ONLY, nothing built — findings enumerated, fixes to be argued separately per doctrine
+what: swept every defer/fallback handoff named in the assignment for the #94/#95 "unverified deferral is
+a disablement" shape — for each, asked "does A verify B can act, or assume it?"
+
+**1. survival.js `branchBreakLOS` -> WALL_OFF fallback.** ALREADY FIXED (#94, v7): corner-step now checks
+`fillerItem()` before deferring to the wall/coffin fallback. Reference case for this whole sweep.
+
+**2. survival.js `pick()` -> `branchFleeHome` routing. REAL FINDING, not yet fixed.** `pick()` selects
+FLEE_HOME purely on straight-line distance (`dHome <= fleeHomeMax`, survival.js ~700-701) — no reachability
+probe of any kind before committing. `branchFleeHome`'s own `ownedGoto` has a real 30-second timeout, but
+that is discovered-after-the-fact, not verified-before-choosing: a bot 35 blocks from home in a straight
+line but genuinely blocked by terrain/water/a cliff will spend up to 30 seconds finding that out while
+still exposed to whatever melee threat triggered the flee in the first place. This codebase already has
+the exact tool for a cheap pre-check (`_reachOf`, the ~2s no-movement `getPathTo` probe reused by
+`craftToolChain`'s wood-gather ordering and `resolveContainer`'s tablePos check per #70) — FLEE_HOME's
+routing decision doesn't use it. Same shape as #94, not yet argued into a fix (that's the next step, per
+doctrine — proposal before building).
+
+**3. survival.js `branchCreeper`.** No deferral at all — self-contained retreat with its own live
+distance-improving verification loop every 250ms. Not at risk of this shape (nothing to defer TO).
+
+**4. agenda.js RESTOCK's own withdraw -> produce -> stand-down chain.** CLEAN. Checks the actual `.ok`/
+`.short` result of each step before deciding the next one (`rr.ok`/`rp.ok`/`rp._transient`), and reports
+an honest `'refused'` rather than assuming success when nothing is withdrawable or produceable. This is
+the reference example of the doctrine done RIGHT.
+
+**5. agenda.js ESCAPE rung.** CLEAN. `act()` checks `r.ok`/`r._transient` before claiming progress, and —
+notably — its `clear()` condition requires `surfaceExposed !== false` (the SAME independently-verified
+sky-exposure check other code paths use), not "ascendToSurface reported done." Outcome-verified, not
+self-report-trusted.
+
+**6. skills.js `ensureTool`'s depot -> craft -> acquisition_failed chain.** CLEAN. Every step
+(`if (got)`, `if (r.ok)`) gates on its own real, checked result; escalates through tiers on confirmed
+failure only; ends in an honest `acquisition_failed` rather than a false positive. Another reference
+example.
+
+**7. skills.js `gotoR`'s R2 reposition -> goto retry.** NOT the composition-rot shape, on inspection —
+this one is a DELIBERATE, ARGUED design choice (the comment states outright: "retry the goto regardless
+(a fresh A* from here may route even if we barely moved)"), and it is ALREADY instrumented specifically
+to check whether that assumption holds (`displaced` is split out in the ledger precisely so this can be
+measured, not trusted blind). It already had its own dedicated investigation thread — this is #54, closed
+today (v58, `_reposition` now clears inherited control state and waits for `onGround`). Distinguishing
+this from true composition rot matters: an assumption that is explicitly named, instrumented, and being
+actively tested is a hypothesis under test, not a silent disablement.
+
+**8. agenda.js decider give-up -> `dirClose` -> reopen-backoff -> fresh episode (post-#95).**
+CLEAN, and already self-verified by its own author: `bench/fixtures/agenda-direction.js` case 12
+specifically proves "the same still-stalled project genuinely opens a fresh episode once the backoff
+elapses," live-verified through a real `/eval` round-trip, not just asserted from the code. This is
+exactly the check team-lead asked for in this sweep, and it was already done as part of landing #95.
+
+**Kit-tier fallbacks, broader category**: `effectiveKit`'s `roleWorkKit` fallback and `payableTier`'s
+own "what can actually be paid for, not what's cheapest on paper" logic (both cross-referenced in #84's
+FEEDBACK history) were the ORIGINAL instances of this exact doctrine being applied, predating #94/#95 —
+re-reading them now, both already gate on real, checked affordability/ownership rather than assumed
+availability. No new gap found there.
+
+**Net result of the sweep**: 1 new, real, unfixed finding (#94's own FLEE_HOME sibling — filed separately,
+see below), 6 handoffs confirmed clean by direct reading (not assumed clean), 1 deliberately-instrumented
+assumption correctly distinguished from silent disablement. The sweep's value is exactly what the #91
+anchor-doctrine sweep's was: knowing the boundary of the problem, not just the two instances that found it
+the hard way.
+fix: n/a — audit only, per assignment. FLEE_HOME's reachability gap filed as #98 (fix to be argued
+separately before building, same doctrine as #94).
+github: felsenuboot/felcrew-mcp#98 (new, FLEE_HOME finding), cross-reference #94, #95, #54, #91
