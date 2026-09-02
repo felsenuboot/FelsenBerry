@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 18, enabled: true,
+  version: 19, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -263,7 +263,7 @@ const activeClass = (s) => {
 // Does the departure gate want a weapon we do not have? kitCheck accepts a sword OR an axe,
 // so this must too, or TOOL would keep acquiring a sword for a bot already carrying an axe.
 const weaponMissing = (s) => {
-  const k = projectKit(s);
+  const k = effectiveKit(s);
   if (!k || !k.weapon) return false;
   const t = s.tools || {};
   return !(t.sword || t.axe);
@@ -276,7 +276,7 @@ const weaponMissing = (s) => {
 // refused forever. Exactly the same shape as the weapon gap, one requirement over — a kit
 // demand is a demand whether or not the project happens to name that tool.
 const kitPickShort = (s) => {
-  const k = projectKit(s);
+  const k = effectiveKit(s);
   if (!k || !k.picks) return false;
   return ((s.toolCounts || {}).pickaxe || 0) < k.picks;
 };
@@ -285,7 +285,7 @@ const kitPickShort = (s) => {
 // a requirement no rung was aiming at.
 const activeFloors = (s) => {
   if (A.project && A.project.restockFloor) return A.project.restockFloor;
-  const k = projectKit(s);          // s, not bot: this feeds RESTOCK's fire/clear
+  const k = effectiveKit(s);          // s, not bot: this feeds RESTOCK's fire/clear
   if (k) return { torches: k.torches, food: k.foodItems, filler: k.filler, sticks: k.sticks, table: k.table };
   return ROLE_FLOOR[s.role] || null;
 };
@@ -299,18 +299,47 @@ const activeFloors = (s) => {
 // snapshot is injected, pass a position-only shim built from it.
 // CONTRACT, and it binds anyone adding a kit function: kit(args, bot) may read POSITION
 // only. Reading anything else off that bot silently breaks deterministic replay.
+// Shared by projectKit/roleWorkKit below: resolve a skill's kit tier for a given (skill, args),
+// honouring the position-only-shim contract above.
+const resolveKit = (s, skillName, args) => {
+  const S = globalThis.__skills;
+  if (!S || !S.kitTiers || !S.registry) return null;
+  const spec = S.registry[skillName];
+  if (!spec || !spec.kit) return null;
+  const src = (s && s.injected && s.pos) ? { entity: { position: s.pos } } : bot;
+  const tier = typeof spec.kit === 'function' ? spec.kit(args || {}, src) : spec.kit;
+  return tier ? (S.kitTiers()[tier] || null) : null;
+};
 const projectKit = (s) => {
   try {
-    const S = globalThis.__skills;
-    if (!A.project || !S || !S.kitTiers || !S.registry) return null;
-    const spec = S.registry[A.project.skill];
-    if (!spec || !spec.kit) return null;
-    const src = (s && s.injected && s.pos) ? { entity: { position: s.pos } } : bot;
-    const tier = typeof spec.kit === 'function' ? spec.kit(A.project.args || {}, src) : spec.kit;
-    return tier ? (S.kitTiers()[tier] || null) : null;
+    if (!A.project) return null;
+    return resolveKit(s, A.project.skill, A.project.args);
   } catch (e) { return null; }
 };
 A.projectKit = projectKit;
+// #84: the kit tier idle ROLE-WORK is about to need, when there is no project. TOOL/RESTOCK
+// used to consult projectKit ONLY, so a bot with no project (base worked out, #67) had its
+// departure-kit shortfall aimed at by nothing — while S.start's OWN kit preflight was actively
+// refusing IDLE's role-work with kit_missing every ~30s cycle, from a kit spec (the role-work
+// SKILL's, e.g. mineLane's underground/deep) that TOOL/RESTOCK never looked at. Two different
+// rungs reading two different sources of "what kit is relevant" is exactly how a bot ends up
+// stuck repeating "Not setting off half-kitted" while the rungs that could fix it stay dark.
+// Same shim/determinism contract as projectKit: ROLE_WORK entries only ever read s.pos/s.now/
+// s.torches (verified by inspection), so this stays replay-safe.
+const roleWorkKit = (s) => {
+  try {
+    const w = ROLE_WORK[s.role];
+    const work = typeof w === 'function' ? w(s) : w;
+    if (!work) return null;
+    return resolveKit(s, work.skill, work.args);
+  } catch (e) { return null; }
+};
+// The kit tier TOOL/RESTOCK should aim at right now: the active project's when one is set —
+// a real project's requirement is never softened by what idle role-work would have wanted —
+// else the tier idle role-work needs. This is deliberately NOT a new rung and NOT a relaxed
+// floor (see FEEDBACK.md #84): the existing TOOL/RESTOCK machinery already knows how to
+// complete a kit, it was just blind to idle's own kit source.
+const effectiveKit = (s) => projectKit(s) || roleWorkKit(s);
 const skillRunning = (s) => Boolean(s.task && s.task.running);
 const oursRunning = (s) => Boolean(s.task && s.task.running && s.task.id === A.activeTaskId);
 
