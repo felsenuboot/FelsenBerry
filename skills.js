@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 57;
+const ENGINE_VERSION = 58;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -700,6 +700,25 @@ function makeCtx(bot, task) {
       if (!cand) return { displaced: false, candidateFound: false, base: baseOut, candidate: null };
       const target = new Vec3(cand.x, cand.y, cand.z);
       try {
+        // #54 (engine-dev, FEEDBACK.md 2026-09-02): _reposition never cleared any inherited
+        // movement control state before walking. Forcing sneak active reproduced the wedge's
+        // exact symptom deterministically (candidateFound:true, barely moves, the drop never
+        // completes) -- sneaking near a ledge in vanilla blocks walking off it, precisely the
+        // maneuver this needs. A second, adjacent gap (zero settle after _unstick's own
+        // 350ms hop) produced a different failure shape (overshoot, 5/5). Fix both at once:
+        // always start from a known-clean baseline instead of trusting whatever state
+        // preceded this call. The onGround wait is capped, never open-ended -- onGround is
+        // separately known to stick false forever on some feet blocks (this file's own
+        // goto() leaf_litter comment above), so worst case this degrades to today's
+        // un-waited behavior, never a new hang.
+        for (const s of ['sneak', 'sprint', 'back', 'left', 'right']) {
+          try { bot.setControlState(s, false); } catch (_) {}
+        }
+        const settleT0 = Date.now();
+        while (Date.now() - settleT0 < 400 && !bot.entity.onGround) {
+          ctx.step();
+          await new Promise((r) => setTimeout(r, 50));
+        }
         await bot.lookAt(target.offset(0, 1.0, 0), true);
         bot.setControlState('forward', true);
         bot.setControlState('jump', true);
@@ -1533,9 +1552,19 @@ S.moveDetect = {
 // picks the right cell in the right priority order — without a live bot or a genuinely wedged
 // world. It proves the CANDIDATE SEARCH is correct; it does not and cannot prove that walking
 // to that cell actually resolves a real pathfinder wedge, which needs a live bot (see FEEDBACK).
+//
+// `reposition()` closes that second gap: it calls the REAL `_reposition()` (via a minimal
+// synthetic task through the same `makeCtx` every genuine skill goes through — not a
+// hand-copied replay of its logic, which is exactly the #38-doctrine failure mode of a test
+// hook that can silently drift from the code it claims to test). Needs a live bot with real
+// physics; a fixture sets the bot's position/velocity/control-state first (engine-dev's #54
+// second-pass diagnosis, FEEDBACK.md 2026-09-02: forced sneak, or a chained post-_unstick
+// airborne state, both reproduce the wedge's exact symptom) then calls this and reads the
+// real {displaced, candidateFound, base, candidate} result.
 S.recoveryDetect = {
   offsets: REPOSITION_OFFSETS.map((o) => o.slice()),
   findRepositionTarget,
+  reposition: (b) => makeCtx(b || bot, { args: {}, phase: null, phases: [], progress: {} })._reposition(),
 };
 
 // #10: exposed for driver hand-eval scripts (both live reports came from those, not from an
