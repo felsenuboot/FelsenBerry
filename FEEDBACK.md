@@ -3213,3 +3213,59 @@ genuine `/tmp` leak per failed run), fixed by registering the cleanup on `proces
 only at the bottom of the happy path, so it fires on every termination route.
 fix: `bench/playcheck.mjs` (`observable` check, `gotos>0`), `bench/humanbar.mjs` (new).
 github: n/a — instrument prep, not a tracked engine bug. Ready for soak #4's window.
+
+### 2026-09-02 engine-dev-3 — #101 fixed and verified: craftToolChain terrain-seek for an already-held, unplaceable table (skills.js v60)
+type: fix + fixture
+status: built, fixture green (10/10 standalone, holds inside the full tier0 suite too), preflight
+203/203, committed cd30f4c
+what: soak #3's catastrophic failure (SR 1.5%, 177/178 identical errors, MatschMoritz) traced to a real
+gap paired with a correct fix: `alreadyHolding()`'s guard rightly refuses to craft a SECOND
+crafting_table once one is already held and its first `placeCarriedTable()` attempt failed (that guard
+is deliberate, from an earlier #86 fix — crafting an identical fungible item doesn't change the geometry
+that just rejected the one already held). But nothing was ever paired with it that tries PLACING the
+held table again from somewhere else. MatschMoritz had self-dug onto an isolated single-block pillar —
+every cell in `placeCarriedTable`'s own narrow 8-cell/dy:0-1 search was open air, zero solid faces
+anywhere, a genuinely correct "nothing here" read, not a bug — and held a table it could never place for
+an entire hour.
+
+**Fix**: `seekPlaceableSpot()` (new, skills.js), an expanding square-ring search (chebyshev rings,
+dy -2..+2 per ring) bounded by `TERRAIN_SEEK_RADIUS=10` ("cheap stone-tool travel law" per team-lead's
+ruling — a short walk, not a cross-map trip). It looks for genuine WALKABLE GROUND (solid below, clear
+feet/head — the same standability test `findRepositionTarget` already uses one module up), NOT the
+reach-based "air with any solid face" test `placeCarriedTable` applies to its own immediate candidates —
+conflating the two was my first wrong draft: a cell can be air-with-a-solid-face while floating next to
+a pillar with nothing beneath it, a real face by the letter of that check but nowhere a bot can actually
+stand. Once a genuinely standable spot is found, `craftToolChain` walks there via `gotoT` and retries
+`placeCarriedTable()` from the new position. Built as a reusable primitive per team-lead's explicit
+ruling, not a one-off patch: #97 item 2's eventual generalized "no legal path" recovery wants the exact
+same "find somewhere workable nearby" search, and it reuses `_reachOf` (`S.reachOf`, #70's
+checker-matches-executor probe) to order ring candidates before committing to the real travel — the
+exact idiom engine-dev's #98 fix (`survival.js:829`) predicted "eng-3's #97 fix is expected to want...
+from a different file." That deferred-gap comment aged out exactly as its author predicted. A genuinely
+marooned bot (nothing placeable within the radius) still fails HONESTLY and fast, into the existing
+kit_missing/direction-episode path (post-#95, a fresh decider look on backoff, not silent rot).
+
+**Fixture** (`bench/fixtures/craft-terrain-seek.sh`, new): proves both directions per this session's own
+doctrine — a real, RCON-rebuilt isolated pillar rising from otherwise-connected ground (case 1) must
+succeed via the NEW path, with `steps` showing `terrain-seek:...:placed` (not just the old narrow search
+getting lucky), and a genuinely marooned pillar in a much bigger void (case 2) must fail fast and
+honestly. Building it surfaced and fixed a real bug in the FIXTURE, not the code under test:
+`ensureTool(bot,'sword',{})` with no options runs a real depot-withdrawal step (`ctxlessWithdrawTool`)
+BEFORE ever reaching `craftToolChain` — it reads `protected.json`'s live, real depot coordinates (nowhere
+near any fixture's test area) and calls a genuine `gotoT()` toward them. The pathfinder can't complete
+that route, but it CAN and does make partial progress first, walking the bot off the isolated pillar and
+onto the general floor mid-setup, corrupting the fixture's own precondition before `ensureTool` ever
+reaches the code under test. Chased several wrong theories first (survival.js `standdown` state, a
+leaked task from a preceding fixture, low carried-over health, a "teetering on a razor's-edge perch"
+physics theory) — all had circumstantial partial fits but none reliably reproduced or fixed it; disabling
+depot withdrawal via `ensureTool`'s own `opts.depot:false` (an existing, intended opt-out) did, 10/10.
+Also fixed for genuine defensive hygiene along the way (kept even though they weren't the root cause):
+`__skills.stop()` fixture-reset and a full heal before each case (matches `craft-void.sh`/
+`chop-canopy.sh` convention), and `land_on_pillar()` (verifies the exact landing cell after `tp_bot`,
+which only confirms X/Z and explicitly leaves Y "a terrain fact for the fixture to handle" — matters more
+on a bare 1-wide target).
+fix: `skills.js` (`seekPlaceableSpot`, `TERRAIN_SEEK_RADIUS`, `craftToolChain` wiring — v60),
+`bench/fixtures/craft-terrain-seek.sh` (new).
+github: felcrew-mcp#101 (fixes), #97 (item 2's deferred generalized recovery — this is the primitive it
+will want), #98 (engine-dev's `survival.js:829` prediction confirmed), #86 (the `alreadyHolding()` guard
+this pairs with), #70 (`_reachOf`/`S.reachOf` reuse).
