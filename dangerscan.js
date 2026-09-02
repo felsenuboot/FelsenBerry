@@ -1,4 +1,8 @@
-// dangerscan v4 payload (inject via POST /eval, idempotent).
+// dangerscan v5 payload (inject via POST /eval, idempotent).
+//
+// v5 (#68 field finding): columnOpen()'s surfaceExposed check didn't distinguish forest
+// canopy (leaves) from a real ceiling (stone/dirt/etc), so chopTrees under any tree canopy
+// read as "underground" and spuriously woke LIGHT/ESCAPE. See columnOpen's own comment below.
 //
 // v4 (#65): the linear proximity falloff let a single close, clearly-seen hostile score
 // well under the panic(5) threshold at full HP (a skeleton at d=2 with full LOS scored
@@ -33,7 +37,7 @@
 if (globalThis.__danger && globalThis.__danger.restore) { try { globalThis.__danger.restore(); } catch (e) {} }
 
 const g = {
-  enabled: true, version: 4,
+  enabled: true, version: 5,
   score: 0, state: 'calm', threats: [], nearest: null,
   scans: 0, errors: 0, lastScan: 0, lastStateChange: 0,
   light: null, skyLight: null, surfaceExposed: null,
@@ -107,14 +111,32 @@ const heldInfo = () => {
 // column for a real solid block. The scan runs only in the disputed case, so the 4Hz cost
 // is unchanged on the surface (skyLight > 0 short-circuits) and bounded underground.
 const COLUMN_SCAN = 24;
+// Leaves are `boundingBox:'block'` (a real solid full cube) but are forest canopy, not an
+// enclosure -- a bot standing under a tree is in daylight and can walk out any direction, the
+// opposite of what surfaceExposed:false is meant to signal. Without this, chopTrees spuriously
+// reads as "underground": skyLight genuinely reads 0 under a canopy (correctly -- leaves DO
+// block light), columnOpen then finds the first leaf block and calls it solid, and LIGHT/ESCAPE
+// (agenda.js) wake up over an above-ground tree-chopping bot with nothing useful to do. Live
+// field finding (#68, engine-dev): chopTrees stopped and restarted from zero every ~50s under
+// canopy — LIGHT fired, found no dark spot worth torching, stood itself down for 30s, PROJECT
+// resumed, repeat — for the soak's entire duration, since it never actually left the forest.
+const LEAVES = /_leaves$/;
 const columnOpen = (feet) => {
   for (let dy = 2; dy <= COLUMN_SCAN; dy++) {
     const b = bot.blockAt(feet.offset(0, dy, 0));
     if (!b) return null;                       // unloaded chunk: unknown, never guess
+    if (LEAVES.test(b.name)) continue;
     if (b.boundingBox === 'block') return false;
   }
-  return true;                                 // nothing solid overhead within the window
+  return true;                                 // nothing solid (leaves aside) overhead within the window
 };
+// Exposed for fixture testing (same pattern as skills.js's findRepositionTarget ->
+// S.recoveryDetect): lightInfo()'s own skyLight short-circuit makes it hard to reliably
+// force the disputed-geometry branch live -- RCON-placed blocks don't always trigger a
+// prompt client-visible relight, so a fixture can't just fill a leaf roof and expect
+// skyLight to read dark on cue. columnOpen is pure given a blockAt accessor, so testing it
+// directly bypasses that server-timing flakiness entirely.
+g.columnOpen = columnOpen;
 const lightInfo = () => {
   try {
     const p = bot.entity.position;
@@ -321,7 +343,7 @@ g.restore = () => {
 // reports a comfortable "calm" forever — worse than not running. Stop on our bot's 'end'
 // and say so; re-injection (or P0.2 auto-inject-on-spawn) rebinds to the live bot.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.dangerscan = { version: 4, boundAt: Date.now(), stale: false };
+REG.dangerscan = { version: 5, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.dangerscan.stale = true;
@@ -334,7 +356,7 @@ g.timer = setInterval(tick, g.intervalMs);
 tick();
 
 return {
-  installed: true, version: 4, intervalMs: g.intervalMs,
+  installed: true, version: 5, intervalMs: g.intervalMs,
   statusWrapped: g.statusWrapped, skillsPresent: Boolean(S),
   weightsKnown: Object.keys(g.weights).length,
   first: g.snapshot(),
