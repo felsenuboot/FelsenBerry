@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 21, enabled: true,
+  version: 22, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -114,6 +114,20 @@ const A = {
   activeTaskRung: null, activeTaskName: null,
   metrics: { ticks: 0, transitions: 0, acts: 0, errors: 0, byRung: {} },
   log: [],
+  // Direction Episodes (research/IDLE_TRIGGER_SPEC.md, agenda v21->v22 — #68's trigger half).
+  // "Needs direction" as latched, level-triggered state: at most ONE open episode, opened by
+  // deterministic edges off ladder state (never raw movement, so a long haul can never
+  // false-fire), held until something fills the project slot. See directionCheck/openEpisode/
+  // closeEpisode/markProductive below for the mechanism.
+  direction: {
+    state: 'ok',                 // 'ok' | 'needs_direction' | 'cooldown'
+    episode: null,               // {id, why, openedAt, detail}
+    prevLvl: 'none',             // central edge detector's last composite level
+    lastProductiveAt: 0,         // set to now() at install (reinjection grace)
+    reopenAt: {}, reopenCount: {},   // per-why escalating reopen backoff
+    opened: 0, closed: 0, promoted: 0, byWhy: {},   // UNCONDITIONAL counters (#38 witness 1)
+  },
+  nextProject: null,             // 1-deep queue: {skill,args,tool,restockFloor,repeat,stagedAt}
 };
 globalThis.__agenda = A;
 
@@ -127,6 +141,24 @@ const note = (msg) => {
   } catch (e) {}
 };
 const M = () => { try { return globalThis.__metrics; } catch (e) { return null; } };
+
+// Direction Episodes constants (IDLE_TRIGGER_SPEC.md §1.1b).
+const DIRECTION_IDLE_WINDOW_MS = 120000;   // E2: undirected-idle window
+const DIRECTION_STALL_MS       = 180000;   // E3a: stalled-project window
+const DIRECTION_BARREN_RUNS    = 3;        // E3b: consecutive zero-yield repeat runs
+const DIRECTION_REOPEN_MS      = [30000, 60000, 120000, 300000];  // same shape as STAND_DOWN_MS
+
+// dirEmit(op, fields): the SAME two-surface discipline as note()'s S.log mirror, so a direction
+// event is never invisible on one side while claimed on the other (#38 doctrine — an emit into
+// a sink that doesn't exist, or that nothing reads, is indistinguishable from one that never
+// fired). (1) stdout marker for a driver's log Monitor to wake on; (2) the ledger, through the
+// SAME proven-live M.emit path the rung-transition `note` already uses (see note()'s S.log
+// mirror above and the emit('note',...) call in the harvest block) — never an optional guard
+// into a phantom sink (the #54-R2 review's own lesson, applied here from the start).
+const dirEmit = (op, fields) => {
+  try { console.log(new Date().toISOString() + ' AGENDA_EVENT ' + JSON.stringify(Object.assign({ ev: 'direction', op }, fields))); } catch (e) {}
+  try { const m = M(); if (m && m.emit) m.emit('direction', Object.assign({ op }, fields)); } catch (e) {}
+};
 
 const cfg = (() => {
   try {
@@ -429,6 +461,94 @@ const RELOCATE_WANDER_CAP = 5;          // hops without finding work before we s
 // Grade the IDLE work run we last started, exactly once, the tick it is found finished.
 // S.currentTask persists after done until the next start, so the terminal result/error is on the
 // snapshot; injected test snapshots that omit _raw simply skip, as deterministic replay wants.
+// openEpisode/closeEpisode: the single latch. At most one open episode per bot — a second
+// openEpisode call while one is already open, or while its per-`why` reopen backoff hasn't
+// expired, is a no-op (backoff instead sets state:'cooldown', VISIBLE on /state — nothing is
+// silently suppressed; see markProductive below for how reopenCount resets).
+let _epSeq = 0;
+const openEpisode = (why, detail, s) => {
+  const d = A.direction;
+  if (d.episode) return;                                         // single-latch
+  if ((d.reopenAt[why] || 0) > s.now) { d.state = 'cooldown'; return; }  // deferred, not suppressed
+  const eid = 'd' + Date.now().toString(36) + (++_epSeq);
+  d.episode = { id: eid, why, openedAt: s.now, detail };
+  d.state = 'needs_direction';
+  d.opened++; d.byWhy[why] = (d.byWhy[why] || 0) + 1;
+  dirEmit('open', { eid, why, project: A.project ? A.project.skill : null, detail, rung: A.owner ? A.owner.id : null, pos: s.pos || null });
+};
+const closeEpisode = (closedBy, skill, s) => {
+  const d = A.direction;
+  const ep = d.episode;
+  if (!ep) return;
+  const latency_ms = s.now - ep.openedAt;
+  d.closed++;
+  const n = d.reopenCount[ep.why] || 0;
+  d.reopenAt[ep.why] = s.now + DIRECTION_REOPEN_MS[Math.min(n, DIRECTION_REOPEN_MS.length - 1)];
+  d.reopenCount[ep.why] = n + 1;
+  dirEmit('close', { eid: ep.id, why: ep.why, closedBy, latency_ms, skill: skill || null });
+  d.episode = null;
+  d.state = 'ok';
+};
+
+// markProductive: the churn-proof productivity clock. Stamped ONLY by verified-outcome
+// branches (never A.ownerSince — tick's NO_PROGRESS handler nulls the owner even at the
+// floor, so ownerSince can never accumulate a window on a wedged bot). Resets the per-why
+// reopen backoff counters (a real recovery earns a fresh, non-escalated backoff next time)
+// and, if an episode happens to be open, closes it — a bot that fixed itself before anything
+// answered the episode should read as self-recovered, not left open forever.
+const markProductive = (s, src) => {
+  A.direction.lastProductiveAt = s.now;
+  A.direction.reopenCount = {};
+  if (A.direction.episode) closeEpisode('self_recovered', src, s);
+};
+
+// #68 (h): the central direction-episode detector. Called once per tick, immediately after
+// the harvest block closes and BEFORE choose(s) picks a rung — so an episode opened this tick
+// is already visible to whichever rung consults it (today: none; ESCAPE and any future
+// consumer read A.direction/A.project directly, same as everything else in this file).
+// Exposed as A._directionCheck for fixtures, same discipline as A._idleWorkOutcome.
+const directionCheck = (s) => {
+  // composite level — catches EVERY current/future mutation site of p.blocked / completedOnce
+  // / A.blocked (including a driver's own /eval writes) without a per-site call at each one.
+  const p = A.project;
+  const lvl = !p ? 'none'
+    : p.blocked ? 'blocked'
+    : (A.blocked && A.blocked.why === 'no_tool') ? 'no_tool'   // its OWN arm: projectDone() never reads A.blocked
+    : projectDone(s) ? 'done' : 'active';
+  const prev = A.direction.prevLvl;
+  A.direction.prevLvl = lvl;
+  // EDGES (project lifecycle) — fire once, on the transition into the level, never while
+  // already in it (so a level that stays 'blocked' for an hour opens exactly one episode).
+  if (prev === 'active' && lvl === 'done') openEpisode('project_done', { skill: p.skill }, s);
+  if (prev !== 'blocked' && lvl === 'blocked') openEpisode('project_blocked', { skill: p.skill, lastError: p.lastError, attempts: p.attempts }, s);
+  if (prev !== 'no_tool' && lvl === 'no_tool') openEpisode('no_tool', { cls: A.blocked.cls }, s);
+  // LEVELS (windows on the churn-proof productivity clock). Gated on no in-flight task so a
+  // long productive run (a 200-block haul) can never false-fire — a wedged RUNNING act is
+  // ACT_TIMEOUT_MS/busyStuck's jurisdiction, not this detector's.
+  const running = Boolean(s.task && s.task.running);
+  const quiet = s.now - A.direction.lastProductiveAt;
+  if (!p && !running && quiet > DIRECTION_IDLE_WINDOW_MS) {
+    openEpisode('unproductive_idle', { barren: A._barren || 0, role: A.role }, s);   // E2
+  }
+  if (p && !projectDone(s) && !running && quiet > DIRECTION_STALL_MS) {
+    // E3a — the kit-deadlock catcher: kit_missing/no_tool reset p.attempts on every refused
+    // start (the repair-not-block rule), so p.blocked never latches for a project stuck
+    // behind a gate the maintenance rungs keep failing to clear. This window catches it by
+    // productivity, not by attempt-counting.
+    openEpisode('project_stalled', { skill: p.skill, lastError: p.lastError, blocked: A.blocked && A.blocked.why }, s);
+  }
+  if (p && p.repeat && (p.barrenRuns || 0) >= DIRECTION_BARREN_RUNS) {
+    openEpisode('project_stalled', { skill: p.skill, barren: p.barrenRuns, repeat: true }, s);   // E3b — zero-yield repeat
+  }
+};
+A._directionCheck = directionCheck;   // exposed for fixtures, same discipline as A._idleWorkOutcome
+// #68 (g)'s own promotion condition, pure and exposed so a fixture can test cases 2/3 by
+// injection (a finished non-repeat project with a staged next promotes; a repeat project
+// never does) without needing to drive a real finished task through the harvest block. The
+// REAL promotion site calls this SAME function, not a copy of the condition — no drift risk
+// between what a fixture verifies and what actually runs.
+A._promoteCheck = (p, nextProject) => Boolean(p && !p.repeat && nextProject);
+
 const gradeIdleWork = (s) => {
   const lw = A._lastIdleWork;
   if (!lw || !s.task || s.task.id !== lw.id || s.task.running) return;
@@ -457,7 +577,7 @@ const gradeIdleWork = (s) => {
     if (A._baseChoreLit) note('base already lit — builder switches to gathering');
     return;
   }
-  if (out === 'worked') { if (A._barren) note(`${lw.skill} progressed — area not barren after all`); A._barren = 0; A._wander = 0; }
+  if (out === 'worked') { if (A._barren) note(`${lw.skill} progressed — area not barren after all`); A._barren = 0; A._wander = 0; markProductive(s, 'idle_work'); }
   else if (out === 'barren') { A._barren = (A._barren || 0) + 1; note(`${lw.skill} no-op — area looks barren (${A._barren})`); }
   // 'other' (kit/transient) leaves the barren count untouched; the maintenance rungs own it.
 };
@@ -874,6 +994,7 @@ const tick = () => {
         if (got > 0) {
           p.progress = (p.progress || 0) + got;
           note(`project progress ${p.progress}/${p.totalWanted} (+${got})`);
+          markProductive(s, 'project_progress');
         }
       }
       // A PREEMPTION IS NOT A FAILURE. RESTOCK interrupting a lane for a torch refill used
@@ -889,6 +1010,28 @@ const tick = () => {
       if (finished) {
         p.completedOnce = true; p.attempts = 0;
         note(`project VERIFIED done (${p.skill}${verdict ? ', ' + verdict.rule : ''})`);
+        markProductive(s, 'project_done');
+        // #68 (g): zero-gap promotion. Runs HERE — inside the harvest block, before choose(s)
+        // — not after: a post-choose promotion lets IDLE win this completion tick, start a
+        // ~15s collectDrops, and eat the 2-tick preempt debounce before the promoted project
+        // ever gets the body. Never promotes over a repeat project (repeat projects intend to
+        // keep running; completedOnce sets for them too, but they are not "done" the way a
+        // one-shot project is).
+        if (A._promoteCheck(p, A.nextProject)) {
+          // re-arbitration hygiene, verbatim from the prior art (bots-llm/planner.js's
+          // advance()): without clearing these, the unproductive detector below reads the
+          // FRESH promoted project as "completed twice without meeting its own condition"
+          // (it is judging the OLD project's stale counters) and stands PROJECT down before
+          // the promoted project gets a real turn.
+          A.owner = null;
+          A.unproductive.PROJECT = 0;
+          delete A.standDown.PROJECT;
+          A.standDownCount.PROJECT = 0;
+          const nx = A.nextProject; A.nextProject = null;
+          dirEmit('promote', { from: p.skill, to: nx.skill, queuedForMs: now() - nx.stagedAt });
+          A.direction.promoted++;
+          A.setProject(Object.assign({}, nx, { by: 'promoted' }));
+        }
       } else if (paused) {
         note(`project paused by a higher rung at ${p.progress || 0}/${p.totalWanted || '?'} — resuming, not retrying`);
         A.owner = null;
@@ -906,6 +1049,19 @@ const tick = () => {
         const repairable = p.lastError === 'kit_missing' || p.lastError === 'no_tool';
         if (!repairable && p.attempts >= 5) { p.blocked = p.lastError; note(`project blocked after 5 unverified runs: ${p.lastError}`); }
         else if (repairable) { p.attempts = 0; }
+      }
+      // #68 (f): repeat-project yield grading — resolves the OhneHoseOtto class (a repeat
+      // harvestGrass finding nothing forever still "completes" every pass, so `finished`
+      // above is true every time and never signals the zero-yield loop it actually is).
+      // Independent of the finished/paused/failed branch above: a repeat project is graded
+      // on whether THIS RUN yielded anything, via the same idleWorkOutcome classifier IDLE's
+      // own role-work uses, not on whether it claimed completion.
+      if (p.repeat) {
+        const out = idleWorkOutcome(p.skill, raw && raw.result, s.task.error);
+        if (out === 'worked') { p.barrenRuns = 0; markProductive(s, 'repeat_project'); }
+        else if (out === 'barren') p.barrenRuns = (p.barrenRuns || 0) + 1;
+        // 'other' (kit_missing, no_tool, busy) untouched — the maintenance rungs own it,
+        // same doctrine as gradeIdleWork's own barren counter.
       }
     }
     // remember what the depot could not supply, so RESTOCK can switch to producing it
@@ -926,7 +1082,7 @@ const tick = () => {
           // standing down on a need it was holding the fix for. The ask is the shortfall.
           A._restockShort = Object.assign({}, A._restockNeeds || {}); A._restockShortAt = s.now;
           note(`restock failed (${raw.error.code}) — treating the whole ask as depot-short`);
-        } else { A._restockShort = null; A._restockShortAt = 0; }   // stocked: forget the signal
+        } else { A._restockShort = null; A._restockShortAt = 0; markProductive(s, 'restock'); }   // stocked: forget the signal
       }
       if (raw && raw.name === 'produce') {
         const res = (raw.args && raw.args.resource) || A._producing;
@@ -941,9 +1097,15 @@ const tick = () => {
           // world, and standing RESTOCK down for real progress would strand a bot mid-resupply.
           // Progress, not completion, is the right predicate here.
           A.unproductive.RESTOCK = 0;
+          markProductive(s, 'produce');
         }
         A._producing = null;
       }
+      // #68 (d): TOOL repaired. Mirrors the restock/produce checks above — a finished
+      // ensureTool with no error means the maintenance chain actually fixed something, which
+      // is exactly the kind of progress that should reset the stall clock even though it
+      // never touches p.progress (TOOL isn't the project).
+      if (raw && raw.name === 'ensureTool' && !raw.error) markProductive(s, 'ensure_tool');
     } catch (e) {}
 
     // GENERAL "completed but did not achieve" detector. A rung whose skill finishes cleanly
@@ -970,6 +1132,7 @@ const tick = () => {
     clearActiveTask();
   }
 
+  directionCheck(s);
   const { target } = choose(s);
   const owner = A.owner;
   if (target !== owner) {
@@ -1019,9 +1182,14 @@ const tick = () => {
 // ---------------- public API ----------------
 // The ONLY thing an LLM sets. One call, then zero tokens per cycle.
 A.setProject = (spec) => {
-  if (!spec) { A.project = null; note('project cleared'); return { ok: true, project: null }; }
+  // #68 (i): any project change answers an open episode, whatever set it — a direct
+  // setProject (by a driver, a human, or this same function's own promotion call below) is
+  // exactly the kind of "something filled the project slot" that closes a direction episode.
+  if (A.direction.episode) closeEpisode((spec && spec.by) || (spec ? 'manual' : 'cleared'), spec && spec.skill, { now: now() });
+  if (!spec) { A.project = null; A.nextProject = null; note('project cleared'); return { ok: true, project: null }; }
   if (typeof spec === 'string') spec = { skill: spec, args: {} };
   if (!spec.skill) return { ok: false, error: 'need {skill, args?, tool?, restockFloor?, repeat?}' };
+  if (spec.next && !spec.next.skill) return { ok: false, error: 'next needs {skill, args?, tool?, restockFloor?, repeat?}' };
   const res = resumable(spec.skill);
   A.project = { skill: spec.skill, args: spec.args || {}, tool: spec.tool || null,
     restockFloor: spec.restockFloor || null, repeat: Boolean(spec.repeat),
@@ -1030,8 +1198,22 @@ A.setProject = (spec) => {
     // gets rewritten to the remainder on each resume
     totalWanted: res ? res.total(spec.args || {}) : null, progress: 0 };
   A.blocked = null;
+  // 1-deep queue, staged at decision time (the decider/driver always answers current+next —
+  // no progress-threshold pre-staging). Left untouched when `next` is absent on a normal set
+  // (only an explicit clear wipes it, above) — see FEEDBACK.md for the open question on
+  // whether a bare setProject with no `next` should also drop a stale staged one.
+  if (spec.next) A.nextProject = Object.assign({}, spec.next, { stagedAt: now() });
   note(`project set: ${spec.skill}`);
   return { ok: true, project: A.project };
+};
+// #68 (j): the race-safe dispatch entry point, mandatory in ALL modes (driver AND decider). A
+// driver that answered an episode first closes it (via setProject above); the decider's later
+// dispatch for the SAME episode then sees a stale/mismatched eid and no-ops rather than
+// clobbering the driver's answer — no double-dispatch, in either direction, ever.
+A.dirDispatch = (eid, spec) => {
+  const ep = A.direction.episode;
+  if (!ep || ep.id !== eid) return { ok: false, skipped: 'stale' };
+  return A.setProject(Object.assign({}, spec, { by: spec.by || 'decider' }));
 };
 A.sense = sense;
 A.rung = (id) => RUNG_BY_ID[id] || null;
@@ -1047,7 +1229,11 @@ A.snapshot = () => ({ version: A.version, owner: A.owner ? A.owner.id : null, bu
   standDown: Object.fromEntries(Object.entries(A.standDown).filter(([, t]) => t > now()).map(([k, t]) => [k, Math.round((t - now()) / 1000) + 's'])),
   ownerForMs: A.owner ? now() - A.ownerSince : null, project: A.project, blocked: A.blocked,
   activeTaskId: A.activeTaskId, metrics: A.metrics, lastAction: A.lastAction || null,
-  log: A.log.slice(-8) });
+  log: A.log.slice(-8),
+  direction: { state: A.direction.state, why: A.direction.episode ? A.direction.episode.why : null,
+    eid: A.direction.episode ? A.direction.episode.id : null,
+    opened: A.direction.opened, closed: A.direction.closed, promoted: A.direction.promoted },
+  next: A.nextProject ? A.nextProject.skill : null });
 A.stop = () => { A.enabled = false; if (A.timer) clearInterval(A.timer); note('stopped'); };
 
 // ---------------- install ----------------
@@ -1059,6 +1245,11 @@ try {
   const ig = globalThis.__idleguard;
   if (ig) { A.role = ig.role || null; if (ig.stop) { ig.stop(); subsumed = true; } }
 } catch (e) {}
+
+// #68: a fresh install (first spawn OR a reconnect re-running this payload) gets a full
+// DIRECTION_IDLE_WINDOW_MS grace period before E2/E3 can fire, instead of instantly reading
+// "quiet since epoch" as an eternity of unproductive idle.
+A.direction.lastProductiveAt = now();
 
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
 REG.agenda = { version: A.version, boundAt: now(), stale: false };

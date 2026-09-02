@@ -683,7 +683,17 @@ const server = http.createServer(async (req, res) => {
             const a = globalThis.__agenda;
             if (!a) return null;
             return { rung: a.owner ? a.owner.id : null, project: a.project ? a.project.skill : null,
-              blocked: a.blocked ? a.blocked.why : null, ticks: a.metrics.ticks, errors: a.metrics.errors };
+              blocked: a.blocked ? a.blocked.why : null, ticks: a.metrics.ticks, errors: a.metrics.errors,
+              // #68 Direction Episodes: a driver's normal /state poll turns "guess from
+              // rung/project" into an explicit contract — see research/IDLE_TRIGGER_SPEC.md §1.3.
+              direction: a.direction ? {
+                state: a.direction.state,
+                why:  a.direction.episode ? a.direction.episode.why : null,
+                eid:  a.direction.episode ? a.direction.episode.id  : null,
+                forMs: a.direction.episode ? (Date.now() - a.direction.episode.openedAt) : null,
+                opened: a.direction.opened, closed: a.direction.closed, promoted: a.direction.promoted,
+              } : null,
+              next: a.nextProject ? a.nextProject.skill : null };
           } catch (_) { return null; }
         })(),
         payloads,
