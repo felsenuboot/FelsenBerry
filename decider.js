@@ -60,6 +60,20 @@ const POLL_MS = 20000;
 const DRIVER_GRACE_MS = 60000;
 const PER_BOT_MIN_GAP_MS = 120000;
 const FLEET_CAP_PER_HOUR = 30;             // CPU contention is the new budget, not dollars -- cap stays (Felix's ruling)
+// #95 soak-hygiene round 2 (2026-09-02, argued in FEEDBACK.md before building): the shared
+// fleet cap above means a CONCURRENT bot's own LLM calls (a live race, say) compete with a
+// formal soak's bot for the same 30/hr budget -- if the race consumes it, the soak bot's own
+// calls can get skipped_cap'd, directly inflating its measured direction-latency for a reason
+// that has nothing to do with the engine under test. DECIDER_EXCLUDE (spawn.sh's 4th meta
+// field, see discoverBots() below) solves the DIFFERENT problem of a throwaway bot that
+// shouldn't be fleet work at all -- a real fleet bot like a race entry is supposed to have
+// decider support, excluding it would just move the contamination the other direction.
+// SOAK_BOT names the ONE bot under formal measurement for this decider PROCESS's lifetime
+// (set at launch, not a standing config) -- its own calls never count against the shared cap
+// and the shared cap never blocks it, fully symmetric; everyone else keeps sharing the
+// ordinary cap exactly as before. Still bound by PER_BOT_MIN_GAP_MS -- this is cap isolation,
+// not a runaway-LLM exemption.
+const SOAK_BOT = process.env.SOAK_BOT || null;
 const HANDLED_TTL_MS = 86400000;          // prune decider-state.json's dedup map after 24h
 const LLM_MISS_RETRY_LIMIT = 2;           // retry-once-then-skip: 2 unusable Andy replies gives up on that episode
 const OLLAMA_HOST = process.env.OLLAMA_HOST || '127.0.0.1';
@@ -371,7 +385,10 @@ async function handleBot(b, rules) {
     // step 5: rate gates BEFORE spending anything
     const lastAt = (state.lastCallAt || {})[b.name] || 0;
     if (Date.now() - lastAt < PER_BOT_MIN_GAP_MS) return;   // this bot's spacing hasn't elapsed; try again next poll, not a permanent skip
-    if (!fleetCapOk()) {
+    // #95 soak-hygiene: the designated SOAK_BOT bypasses the shared fleet cap entirely, both
+    // directions -- unrelated fleet activity (a concurrent race, say) can never delay it, and
+    // its own calls never eat into the budget everyone else shares.
+    if (b.name !== SOAK_BOT && !fleetCapOk()) {
       appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key, src: 'skipped_cap', decision: null, latency_ms: null });
       return;   // logged, never spent -- the overflow is visible, not silent
     }
@@ -380,7 +397,7 @@ async function handleBot(b, rules) {
     const { decision: mapped, raw: rawOut, aborted } = await askAndy(ctx);
     if (aborted) return;   // guard blocked before any inference ran -- no rate/cap charge, no decisions.jsonl noise; the console warning is the ops signal
     state.lastCallAt = state.lastCallAt || {}; state.lastCallAt[b.name] = Date.now();
-    recordFleetCall();
+    if (b.name !== SOAK_BOT) recordFleetCall();
     const llmLatencyMs = Date.now() - t0;
     if (!mapped || typeof mapped.skill !== 'string' || !ctx.skills.includes(mapped.skill)) {
       // logged with the RAW model output regardless of outcome (#68 Phase 3 dialect-study ask) --
@@ -456,7 +473,7 @@ process.on('exit', cleanupPid);
 process.on('SIGINT', () => { cleanupPid(); process.exit(0); });
 process.on('SIGTERM', () => { cleanupPid(); process.exit(0); });
 
-log(`decider.js starting -- poll every ${POLL_MS / 1000}s, driver grace ${DRIVER_GRACE_MS / 1000}s, fleet cap ${FLEET_CAP_PER_HOUR}/hr, model ${ANDY_MODEL} via ${OLLAMA_HOST}:${OLLAMA_PORT}`);
+log(`decider.js starting -- poll every ${POLL_MS / 1000}s, driver grace ${DRIVER_GRACE_MS / 1000}s, fleet cap ${FLEET_CAP_PER_HOUR}/hr, model ${ANDY_MODEL} via ${OLLAMA_HOST}:${OLLAMA_PORT}${SOAK_BOT ? `, SOAK_BOT=${SOAK_BOT} (exempt from fleet cap, both directions)` : ''}`);
 checkCpuPinned().then((g) => {
   if (g.loaded && !g.ok) log(`WARNING: ${ANDY_MODEL} is already loaded with size_vram=${g.vram} (on GPU) -- the LLM path will refuse to call until this is fixed; rule.json hits are unaffected`);
 });

@@ -2194,3 +2194,111 @@ is a systematic pattern.**
 fix: n/a — distribution gathered, root-cause/fix work is the natural next step but not attempted here
 (out of today's remaining scope).
 github: felsenuboot/felcrew-mcp#94 (updated with the distribution)
+
+### 2026-09-02 engine-dev-3 — soak-hygiene, round 2: a shared decider CAN'T just exclude the race, so it needs a soak-mode flag instead
+type: design argument (per team-lead's instruction, before building)
+status: argued here, then implemented (decider.js SOAK_BOT env var)
+what: the DECIDER_EXCLUDE mechanism landed earlier today (spawn.sh 4th meta field, decider.js discoverBots()) solves a DIFFERENT problem than the one team-lead flagged as still soak-#3-blocking. DECIDER_EXCLUDE is for THROWAWAY bots that shouldn't be fleet work at all (the SchlonzSchorsch case) — excluding them from the decider is unambiguously correct, they contribute nothing real. Gear-race run #3's RotzRudi is not that: it's a genuine fleet bot doing genuine work, explicitly "Direction-Episodes era" — it is SUPPOSED to have decider support. Excluding it would just move the contamination the other direction (a race bot silently losing its own decider coverage instead of a soak silently losing measurement integrity), not fix anything.
+
+**The actual risk to a formal soak's acceptance numbers, precisely**: decider.js's fleet-wide LLM cap (`fleetCapOk()`, 30/hr, ONE shared counter for every bot) means a concurrent race's own LLM calls compete with the soak bot's for the same budget. If the race consumes enough of the shared cap, the soak bot's own calls can get `skipped_cap`'d — not a measurement-accounting nuisance like the throwaway-bot case, but a DIRECT hit to the soak's primary acceptance criterion: a skipped call means the episode stays open longer, inflating direction-latency (p50/p90) for a reason that has nothing to do with the engine being measured. This is worse than SchlonzSchorsch's contamination, not just a repeat of it.
+
+**Three options were on the table (team-lead's framing): a decider soak-mode flag, an ignore-list, or an OWNER-filter.** Argued choice: **soak-mode flag**, naming the ONE bot under formal measurement (`SOAK_BOT=<name>`), not the other two:
+- **Ignore-list rejected**: would need to enumerate and maintain every OTHER bot that might compete (the race roster, any future throwaway, anything else spawned mid-window) — the wrong direction to describe a growing, open-ended set, and exactly the kind of list that silently goes stale (a new race bot spawned mid-soak wouldn't automatically be on it).
+- **OWNER-filter rejected**: ownership already means something specific in this codebase (DRIVER_GRACE_MS — "does an owned bot's driver get first crack at its own episode") and reusing the same field to ALSO mean "is this bot exempt from fleet-cap contention" conflates two unrelated axes. RotzRudi is owned (by test-driver) and a future soak bot will also typically be owned (by whoever launches it) — the field can't distinguish "the one bot being measured" from "any owned bot" without inventing a second meaning for the same data.
+- **Soak-mode flag (chosen)**: names the ONE bot that actually needs protection, symmetrically, in both directions — its own calls never count against the shared cap (so it can't itself contaminate an ordinary fleet run when soak mode isn't active — it's opt-in per decider-process-lifetime, not a standing state), and the shared cap never blocks it (so unrelated fleet/race activity can't inflate its measured latency). Everyone else, race included, keeps sharing the ordinary 30/hr cap exactly as before — this is surgical, not a wholesale redesign of the cap doctrine.
+
+**Implementation**: `SOAK_BOT` env var, read once at decider.js startup. In the rate-gate step, `b.name === SOAK_BOT` bypasses `fleetCapOk()`'s check entirely and skips `recordFleetCall()` for that bot's own calls — full two-way isolation. Still bound by the existing PER_BOT_MIN_GAP_MS (≥120s between the soak bot's own calls) — this is cap isolation, not a runaway-LLM exemption. Belt-and-suspenders with team-lead's own plan to schedule soak #3 right after race #3 concludes anyway (windows shouldn't even overlap in practice) — this mechanism is what makes overlap SAFE if it ever does happen, not a reason to stop avoiding it.
+fix: decider.js (SOAK_BOT env var + two isolation points in handleBot's rate-gate step).
+github: felsenuboot/felcrew-mcp#95 (comment to follow once verified)
+
+### 2026-09-02 engine-dev — #94 root cause found and argued (fix not yet built): BREAK_LOS's own critical-HP shortcut assumes a fallback that silently doesn't exist without filler blocks
+type: finding + proposal (doctrine: argue before building)
+status: root cause CONFIRMED from the 5 recorded runs' real telemetry, not guessed at; fix proposed below,
+not yet implemented — posting for review per this file's own standing doctrine before touching survival.js
+what: team-lead's #94 assignment — find WHERE the margin bleeds (reaction latency? wall-build time under
+fire? re-engagement during the walk?), root-caused from the ledgers of all 5 recorded runs before staging
+anything new.
+
+**THE MEASUREMENT that broke the case open**: pulled every `panic` enter/recovered pair from both bots'
+full ledgers (`ZoffZenzi`: n=217 pairs across 2 runs, `KlammKlaus`: n=376 pairs across 3 runs — every
+single encounter, not a sample). **99% of ALL 593 panic cycles resolve in under 100ms** (median 31-36ms,
+p90 44-46ms). That number is the whole finding: `branchBreakLOS`'s real work is never that fast — its own
+corner-step phase issues an `ownedGoto` with a `Math.max(600, ...)` floor per attempt, and `placeBlock`
+network round-trips run in the hundreds of ms per this codebase's own documented settle discipline. A
+31ms "BREAK_LOS, recovered" cannot contain either. It can only mean every phase short-circuited on a
+cheap synchronous check without ever awaiting a real action.
+
+**THE EXACT MECHANISM, traced through the code against the timing evidence, not inferred from the number
+alone**:
+1. `branchBreakLOS`'s phase (a), corner-step (skills... `survival.js` line 344): `if (bot.health > 0 &&
+   bot.health < g.cfg.hpPanic) break;` — checked at the TOP of the very first loop iteration, before any
+   real search. Every recorded cycle in this dataset has `hp` already below `hpPanic(8)` at entry (the
+   whole reason `onHealth`'s critical-HP lockout-bypass re-triggered `enter()` in the first place) — so
+   phase (a) does **zero** real work on essentially every one of these 593 cycles. The `#65` comment right
+   above this line says the intent plainly: "stop searching, go defend" — the corner-step search was
+   deliberately made to yield FAST under critical HP on the assumption that phase (b)/(c) or the WALL_OFF
+   fallback is a better, more certain use of the remaining time.
+2. Phase (b), arrow-shadow, calls `placeAt()` — which itself starts with `const item = fillerItem(); if
+   (!item) return 'no_filler';`, a synchronous inventory check with **no network round-trip**, returning
+   near-instantly whenever the bot carries none of `g.filler` (cobblestone/cobbled_deepslate/dirt/
+   stone/andesite/diorite/granite/nethernetherrack). The fixture strips pickaxe tiers but never gives
+   filler, and none of my QA bots were separately supplied any — realistic for the class of bot this
+   fixture is deliberately modeling ("toolless"), and #92's own forensics found the ORIGINAL run #2
+   incident bot was similarly kit-deficient (out of food, no path to more), so an under-kitted bot hitting
+   this exact branch is not a fixture artifact, it is the scenario this whole stress fixture exists to
+   test.
+3. Phase (c), counter-attack, gates on `bot.health >= g.cfg.rushHp` (12) — false on every recorded cycle
+   (HP is below 8, let alone 12) — skipped.
+4. The final fallback, `if (placed || bot.health < g.cfg.rushHp) { const w = await branchWallOff(t); ...
+   }` — fires (health is always below rushHp here), calling into `branchWallOff`, which opens with the
+   IDENTICAL `if (!fillerItem())` no-filler check (same synchronous, no-await, near-instant path) and
+   returns `{sealed:false, reason:'no_filler'}` after a single chat line and an `ownedGoto` to the bot's
+   OWN current position (a goal already satisfied, so it resolves in one tick).
+
+**The assumption `#65`'s own fix made — "skip the search fast, something better is coming" — silently
+stops holding the instant the bot lacks filler blocks, and NOTHING currently notices.** All three active
+defenses (corner-step, arrow-shadow, counter-attack) AND the WALL_OFF fallback are simultaneously
+unavailable in this state, and the reflex just re-diagnoses the identical, undefended situation every
+~200-250ms (bound by dangerscan's own scan cadence and Minecraft's own damage-tick timing, not by
+anything survival.js controls) while the real ranged attacker keeps landing real, completely unopposed
+hits each cycle. That is the margin bleed, named precisely: **not latency at engagement start (the reflex
+reacts in tens of milliseconds, which is fine), not a slow wall build under fire (there is no wall build —
+it fails synchronously), but the compounding of "skip corner-step because a fallback is assumed" with "the
+fallback silently degrades to a no-op without filler" — a bot with no filler blocks gets LITERALLY ZERO
+seconds of active defense from the moment its HP crosses the critical threshold, for as long as the fight
+lasts.**
+
+**PROPOSED FIX** (survival.js, `branchBreakLOS`'s phase (a) — engine-dev-3's/my own survival.js lane,
+posting the argument first per this file's own doctrine before touching the tree):
+
+```js
+// was: if (bot.health > 0 && bot.health < g.cfg.hpPanic) break;
+if (bot.health > 0 && bot.health < g.cfg.hpPanic && fillerItem()) break;
+```
+
+Corner-step is the ONLY one of BREAK_LOS's three defenses (plus the WALL_OFF fallback) that needs **no
+inventory at all** — just a nearby, genuinely safe, already-existing empty cell. The original `#65` skip
+exists to prioritize a SURER, faster win (a wall/coffin) over spending the search budget — that reasoning
+is sound exactly when a wall is actually buildable, and actively wrong when it isn't: skipping the one
+thing that might work in order to fall through faster into two guaranteed no-ops is strictly worse than
+trying it. Gating the skip on `fillerItem()` being available preserves the ORIGINAL behavior byte-for-byte
+for any bot that's actually kitted (the common case — mining/hunting bots routinely carry cobblestone),
+and only changes behavior for the specific, previously-invisible case this session's own telemetry proved
+exists: a bot with none. Minimal, additive, one condition, no removal of any existing safety check.
+
+**Why this doesn't regress anything already verified**: #92's WALL_OFF cannot-heal exit and standdown gate
+are untouched (this edit is inside `branchBreakLOS`, several hundred lines from `branchWallOff`'s own
+loop). #65's own verified branches (CREEPER, FLEE_HOME, the counter-attack sub-branch, the
+`shieldUp`/`shieldDown` discipline) are untouched — this changes exactly one boolean expression's third
+operand. Will re-run `bench/fixtures/survival-cannotheal.js` (7/7 today) after landing to confirm, and
+re-run `induced-stress-sequencing.sh` live to see whether `hpMin` genuinely improves, not just assume it
+from the code reading alone.
+
+**What this fix does NOT claim to fix**: it does not make BREAK_LOS/WALL_OFF succeed against every
+attacker — a bot with no filler AND no viable corner-step cell (fully open ground, or every safe offset
+already occupied) is still defenseless, same as today; this closes the specific, measured gap ("skip a
+free option because a paid one was assumed available"), not the general "no supplies = no options"
+ceiling. That ceiling is a kit/logistics problem, not a reflex-logic one.
+fix: proposed only in this entry — building next.
+github: felsenuboot/felcrew-mcp#94 (root cause posted; fix to follow in a separate FEEDBACK entry once
+built and verified)
