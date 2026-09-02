@@ -3269,3 +3269,64 @@ fix: `skills.js` (`seekPlaceableSpot`, `TERRAIN_SEEK_RADIUS`, `craftToolChain` w
 github: felcrew-mcp#101 (fixes), #97 (item 2's deferred generalized recovery — this is the primitive it
 will want), #98 (engine-dev's `survival.js:829` prediction confirmed), #86 (the `alreadyHolding()` guard
 this pairs with), #70 (`_reachOf`/`S.reachOf` reuse).
+
+### 2026-09-02 engine-dev — soak #4 readiness dry-run caught and fixed a real bug in the humanbar
+instrument: playcheck's window math used wall-clock NOW, silently corrupting any retroactive grade
+type: fix + correction (of this session's own earlier record)
+status: fixed, verified against soak #3's own window, committed; humanbar.mjs is now safe to run
+whenever soak #4's timer ping actually lands, not only if it lands promptly
+what: respawned after the wind-down, first queue item was "dry-run humanbar.mjs on soak-3's archived
+window to confirm the tool is intact post-restart." Ran exactly that: `node bench/humanbar.mjs --bot
+MatschMoritz --since 2026-09-02T17:55:58.473Z --until 2026-09-02T18:55:58.473Z --label soak3-dryrun`
+(soak #3's own exact window, per this file's own grading entry above). The direction-gate half came
+back byte-identical to the archived `direction-soak3.json` (opened 10, closed 9, unclosed 1, latency
+p50 204898ms/p90 223926ms, llm_calls_per_hr 17) — that instrument is genuinely intact. The playcheck
+half did NOT match the "SPARSE, 44-45% stationary, ~9.9 productive actions/10min" figure recorded in
+this file's own humanbar-prep entry: it read **72.7% stationary, 4.9 productive actions/10min**.
+
+**Root cause, confirmed not guessed**: `playcheck.mjs`'s `WINDOW_MS = Date.now() - SINCE` — the
+window's END was always the REAL wall clock at the moment playcheck runs, never the caller's intended
+`--until`. `humanbar.mjs` builds a correctly window-bounded COPY of the ledger data for playcheck to
+read, but never told playcheck what the window's end actually was, so `stationaryPct`/
+`productiveActionsPer10Min` (both computed as a fraction of `WINDOW_MS`) silently stretch to (real-now
+- since) regardless of the data's own true bound. My dry run ran ~2h05m after soak #3's `until`, so
+`WINDOW_MS` was ~185min instead of the true 60min — same `activeMs` (~50.6min, confirmed identical
+before/after the fix, task durations don't depend on NOW), wrong denominator. `metrics.mjs`'s own
+`--direction-gate` was never affected: its `llm_calls_per_hr`/window figures are derived from the
+actual min/max decision timestamps IN the bounded data, not `Date.now()` — the right pattern, and why
+that half reproduced byte-identical regardless of delay.
+
+**This bug was not introduced by the restart — it was always there.** The commit that built
+`humanbar.mjs` (0dbde11) landed at 2026-09-02T19:29:28Z, ~33.5min after the graded window's own
+`until` (18:55:58.473Z) — a real, if smaller, gap between "window closes" and "grading tool actually
+runs." A true 60-minute window's `activeMs` (~50.6min, re-derived above) implies 15.6% stationary /
+15 actions per 10min, not the 44-45%/~9.9 recorded in that entry; a ~92-minute window (`until` +
+~33.5min mismatch would need closer to +32min of drift to land exactly there, consistent within
+rounding) reproduces something much closer to that reading. **The original verification was itself
+graded a bit after `until`, same bug, smaller inflation, never noticed because nobody had reason to
+re-run it at a much longer delay until today's dry run made the effect large enough to see.**
+Correction to the historical record: soak #3's TRUE playcheck read, over its exact hour, is **PLAYING
+(15.6% stationary, 15 productive actions/10min)**, not SPARSE. This does not change soak #3's verdict
+(direction-gate alone already failed it decisively — 1 unclosed episode, both latency criteria badly
+missed) but the specific "would have failed on BOTH counts" claim in that earlier entry does not hold
+— only one count did. Filed here rather than silently amended, per this file's append-only
+convention.
+
+**Fix**: `playcheck.mjs` gets a new optional `--until <ISO>` flag that pins `NOW` for the `WINDOW_MS`
+calculation (default: `Date.now()`, so live "how's it doing right now" usage is untouched — verified
+`--since 30m` with no `--until` still returns a sane live window after the change). `humanbar.mjs`
+now passes `--until <the same ISO it truncates the ledger copy to>` whenever its own `--until` is
+given. Re-verified against soak #3's window post-fix: `activeMs` implied by the new 15.6%/60min read
+(~50.64min) matches the pre-fix 72.7%/185min read's implied `activeMs` (~50.6min) almost exactly —
+strong internal-consistency evidence the fix changes only the denominator, not the underlying data
+read, exactly as intended.
+
+**Soak #4 readiness**: the combined instrument is now confirmed intact AND safe against grading delay.
+Exact command ready for when the timer ping lands (fill in the real bot name and the two ISO
+timestamps eng-3/team-lead provide): `node bench/humanbar.mjs --bot <name> --since <ISO> --until <ISO>
+--label soak4`.
+fix: `bench/playcheck.mjs` (`--until` flag, `NOW`/window-end override), `bench/humanbar.mjs` (passes
+`--until` through to playcheck.mjs). `bench/gates/direction-soak3-dryrun.json`,
+`bench/gates/humanbar-soak3-dryrun.json` (new — the corrected verification record).
+github: n/a — instrument bug caught during readiness prep, not a tracked engine bug (QA tooling, not
+the bot engine itself); flagging to team-lead directly since it corrects this file's own prior claim.

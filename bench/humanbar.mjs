@@ -129,10 +129,15 @@ let gate;
   fs.writeFileSync(path.join(ROOT, 'bench', 'gates', `direction-${LABEL}.json`), JSON.stringify(gate, null, 2));
 }
 
-// ---- run playcheck.mjs --json against the SAME bounded window/dir. ----
-const playcheckOut = execFileSync(process.execPath,
-  [path.join(ROOT, 'bench', 'playcheck.mjs'), '--bot', BOT, '--since', SINCE, '--dir', LOGS_DIR, '--json'],
-  { encoding: 'utf8' });
+// ---- run playcheck.mjs --json against the SAME bounded window/dir. --until pins playcheck's
+// own NOW so stationaryPct/productiveActionsPer10Min are computed over the intended (until -
+// since) window rather than (real-now - since) -- without this, grading even a few minutes
+// after the window closes silently stretches the denominator and corrupts both numbers (caught
+// 2026-09-02 via a soak-3 dry run: same window, same data, playcheck alone read 72.7% stationary
+// graded ~2h05m after `until` vs the ~44-45% recorded when it was graded promptly).
+const playcheckArgs = [path.join(ROOT, 'bench', 'playcheck.mjs'), '--bot', BOT, '--since', SINCE, '--dir', LOGS_DIR, '--json'];
+if (UNTIL) playcheckArgs.push('--until', new Date(untilMs).toISOString());
+const playcheckOut = execFileSync(process.execPath, playcheckArgs, { encoding: 'utf8' });
 const playcheck = JSON.parse(playcheckOut);
 const summary = (playcheck.bots || [])[0] || null;
 // cleanup handled by the process.on('exit') handler registered above, on every exit path

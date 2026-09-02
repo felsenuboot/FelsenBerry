@@ -11,6 +11,13 @@
  *   node bench/playcheck.mjs --json                 # machine-readable
  *   node bench/playcheck.mjs --dir ../bots/logs      # point at a different logs dir
  *                                                    # (e.g. running from a worktree)
+ *   node bench/playcheck.mjs --until <ISO>           # pin the window's END for a RETROACTIVE
+ *                                                    # grade (default: Date.now(), i.e. "live").
+ *                                                    # Without this, stationaryPct/productive-
+ *                                                    # ActionsPer10Min silently stretch to
+ *                                                    # (real-now - since) even when the caller
+ *                                                    # (e.g. humanbar.mjs) only wants a bounded
+ *                                                    # hour graded some time after it closed.
  *
  * WHY THIS EXISTS: every metric this project has (FSR, assertTask verdicts, rung
  * counters) is internal — none of it says what a human WATCHING the bot would
@@ -59,7 +66,13 @@ function parseSince(s) {
   return Number.isFinite(t) ? t : Date.now() - 30 * 60 * 1000;
 }
 const SINCE = parseSince(flag('since'));
-const NOW = Date.now();
+// NOW anchors the window's END for stationaryPct/productiveActionsPer10Min's own denominator.
+// Defaults to the real clock (live "how's it doing right now" usage); --until pins it for a
+// retroactive grade, so a delayed run doesn't silently stretch the window past the bot's actual
+// graded hour (see the humanbar.mjs usage note above -- this is exactly the bug it hit).
+const untilFlag = flag('until');
+const untilParsed = untilFlag ? Date.parse(untilFlag) : NaN;
+const NOW = Number.isFinite(untilParsed) ? untilParsed : Date.now();
 const WINDOW_MS = Math.max(1, NOW - SINCE);
 
 // ---------- load one bot's ledger, filtered to the window ----------
@@ -236,7 +249,7 @@ const results = bots.map(summarize).filter(Boolean);
 if (has('json')) {
   console.log(JSON.stringify({ since: SINCE, now: NOW, windowMs: WINDOW_MS, bots: results }, null, 2));
 } else {
-  console.log(`playcheck :: window ${new Date(SINCE).toISOString()} -> now (${Math.round(WINDOW_MS / 60000)}m)`);
+  console.log(`playcheck :: window ${new Date(SINCE).toISOString()} -> ${untilFlag ? new Date(NOW).toISOString() : 'now'} (${Math.round(WINDOW_MS / 60000)}m)`);
   console.log('---');
   if (!results.length) {
     console.log(botArg ? `no ledger for ${botArg} in this window` : 'no bots with ledger data in this window');

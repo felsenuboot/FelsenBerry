@@ -1,0 +1,31 @@
+{
+  "label": "soak3-dryrun",
+  "bot": "MatschMoritz",
+  "since": "2026-09-02T17:55:58.473Z",
+  "until": "2026-09-02T18:55:58.473Z",
+  "at": "2026-09-02T21:05:07.546Z",
+  "pass": false,
+  "reasons": [
+    "1 episode(s) never closed (open-unclosed must be 0): dmtkgf01i10",
+    "latency p50 205s -- must be <=60s",
+    "latency p90 224s -- must be <120s"
+  ],
+  "direction": {
+    "pass": false,
+    "opened": 10,
+    "closed": 9,
+    "unclosed": 1,
+    "latency_p50_ms": 204898,
+    "latency_p90_ms": 223926,
+    "llm_calls_per_hr": 17
+  },
+  "playcheck": {
+    "verdict": "PLAYING",
+    "stationaryPct": 15.6,
+    "productiveActionsPer10Min": 15,
+    "noOpFraction": 0.668,
+    "distanceTraveled": 1846.6,
+    "deaths": 0,
+    "panics": 0
+  }
+}
