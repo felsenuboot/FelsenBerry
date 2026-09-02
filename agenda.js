@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 19, enabled: true,
+  version: 20, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -162,11 +162,17 @@ const ROLE_WORK = {
     ? { skill: 'safeDescend', args: { toY: 45, maxSteps: 40 } }
     : { skill: 'mineLane', args: { target: 'stone', count: 16, maxDist: 24 } }),
   lumberjack: { skill: 'chopTrees', args: { count: 2 } },
-  // NOT huntAnimals: its kit tier requires foodItems:2, so a FOODLESS hunter is refused
-  // forever — the #45 bootstrap paradox (you hunt to GET food) biting the idle rung. Caught by
-  // engine-dev-3. harvestGrass has no kit gate and yields seeds, so it is always runnable.
-  // Revisit when #45 gates huntAnimals on a WEAPON rather than on already having food.
-  hunter: { skill: 'harvestGrass', args: {} },
+  // #45 landed (huntAnimals' kit is 'hunt': {torches, weapon:true} — no foodItems at all, see
+  // KIT_TIERS in skills.js), which is exactly the revisit this comment used to ask for. Before
+  // that, a foodless hunter was refused forever by huntAnimals' own gate, so this pointed at
+  // harvestGrass as the honest fallback. That premise is gone: a hunter role now has a real,
+  // weapon-gated path to PRODUCE food instead of a seeds-only stopgap. This also closes the
+  // live gear-race food deadlock for a role:'hunter' bot on its own, without any new code —
+  // effectiveKit's roleWorkKit fallback (#84) now resolves 'hunt' for RESTOCK/TOOL too, so an
+  // idle hunter's floor stops demanding food:4 it has no produce path for (ROLE_FLOOR.hunter's
+  // food requirement is now superseded here, not removed — a bot WITH a project still uses
+  // that project's own floor) and TOOL provisions the sword huntAnimals needs before it runs.
+  hunter: { skill: 'huntAnimals', args: {} },
   // farmCycle needs a registered field box, so it cannot be a zero-config default; harvesting
   // grass for seeds is the honest farmer-with-no-field job.
   farmer: { skill: 'harvestGrass', args: {} },

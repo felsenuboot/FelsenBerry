@@ -23,9 +23,11 @@ try {
   T('miner UNDERGROUND mines a lane', fire('miner', { pos: { x: 0, y: 40, z: 0 } }), 'mineLane');
   T('miner on the SURFACE descends first', fire('miner', { pos: { x: 0, y: 70, z: 0 } }), 'safeDescend');
   T('lumberjack chops', fire('lumberjack'), 'chopTrees');
-  // NOT huntAnimals: its kit tier wants foodItems:2, so a foodless hunter is refused forever
-  // (#45 — you hunt to GET food). This case exists to stop that regressing.
-  T('hunter does NOT get kit-gated huntAnimals', fire('hunter'), 'harvestGrass');
+  // #45 landed (huntAnimals' kit is 'hunt': {torches, weapon:true} — no foodItems at all), and
+  // ROLE_WORK.hunter was updated to match (2026-09-02, the gear-race food-deadlock fix) — a
+  // foodless hunter is no longer refused, since the gate never asked for food to begin with.
+  // This case used to assert the OLD stopgap (harvestGrass); it now asserts the real fix.
+  T('hunter hunts (kit is weapon-gated, not food-gated, since #45)', fire('hunter'), 'huntAnimals');
   T('farmer harvests (farmCycle needs a field, so not that)', fire('farmer'), 'harvestGrass');
   T('builder with torches lights the base', fire('builder', { torches: 8 }), 'spawnProof');
   T('builder without torches gathers wood', fire('builder', { torches: 0 }), 'chopTrees');
