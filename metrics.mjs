@@ -636,6 +636,74 @@ if (gate && typeof gate === 'string') {
   console.log(`  written -> ${path.relative(DIR, out)}`);
 }
 
+// ---------- direction gate (IDLE_TRIGGER_SPEC phase 3 acceptance, #68) ----------
+// Team-lead's Phase 3/4 assignment: engine-dev GRADES the soak, engine-dev-3 is graded --
+// that separation is the whole point of a mechanical, file-frozen verdict rather than a
+// verbal "looks fine to me". Encodes §6 Phase 3's five criteria exactly as written, against
+// whatever window --bot/--since already scoped (so `--direction-gate soak1 --since <t0>`
+// grades one soak run, not all of history — same self-scoping instinct as --gate above,
+// simpler here since a soak is inherently a bounded, recent window rather than a rolling
+// ship gate that must exclude permanent pre-fix history).
+const dgate = flag('direction-gate');
+if (dgate && typeof dgate === 'string') {
+  const opens = dirRecs.filter((r) => r.op === 'open');
+  const closes = dirRecs.filter((r) => r.op === 'close');
+  const closedEids = new Set(closes.map((c) => c.eid));
+  const unclosed = opens.filter((o) => !closedEids.has(o.eid));
+  const latencies = closes.map((c) => c.latency_ms).filter(Number.isFinite).sort((a, b) => a - b);
+  const p50 = median(latencies);
+  const p90 = latencies.length ? latencies[Math.min(latencies.length - 1, Math.ceil(0.9 * latencies.length) - 1)] : null;
+
+  const decisionsPath = flag('decisions', path.join(DIR, 'logs', 'decisions.jsonl'));
+  const decisions = (typeof decisionsPath === 'string' && fs.existsSync(decisionsPath))
+    ? fs.readFileSync(decisionsPath, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
+    : [];
+  const llmCalls = decisions.filter((d) => d.src === 'llm');
+  const skippedCap = decisions.filter((d) => d.src === 'skipped_cap').length;
+  const decByHour = decisions.length ? (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) / 3600000 : 0;
+  const llmPerHr = decByHour > 0 ? llmCalls.length / decByHour : 0;
+
+  // #52 tripwire attribution (§6 Phase 3, §2.9): every decider dispatch must be identifiable
+  // in interventions.recent by body match, reconciled against closedBy:'decider' counts.
+  // interventions.recent is a bounded ring (runner.js INTERVENTIONS_MAX) so this checks the
+  // full `intervention` ledger stream instead — the durable record the ring is sampled from.
+  const closedByDecider = closes.filter((c) => c.closedBy === 'decider').length;
+  const deciderCalls = interventions.filter((r) => /dirDispatch\(/.test(r.preview || ''));
+
+  const reasons = [];
+  if (!opens.length) reasons.push('no episodes opened -- soak produced no signal to grade');
+  if (unclosed.length > 0) reasons.push(`${unclosed.length} episode(s) never closed (open-unclosed must be 0): ${unclosed.map((o) => o.eid).join(', ')}`);
+  if (p50 == null || p50 > 60000) reasons.push(`latency p50 ${p50 == null ? 'n/a' : Math.round(p50 / 1000) + 's'} -- must be <=60s`);
+  if (p90 == null || p90 >= 120000) reasons.push(`latency p90 ${p90 == null ? 'n/a' : Math.round(p90 / 1000) + 's'} -- must be <120s`);
+  // extrapolating to a per-hour rate from a short or thin window is noise, not a measurement
+  // (2 calls in 30s reads as "240/hr" and would fail a real, healthy soak) -- same MIN_N
+  // instinct as rate()'s suppression elsewhere in this file, applied to a window instead of a
+  // sample count. A genuine 60-min soak naturally clears this; this guard only matters for a
+  // gate run against a short or early slice.
+  const decWindowMs = decisions.length ? (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) : 0;
+  if (decWindowMs >= 600000 && llmPerHr > 30) reasons.push(`LLM calls/hr ${llmPerHr.toFixed(1)} exceeds the 30/hr cap`);
+  else if (decWindowMs < 600000 && decisions.length) reasons.push(`decisions.jsonl window is only ${Math.round(decWindowMs / 1000)}s -- too short to judge the LLM calls/hr cap honestly (need >=10min); re-run the gate once the soak has run longer`);
+  if (!decisions.length) reasons.push('decisions.jsonl is empty -- decider produced no record for this window');
+  if (deciderCalls.length !== closedByDecider) reasons.push(`decider intervention count (${deciderCalls.length}, by dirDispatch( body match) does not match closedBy:'decider' count (${closedByDecider}) -- #52 tripwire attribution mismatch`);
+
+  const report = {
+    label: dgate, at: new Date().toISOString(), pass: reasons.length === 0, reasons,
+    opened: opens.length, closed: closes.length, unclosed: unclosed.length,
+    latency_p50_ms: p50, latency_p90_ms: p90,
+    llm_calls: llmCalls.length, llm_calls_per_hr: Math.round(llmPerHr * 10) / 10, skipped_cap: skippedCap,
+    closedBy_decider: closedByDecider, decider_interventions_matched: deciderCalls.length,
+    // phase-4-relevant context, reported alongside regardless of pass/fail -- not gated on,
+    // since Phase 4's own criteria are a longer soak and a SCOREBOARD entry, not a threshold
+    undirected_time_fraction_by_bot: undirectedFractionByBot,
+  };
+  const out = path.join(DIR, 'bench', 'gates', `direction-${dgate}.json`);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify(report, null, 2));
+  console.log(`\n── direction gate ${dgate}: ${report.pass ? 'PASS' : 'FAIL'} ──`);
+  for (const r of reasons) console.log(`  - ${r}`);
+  console.log(`  written -> ${path.relative(DIR, out)}`);
+}
+
 // ---------- tokens ----------
 // Deliberately NOT faked. Cost-per-outcome is co-primary with success rate, so a made-up
 // number here would be worse than none: it needs per-message token counts with message.id
