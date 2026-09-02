@@ -2830,3 +2830,54 @@ what: team-lead asked, after ruling survival.js/pick() off-limits to me for #99:
 **Answer to (2)**: yes, exactly, and this is the same shape as #99's already-diagnosed root cause. Standdown's GATING is entry-level — it's checked at the very top of every `enter()` call, before `pick()` runs again, so once armed it correctly blocks every subsequent entry regardless of which branch would have run. But standdown's ARMING is narrowly branch-result-level: `enter()` only sets it when `out.branch === 'WALL_OFF' && out.cannotHeal` — one specific branch's one specific return shape, not a general "the situation is genuinely unrecoverable" signal computed independently of which branch happened to handle it. #99's gap (the no-filler early bail never populating `cannotHeal`) is a narrow instance of this broader scoping choice — even with that one field now fixed, any FUTURE branch outcome that is ALSO genuinely cannot-heal (a different early return somewhere, a different branch entirely) would need its own explicit `cannotHeal` computation to arm standdown, because the check is keyed to `WALL_OFF` specifically, not to the underlying predicate. Whether to broaden the arming condition to `threatsNow().length === 0 && cannotHeal()` regardless of branch (rather than gating on `branch==='WALL_OFF'` at all) is a design call for whoever owns this file next — flagging it as the generalized version of the question, not building it.
 fix: n/a — analysis only, per team-lead's explicit "touch neither survival.js nor pick()" boundary. Confirmed no unintended edits to either file from this reading pass (`git status` clean on both beyond the already-disclosed #99 patch sitting in survival.js).
 github: felsenuboot/felcrew-mcp#99 (comment to follow), cross-reference #92, #96
+
+### 2026-09-02 engine-dev — #96 fix landed and verified (survival v9): FIGHT_BACK killed a real zombie in RotzRudi's exact death shape; one adjacent noise finding flagged, not fixed here
+type: fix + verification
+status: shipped, no regression, PRIMARY claim (zero defense is no longer representable) proven against a
+real live mob; one honest secondary finding surfaced during verification, deliberately not folded in
+what: built the design argued in the entry above. `pick()` now checks `fillerItem()` before choosing
+WALL_OFF when a real threat is present, falling through to a new `branchFightBack` (weapon held, threat
+already adjacent, no health floor) or `branchFleeAway` (the absolute floor — generalizes `branchCreeper`'s
+own proven `GoalInvert(GoalFollow(...))` retreat to any threat) instead of the guaranteed no-op that
+killed RotzRudi three times.
+
+**NO REGRESSION**: `survival-cannotheal.js` 7/7 (twice, on two different bots). Full `bench/preflight.sh`
+199/199 immediately after landing the code (on an `--agenda` bot). `flee-home-reachability.sh` still PASS
+— worth noting its own case 2 outcome changed from `WALL_OFF` to `FLEE_AWAY` (that fixture's fabricated
+threat has no real entity id, so it exercises the routing decision correctly without exercising the new
+branches' own movement/combat logic — expected, not a bug).
+
+**PRIMARY CLAIM PROVEN LIVE, real mob, not `drill()`, matching RotzRudi's exact shape** — melee threat,
+no filler, weapon held, HP crossing below 6: staged a real zombie adjacent to a bot carrying a stone sword
+and zero filler. `FIGHT_BACK` fired (`"No wall, no room to run clean - fighting back."`), engaged via
+`bot.pvp`, and **killed the zombie** (confirmed independently by the `rotten_flesh` drop landing in
+inventory, not just the branch's own self-report) — the bot survived at 7 HP instead of RotzRudi's fate.
+Separately verified `FLEE_AWAY` against a real zombie with NO weapon and no filler: it engaged
+repeatedly, genuinely gained real distance each time (confirmed via position deltas, not just the branch
+label), and kept the bot alive for 28+ real seconds of active fleeing — longer than RotzRudi's entire
+three-death sequence combined — before an unarmed, unequipped bot facing a persistent single attacker
+eventually lost anyway. That outcome is honest, not a failure: #96's own argument never claimed
+`FLEE_AWAY` guarantees survival with literally nothing in hand, only that it replaces a guaranteed no-op
+with a genuine, real chance.
+
+**Secondary finding, surfaced by this exact verification, NOT fixed in this change**: once `FIGHT_BACK`
+or `FLEE_AWAY` resolves a real threat (the zombie above died mid-test), HP can remain below `hpPanic (8)`
+for a stretch afterward (natural regen needs food>=18 and real time). During that stretch, `onHealth`'s
+critical-HP bypass keeps re-triggering `enter()` every cycle, `threatsNow()` is correctly empty (no real
+threat left), and `pick()` falls through to the ORIGINAL, unguarded `branchWallOff(null)` path (the
+`nearest === null` case this change deliberately left alone, since nothing is actively landing hits
+there) — which hits its own no-filler fast-path and reports "No cobble to wall in... Stable again"
+**every ~200-250ms** until HP climbs back above 8. Live-observed: dozens of near-identical chat lines in
+a few seconds. Not lethal (confirmed: HP was climbing, 7->8, not falling, during the whole observed
+window) and NOT newly introduced by this change — the exact same no-filler fast-path existed before #96
+for any branch's own post-resolution trailing period (e.g. BREAK_LOS's own "wall+kill" case would hit the
+identical pattern). This change just makes it easier to OBSERVE, because `FIGHT_BACK` now actually wins
+fights that previously ended in death or a much longer WALL_OFF/FLEE_HOME cycle. Flagging rather than
+folding a second, differently-scoped fix into this change (this is a NOISE/efficiency question, not a
+"zero defense" question — #92's own `g.standdown` mechanism already solves the structurally identical
+shape for the food-specific `cannotHeal` case; the natural fix is probably generalizing that same
+standdown gate to cover "no filler, no threat, HP recovering on its own" too, rather than a new
+mechanism) — recommend it as a fast, contained follow-up rather than building it un-argued here.
+fix: survival.js (`canFightBack`/`branchFightBack`/`branchFleeAway`, `pick()`'s WALL_OFF filler gate, v9).
+github: felsenuboot/felcrew-mcp#96 (fix landed and reported); recommend a small follow-up issue for the
+post-resolution no-filler chat-spam pattern above, distinct from #96's own lethal-gap claim

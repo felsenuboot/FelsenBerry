@@ -1,4 +1,26 @@
-// survival v8 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v9 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v9 (#96): a real fleet bot (RotzRudi, gear-race run #3) died three times in one melee encounter
+// after its filler ran out mid-fight -- FLEE_HOME's melee path requires HP>=6, and once HP
+// crossed that, pick() fell straight to branchWallOff with NO intermediate branch: a melee threat
+// never reaches BREAK_LOS (that check is `ranged && los`-gated), so #94's corner-step fix never
+// applies either. With no filler, branchWallOff's own no-filler check makes every call a
+// synchronous no-op (measured: 20-30ms, the same sub-100ms fingerprint #94 found) while the
+// attacker keeps landing real hits every cycle -- a genuinely representable "zero active defense"
+// state in the routing table itself, not a bug in any one branch.
+// Generalized doctrine (FEEDBACK.md 2026-09-02): "zero defense must be unrepresentable" --
+// pick() must always reach a branch that can ACTUALLY act given current resources. Fix: pick()
+// now verifies `fillerItem()` before choosing WALL_OFF at all when a real threat is present
+// (same "verify before deferring" discipline as #94/#98, applied to the last-resort fallback
+// itself) -- no filler falls through to two new branches instead: FIGHT_BACK (weapon held,
+// threat already adjacent -- reuses BREAK_LOS's own counter-attack gate, deliberately WITHOUT
+// its health floor, since the alternative here is guaranteed unopposed damage, not a safer
+// option) or FLEE_AWAY (the absolute floor -- needs no inventory and no specific reachable
+// target, generalizing branchCreeper's own proven GoalInvert/GoalFollow retreat to any threat).
+// Corner-step-for-melee was considered and rejected: its whole value is breaking LINE OF SIGHT,
+// which a melee attacker's pathfinding doesn't need and routes around in normal time -- the
+// mechanism doesn't transfer, unlike FLEE_AWAY's genuine distance-gaining (sprint beats a
+// zombie's walk).
 //
 // v8 (#98): pick()'s FLEE_HOME routing chose on straight-line distance to home alone -- terrain,
 // water, or a cliff between here and home only surfaced after branchFleeHome had already
@@ -71,8 +93,10 @@
 //   CREEPER    creeper within 8                  -> open 10+ blocks (fuse aborts at 7), never swing
 //   BREAK_LOS  skeleton/stray/witch with LOS     -> corner-step or 2-cobble "arrow shadow";
 //                                                   fleeing a ranged mob in the open is the Bernd death
-//   FLEE_HOME  home <= 40 away, melee-only       -> sprint home, turn and hold with shield
-//   WALL_OFF   far / low HP / mixed threats      -> seal a coffin, eat to 18, regen, dig out away from the threat
+//   FLEE_HOME  home <= 40 away, melee-only, reachable -> sprint home, turn and hold with shield
+//   WALL_OFF   far / low HP / mixed threats, has filler -> seal a coffin, eat to 18, regen, dig out
+//   FIGHT_BACK no filler, threat already adjacent, weapon in hand -> swing back, no HP floor
+//   FLEE_AWAY  no filler, no fight worth taking      -> the floor: sprint away, no target needed
 //
 // Entry: __danger state -> 'panic' (score >= 5, or HP < 8, or creeper within 8), with a
 // health-listener backstop if dangerscan.js is not installed. 10s re-entry lockout — NOT
@@ -101,7 +125,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 8,
+  enabled: true, version: 9,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -544,11 +568,23 @@ const sweepNearbyFood = async (radius = 10) => {
 // BRANCH 3 — coffin: seal, eat, regen, dig out away from the threat.
 const branchWallOff = async (t) => {
   if (!fillerItem()) {
+    // test-driver's live #99 finding: this early bail never set `cannotHeal` on its result,
+    // so #92's standdown-arming check in enter() (`out.branch==='WALL_OFF' && out.cannotHeal`)
+    // never fired for it — a bot with zero filler AND hp<8 AND food stuck below regen (no
+    // food to eat) re-triggered `enter('hp')` as fast as the health listener fires, since
+    // `critical` (hp<8) bypasses the normal lockoutMs, and NOTHING here ever remembered the
+    // diagnosis. Live: 2060+ fires in a few minutes and climbing, no legal setProject-only
+    // recovery (the trigger itself cancels the only task that could fix its own cause — eat).
+    // `pick()`'s #96 redesign only ever reaches this path with `t` (the threat) already null
+    // (a real threat + no filler diverts to branchFightBack/branchFleeAway before this
+    // function is even called) — so `threatsNow()` is already guaranteed empty here, exactly
+    // matching cannotHeal's own precondition in the full seal path below. Setting it here
+    // closes the SAME gap #92 closed for the full-seal path, for this earlier bail-out too.
     pushLog('warn', 'kit_violation: no filler blocks for wall-off — carry 16+ cobble underground');
     say('! No cobble to wall in with. Kit rule broken - heading out the way I came.');
     const p0 = bot.entity.position;
     await ownedGoto(new goals.GoalNear(Math.floor(p0.x), Math.floor(p0.y), Math.floor(p0.z), 8), 8000);
-    return { branch: 'WALL_OFF', sealed: false, reason: 'no_filler' };
+    return { branch: 'WALL_OFF', sealed: false, reason: 'no_filler', cannotHeal: cannotHeal() };
   }
   say('! Walling myself in to patch up. Back shortly.');
   try { bot.pathfinder.setGoal(null); } catch (e) {}
@@ -691,6 +727,88 @@ const branchWallOff = async (t) => {
   };
 };
 
+// BRANCH 4 — fight back: the last resort BEFORE running, when the threat is already
+// adjacent and a weapon is in hand. #96: reuses BREAK_LOS's own proven counter-attack gate
+// (weapon held, live target, already at melee reach, not a creeper) but deliberately drops
+// its `health >= rushHp` floor — that floor exists there because declining to fight and
+// holding the shield is a genuinely SAFE alternative in that context. It is not here: this
+// branch only fires once WALL_OFF and FLEE_HOME have both already been ruled out (no
+// filler, HP too low, or home unreachable), so the honest alternative to fighting at HP
+// 0.33 is not "a safer option" — it is guaranteed continued unopposed damage, which is
+// exactly what killed a real fleet bot three times (#96, RotzRudi, 2026-09-02). A real
+// player facing that choice swings back.
+const canFightBack = (t) => {
+  const sword = bestSword();
+  const live = entOf(t);
+  const liveDist = live && live.position ? dist(bot.entity.position, live.position) : Infinity;
+  return Boolean(sword && live && live.isValid !== false && liveDist <= g.cfg.meleeReach && t.name !== 'creeper');
+};
+const branchFightBack = async (t) => {
+  const sword = bestSword();
+  say('! No wall, no room to run clean - fighting back.');
+  try {
+    if (sword) await bot.equip(sword, 'hand');
+    const live0 = entOf(t);
+    if (live0) bot.pvp.attack(live0);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 3000) {
+      await sleep(200);
+      const still = entOf(t);
+      if (!still || still.isValid === false) break;   // dead or despawned — we won
+      if (bot.health <= 0) break;
+    }
+  } catch (e) {} finally {
+    try { bot.pvp.stop(); } catch (e) {}
+  }
+  const live = entOf(t);
+  const killed = !live || live.isValid === false;
+  // didn't end it and we're still standing — running beats repeating a losing fight forever.
+  if (!killed && bot.health > 0) return { branch: 'FIGHT_BACK', killed: false, then: await branchFleeAway(t) };
+  return { branch: 'FIGHT_BACK', killed };
+};
+
+// BRANCH 5 — flee away: the absolute floor. #96: needs NO inventory (unlike WALL_OFF/
+// arrow-shadow), NO specific reachable target (unlike FLEE_HOME's home or corner-step's
+// qualifying cell) — the only thing it needs is that SOME direction has room to move,
+// strictly weaker than every other branch's own precondition, so `pick()` can always reach
+// a branch that can act. Generalizes `branchCreeper`'s own proven retreat mechanism
+// (maximize distance from a live entity via GoalInvert/GoalFollow, real pathfinding
+// handles obstacles automatically) rather than reimplementing dead-reckoning — #54's own
+// lesson (trust a proven navigation primitive over a bespoke one) applies here too.
+const branchFleeAway = async (t) => {
+  say('! Nothing left to fight or wall off with - running for it.');
+  const ent = entOf(t);
+  const mv = bot.pathfinder.movements;
+  const prevSprint = mv ? mv.allowSprinting : null;
+  try {
+    if (mv) { mv.allowSprinting = true; bot.pathfinder.setMovements(mv); }
+    const startD = ent && ent.position ? dist(bot.entity.position, ent.position) : 0;
+    if (ent) {
+      try { bot.pathfinder.setGoal(new goals.GoalInvert(new goals.GoalFollow(ent, 12)), true); } catch (e) {}
+    }
+    const t0 = Date.now();
+    let best = 0;
+    while (Date.now() - t0 < 8000) {
+      await sleep(250);
+      const live = entOf(t);
+      if (!live || !live.position) break;                       // despawned / died / lost us
+      const d = dist(bot.entity.position, live.position);
+      if (d > best) best = d;
+      if (d >= 12) break;
+      if (bot.health <= 0) break;
+      // cornered: no distance gained in 1.5s -> shield is the only remaining counter
+      if (Date.now() - t0 > 1500 && d <= startD + 0.5) { await shieldUp(live); }
+    }
+    const live = entOf(t);
+    const gained = Math.round((live && live.position ? dist(bot.entity.position, live.position) : best) * 10) / 10;
+    return { branch: 'FLEE_AWAY', gained, cornered: gained < 3 };
+  } finally {
+    try { bot.pathfinder.setGoal(null); } catch (e) {}
+    shieldDown();
+    if (mv && prevSprint !== null) { mv.allowSprinting = prevSprint; try { bot.pathfinder.setMovements(mv); } catch (e) {} }
+  }
+};
+
 // ================= ORCHESTRATION =================
 
 // #98: straight-line distance to home says nothing about whether a PATH exists — terrain, water,
@@ -730,6 +848,19 @@ const pick = async () => {
     : (!ts.length && dHome <= g.cfg.fleeHomeMax) ? null
     : undefined;
   if (fleeTarget !== undefined && (await homeReachable())) return branchFleeHome(fleeTarget);
+
+  // #96: WALL_OFF may only be chosen when it can actually seal something -- same "verify
+  // before deferring" discipline as #94/#98, applied to the fallback of last resort itself.
+  // With no filler, calling it anyway is a guaranteed no-op (branchWallOff's own no_filler
+  // early-return): a genuine live threat (`nearest` non-null) then gets an honest attempt
+  // instead — fight if the threat is already adjacent and a weapon is in hand, otherwise
+  // run. The `nearest === null` case ("hurt, no visible threat, far from home") is left
+  // routing to branchWallOff as before: nothing is actively landing hits during that no-op
+  // retreat, so it is harmless there and not the state #96 is about.
+  if (nearest && !fillerItem()) {
+    if (canFightBack(nearest)) return branchFightBack(nearest);
+    return branchFleeAway(nearest);
+  }
 
   return branchWallOff(nearest);
 };
@@ -878,7 +1009,9 @@ const branchFor = async (name, threat) => {
     case 'BREAK_LOS': return await branchBreakLOS(t || { name: 'skeleton', d: 10, ranged: true, los: true, id: null });
     case 'FLEE_HOME': return await branchFleeHome(t);
     case 'WALL_OFF': return await branchWallOff(t);
-    default: return { error: 'unknown branch', known: ['ENV', 'CREEPER', 'BREAK_LOS', 'FLEE_HOME', 'WALL_OFF'] };
+    case 'FIGHT_BACK': return await branchFightBack(t || { name: 'zombie', d: 2, ranged: false, id: null });
+    case 'FLEE_AWAY': return await branchFleeAway(t || { name: 'zombie', d: 3, ranged: false, id: null });
+    default: return { error: 'unknown branch', known: ['ENV', 'CREEPER', 'BREAK_LOS', 'FLEE_HOME', 'WALL_OFF', 'FIGHT_BACK', 'FLEE_AWAY'] };
   }
 };
 g.runBranch = async (name, threat) => {
@@ -923,7 +1056,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 8, boundAt: Date.now(), stale: false };
+REG.survival = { version: 9, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -934,10 +1067,10 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 8, home: g.home,
+  installed: true, version: 9, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
-  branches: ['ENV', 'CREEPER', 'BREAK_LOS', 'FLEE_HOME', 'WALL_OFF'],
+  branches: ['ENV', 'CREEPER', 'BREAK_LOS', 'FLEE_HOME', 'WALL_OFF', 'FIGHT_BACK', 'FLEE_AWAY'],
   replaces: 'panicguard.js',
 };
