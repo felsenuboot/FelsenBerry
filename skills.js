@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 47;
+const ENGINE_VERSION = 48;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -201,6 +201,27 @@ function goalDistance(pos, gp) {
   if (gp.y == null) return Math.sqrt(dx * dx + dz * dz);
   const dy = pos.y - gp.y;
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+// R2 (#54) recovery-candidate search, pure. Same discipline as the moveDetect hooks (#53):
+// "a rule testable only by staging the bug does not stay tested" — this is the piece of
+// _reposition that decides WHERE to go, extracted so a fixture can replay it against a
+// synthetic grid instead of needing a genuinely wedged live bot. Order matters (first match
+// wins) and is exposed as REPOSITION_OFFSETS so a fixture can assert the actual priority,
+// not just that SOME candidate was found.
+const REPOSITION_OFFSETS = [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [2, -2], [-2, 2]];
+function findRepositionTarget(bx, by, bz, blockAt, isProtectedFn) {
+  for (const [dx, dz] of REPOSITION_OFFSETS) {
+    for (let y = by + 1; y >= by - 3; y--) {
+      const below = blockAt(bx + dx, y - 1, bz + dz);
+      const feet = blockAt(bx + dx, y, bz + dz);
+      const head = blockAt(bx + dx, y + 1, bz + dz);
+      if (below && below.boundingBox === 'block' && feet && feet.boundingBox === 'empty'
+          && head && head.boundingBox === 'empty' && !isProtectedFn(below.position, below.name)) {
+        return { dx, dz, y, x: bx + dx + 0.5, z: bz + dz + 0.5 };
+      }
+    }
+  }
+  return null;
 }
 const SAPLING = (sp) => (sp === 'mangrove' ? 'mangrove_propagule' : sp + '_sapling');
 // mcData .drops is unreliable (most leaves report []) — hard-coded drop table:
@@ -642,6 +663,71 @@ function makeCtx(bot, task) {
       } catch (_) {}
       try { bot.setControlState('jump', false); bot.setControlState('back', false); } catch (_) {}
     },
+
+    // R2 (#54): break off the EXACT wedge cell toward a nearby safe standing cell, so a re-issued
+    // path starts from somewhere new. Dead-reckoning on purpose — NOT a sub-goto — so it can never
+    // recurse into this same recovery, and bounded to ~1.5s. Returns true if we actually displaced.
+    // A safe cell is: a solid floor with two empty cells above (standable), within a couple blocks,
+    // not a protected structure. digguard still vetoes any dig; this only walks, it never breaks.
+    async _reposition() {
+      const base = bot.entity.position.clone();
+      const bx = Math.floor(base.x), by = Math.floor(base.y), bz = Math.floor(base.z);
+      const cand = findRepositionTarget(bx, by, bz,
+        (x, y, z) => { try { return bot.blockAt(new Vec3(x, y, z)); } catch (_) { return null; } },
+        (pos, name) => ctx.isProtected(pos, name));
+      if (!cand) return false;
+      const target = new Vec3(cand.x, cand.y, cand.z);
+      try {
+        await bot.lookAt(target.offset(0, 1.0, 0), true);
+        bot.setControlState('forward', true);
+        bot.setControlState('jump', true);
+        const t0 = Date.now();
+        while (Date.now() - t0 < 1500 && bot.entity.position.distanceTo(target) > 1.2) {
+          ctx.step();
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      } catch (e) {
+        // #54-R2 review fix: everything but Cancelled is swallowed on purpose (this is
+        // best-effort dead-reckoning) — but Cancelled is ctx.step()'s preemption sentinel, and
+        // eating it here would let a dying reposition finish its 1.5s walk (clearing
+        // forward/jump in the finally below only at the END of that walk) instead of yielding
+        // immediately to whatever just preempted it, e.g. a survival flee. Same shape as #27.
+        if (e && e.cancelled) throw e;
+      } finally {
+        try { bot.setControlState('forward', false); bot.setControlState('jump', false); } catch (_) {}
+      }
+      return bot.entity.position.distanceTo(base) > 1.0;
+    },
+
+    // gotoR (#54): the ordered recovery WRAPPER around goto. goto already runs R0 (re-verify
+    // arrival) and R1 (_unstick x3) internally; when those exhaust it throws `stuck`. gotoR adds
+    // R2: reposition off the wedge cell and RE-ISSUE the goto from there, capped. Strictly
+    // additive — a non-`stuck` failure (no_path, timeout, Cancelled) re-throws unchanged, and once
+    // R2 is exhausted it throws the same `stuck` goto already would have. R6 relog / R7 tp are the
+    // agenda+runner rungs above this and are not this function's job.
+    //
+    // CRITICAL (eng-2's #53-author review point): the TOTAL wall-clock is bounded to timeoutMs, so
+    // R2's retries fit INSIDE the caller's budget rather than multiplying it. Without this, each
+    // retry resets #53's watchdog timers and time-to-give-up becomes ~3x the window + 3x the goto
+    // timeout — a 30s caller sitting 90s+, which would overrun caps sized for the old behaviour
+    // (the agenda's 180s ACT_TIMEOUT force-releasing an act mid-flight; restock's HAUL legs). It
+    // also stops multiplying #53's CALIBRATED-not-proven no-progress window by the retry count. So
+    // R2 gets its retries only when the budget has room; it NEVER stretches the contract.
+    async gotoR(goal, timeoutMs = 30000, r2Max = 2) {
+      const deadline = Date.now() + timeoutMs;
+      for (let attempt = 0; ; attempt++) {
+        const remaining = deadline - Date.now();
+        try { return await ctx.goto(goal, Math.max(1, remaining)); }
+        catch (e) {
+          // propagate unchanged on a non-stuck failure, exhausted retries, or too little budget
+          // left for a meaningful retry (a fresh attempt needs room to reach `stuck` again).
+          if ((e && e.code) !== 'stuck' || attempt >= r2Max || (deadline - Date.now()) < 4000) throw e;
+          pushLog('info', `recovery R2 (attempt ${attempt + 1}/${r2Max}): reposition + re-issue (${Math.round((deadline - Date.now()) / 1000)}s budget left)`);
+          try { const m = MET(); if (m && m.recovery) m.recovery('R2', attempt + 1); } catch (_) {}
+          await ctx._reposition();   // best-effort; retry the goto regardless (a fresh A* from here may route even if we barely moved)
+        }
+      }
+    },
     // Long-haul travel (movement-engines ss2.7). One A* over 200+ blocks of broken terrain
     // does not finish inside the think budget, and the far chunks are not loaded so the
     // geometry is literally unknown — that, not the movement engine, is why long hauls fail.
@@ -744,11 +830,11 @@ function makeCtx(bot, task) {
     },
 
     async gotoNear(p, range = 1, timeoutMs = 30000) {
-      return ctx.goto(new goals.GoalNear(p.x, p.y, p.z, range), timeoutMs);
+      return ctx.gotoR(new goals.GoalNear(p.x, p.y, p.z, range), timeoutMs);   // #54: R0-R2 recovery
     },
     // NEVER goals.GoalBreakBlock — broken in pathfinder 2.4.5 (bad ctor args + isEnd).
     async gotoSee(p, timeoutMs = 20000) {
-      return ctx.goto(new goals.GoalLookAtBlock(new Vec3(p.x, p.y, p.z), bot.world, { reach: 4.0 }), timeoutMs);
+      return ctx.gotoR(new goals.GoalLookAtBlock(new Vec3(p.x, p.y, p.z), bot.world, { reach: 4.0 }), timeoutMs);   // #54: R0-R2 recovery
     },
     // #70: is `p` actually pathable-to RIGHT NOW — by the SAME planner the real goto will use? A
     // getPathTo probe (a path SEARCH, no movement) so a skill/relocate can DROP a target it has no
@@ -1342,6 +1428,17 @@ S.moveDetect = {
     return Boolean(block && block.diggable && block.boundingBox === 'empty'
       && block.name !== 'air' && block.name !== 'cave_air' && block.name !== 'void_air');
   },
+};
+
+// Test hooks for the movement RECOVERY layer (#54, R2). Same discipline as moveDetect above:
+// findRepositionTarget is pure (an accessor function stands in for bot.blockAt), so a fixture
+// can replay _reposition's cell-selection against a synthetic local grid — proving the search
+// picks the right cell in the right priority order — without a live bot or a genuinely wedged
+// world. It proves the CANDIDATE SEARCH is correct; it does not and cannot prove that walking
+// to that cell actually resolves a real pathfinder wedge, which needs a live bot (see FEEDBACK).
+S.recoveryDetect = {
+  offsets: REPOSITION_OFFSETS.map((o) => o.slice()),
+  findRepositionTarget,
 };
 
 // The kit tier table, exported so the AGENDA can aim its maintenance rungs at the SAME
