@@ -3606,3 +3606,76 @@ record, this entry supersedes its light-level-trigger and pillar-exit claims wit
 shipped), felsenuboot/FelsenBerry#106 (new: dangerscan.js's `.light` field reads stuck/unreliable,
 separate from #104's raycast-budget finding and from #17 — cross-referenced both) — flagging for
 whoever owns dangerscan.js, since LIGHT/POSTURE (agenda.js) consume the same field.
+
+### 2026-09-02 engine-dev — #106 root-caused (not fixed): dangerscan's `.light` is time-invariant
+by construction, not a load bug — proposing skyLight+isDay composite, not touching dangerscan.js
+type: diagnosis + proposal (doctrine: argue before building, coordinate before touching another
+lane's file)
+status: root cause measured and explained, not just observed; fix proposed, awaiting eng-3's
+ack before any edit to dangerscan.js (their file, v5 canopy work in progress there right now)
+what: team-lead's #106 assignment — determine whether LIGHT/POSTURE are reading the same stuck
+value, root-cause it (mineflayer limitation vs load-order), propose the fix.
+
+**Confirmed on a REAL fleet-stack bot, not just my QA chunk.** Read-only `/eval` against
+Cnpy3102 (eng-3's live #102 bot, 2263 dangerscan scans already run — a long-lived, previously-
+explored chunk, not a freshly force-loaded one): `globalThis.__danger.light: 0`,
+`globalThis.__danger.skyLight: 15`, at real night (`bot.time.isDay:false`, `timeOfDay:17266`),
+surface-exposed. Identical shape to #105's own finding. Rules out "only happens on brand-new
+force-loaded terrain" as an explanation.
+
+**Root cause, precise rather than "stuck":** re-read `dangerscan.js`'s own `lightInfo()`
+(~line 105-160) — the exact bug class is ALREADY DOCUMENTED there, by a different name, since
+issue #18 (marcel-driver): "a single light sample is NOT trustworthy... the server's light
+packets simply go stale." `surfaceExposed` was hardened against exactly this (sky>0, falling
+back to a real geometry column-scan when the sky read is null/stale) — but `light` itself
+(`Math.max` of three raw `b.light` samples, line 148) was NEVER given the same treatment. It is
+returned as-read, unconditionally, straight into `agenda.js`'s `LIGHT`/`POSTURE` thresholds.
+
+**Why "stale packets" rather than a bug in this file's own code, precisely**: combined with
+#105's own confirmed finding that raw `skyLight` is TIME-INVARIANT geometry (a fact about
+Minecraft's lighting model, not a mineflayer defect — the stored per-block skyLight nibble
+answers "how exposed to open sky is this column", full stop, and does not itself vary with
+time of day), this means the EFFECTIVE, time-of-day-adjusted brightness a player experiences at
+night is not a value the server transmits per-block at all — it's derived from skyLight +
+current time + moon phase at the point something (mob spawning, rendering) needs it, computed
+server-side or client-side from raw ingredients, not stored and pushed as its own packet field.
+`bot.blockAt(pos).light` in mineflayer appears to reflect whatever COMBINED light value the
+server last actually pushed for that block (a real, but occasional, event — chunk load, a
+nearby block change) — and since a pure passage of time changes nothing about the STORED
+values (skyLight doesn't change, and nothing else about that block changed either), no new
+packet gets sent, so mineflayer's cached `.light` for an already-loaded, geometrically-static
+block simply never updates across a day/night transition. **Best characterization: not a load-
+order bug and not exactly "prismarine-world doesn't compute light" — it is asking the wrong
+question of the protocol.** There is no single field that answers "how bright is it right now,
+accounting for time of day" for an already-loaded chunk; one has to be composed.
+
+**Consequence for LIGHT/POSTURE, stated as a hypothesis pending eng-3's own measurement, not a
+confirmed field bug**: if `s.light` is this same time-invariant/stale-packet value fleet-wide,
+`LIGHT` (`s.light < 8`) has likely been keying off whichever combined-light value happened to
+be cached when each chunk first loaded — for an outdoor bot that's often near-zero-at-load
+(matching what both Cnpy3102 and ShltrQA show), meaning LIGHT may be firing far more often than
+real darkness warrants, independent of actual time of day. Consistent with, though not proven
+to be the sole cause of, this file's own standing "torch over-placement is a non-issue" doctrine
+(basekeeping.js) — this could be WHY there's more over-placement to shrug off than a purely
+correct signal would produce, not just #17's narrower "next to a fresh torch" case. Framed as a
+hypothesis, not a diagnosis of LIGHT/POSTURE's own code, since I did not trace their call sites
+myself this session — that's the next step, and belongs with whoever owns agenda.js.
+
+**Proposed fix (not built, not applied — dangerscan.js is eng-3's file, mid-edit right now for
+#102): a skyLight + isDay composite, replacing the raw `.light` read for anything that wants
+"is it dark right now."** Concretely: `effectiveLight = surfaceExposed ? (isDay ? skyLight :
+0) : rawBlockLight` — on the surface, trust the reliable `skyLight` (geometry, confirmed
+correct via `getSkyLight`/`.skyLight` in both this and #105's testing) gated by the reliable
+`bot.time.isDay` (confirmed correct, updates immediately, #105's own fix); underground/enclosed
+(`surfaceExposed:false`), skyLight is meaningless by definition (correctly near 0 whether it's
+day or night down there) so fall back to the raw block-light read, which basekeeping.js's own
+doctrine already treats as good enough for torch-source detection specifically (the failure
+mode there is narrower and already accepted as a non-issue). This exactly mirrors #105's own
+fix (same two reliable primitives, same reasoning) rather than inventing a new approach.
+**Not proposing a real light re-query** (e.g. forcing a chunk re-request) — heavier, and would
+still run into the same underlying fact that no server packet directly answers the composed
+question; composing client-side from two already-reliable reads is cheaper and sufficient.
+
+fix: n/a — proposal only, per team-lead's explicit instruction to coordinate with eng-3 before
+touching dangerscan.js. Ack requested before this or anyone builds it.
+github: felsenuboot/FelsenBerry#106 (root cause + proposed fix posted as a comment)
