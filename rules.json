@@ -1,1 +1,10 @@
-{}
+{
+  "project_done|none|none|0": { "skill": "chopTrees", "args": { "count": 2 }, "next": { "skill": "chopTrees", "args": { "count": 2 } } },
+  "unproductive_idle|none|none|0": { "skill": "chopTrees", "args": { "count": 2 }, "next": { "skill": "chopTrees", "args": { "count": 2 } } },
+  "unproductive_idle|none|none|1-2": { "skill": "chopTrees", "args": { "count": 2 }, "next": { "skill": "chopTrees", "args": { "count": 2 } } },
+  "unproductive_idle|none|none|3-9": { "skill": "chopTrees", "args": { "count": 2 }, "next": { "skill": "chopTrees", "args": { "count": 2 } } },
+  "unproductive_idle|none|none|10+": { "skill": "chopTrees", "args": { "count": 2 }, "next": { "skill": "chopTrees", "args": { "count": 2 } } },
+  "project_blocked|none|no_path|0": { "skill": "ascendToSurface", "args": {} },
+  "project_blocked|none|unreachable|0": { "skill": "ascendToSurface", "args": {} },
+  "project_blocked|none|stuck|0": { "skill": "ascendToSurface", "args": {} }
+}

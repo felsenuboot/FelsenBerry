@@ -19,8 +19,16 @@
 //   4. rules.json FIRST (key = why|role|lastError|barrenBucket) — a hit dispatches at zero
 //      tokens, the codicil's whole point.
 //   5. On a miss: rate gates (per-bot >=120s, fleet 30/hr, both persisted) -> compact context
-//      from /state (+ the live skill registry, fetched via /eval) -> ONE claude-haiku-4-5 call
-//      -> validate the returned skill (and next.skill) against the REAL registry -> dispatch.
+//      from /state (+ the live skill registry, fetched via /eval) -> ONE Andy-via-Ollama call
+//      -> map Andy's native !command(args) dialect onto the REAL registry (deterministic,
+//      closed vocabulary -- see mapAndyCommand) -> dispatch. Felix's ruling (2026-09-02)
+//      supersedes the original Anthropic-API-key plan: Andy (sweaterdog/andy-4:micro-q8_0,
+//      served CPU-pinned via local Ollama as andy-cpu:latest) is zero-marginal-cost and was
+//      always the intended long-term backend (memory: minecraft-llm-backend-plan). Andy is
+//      fine-tuned on mindcraft-ce's own command dialect and ignores a bare-JSON format
+//      constraint (smoke test: asked for JSON, replied `!searchForBlock("oak_log", 32)`), so
+//      the prompt offers that dialect back rather than fighting the model's own distribution --
+//      registry validation + retry-once-then-skip stays the backstop, same as the Haiku design.
 //   6. Dispatch: POST /eval __agenda.dirDispatch(eid, {...decision, by:'decider'}) — the eid
 //      compare-and-set (agenda.js §1.1j) makes a driver's own answer win the race for free; a
 //      decider dispatch against a stale/already-answered eid is a harmless no-op.
@@ -36,7 +44,6 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const https = require('https');
 
 const SELF_DIR = __dirname;
 const PIDS_DIR = path.join(SELF_DIR, 'pids');
@@ -49,9 +56,12 @@ const PID_FILE = path.join(PIDS_DIR, 'decider.pid');
 const POLL_MS = 20000;
 const DRIVER_GRACE_MS = 60000;
 const PER_BOT_MIN_GAP_MS = 120000;
-const FLEET_CAP_PER_HOUR = 30;
+const FLEET_CAP_PER_HOUR = 30;             // CPU contention is the new budget, not dollars -- cap stays (Felix's ruling)
 const HANDLED_TTL_MS = 86400000;          // prune decider-state.json's dedup map after 24h
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+const LLM_MISS_RETRY_LIMIT = 2;           // retry-once-then-skip: 2 unusable Andy replies gives up on that episode
+const OLLAMA_HOST = process.env.OLLAMA_HOST || '127.0.0.1';
+const OLLAMA_PORT = parseInt(process.env.OLLAMA_PORT || '11434', 10);
+const ANDY_MODEL = process.env.ANDY_MODEL || 'andy-cpu:latest';   // andy8-cpu:latest is the bigger sibling if micro proves too dumb
 
 const log = (m) => console.log(`[${new Date().toISOString()}] ${m}`);
 
@@ -148,7 +158,7 @@ function fleetCapOk() {
 }
 function recordFleetCall() { state.fleetCalls = state.fleetCalls || []; state.fleetCalls.push(Date.now()); }
 
-// ---- context + the ONE Haiku call ----
+// ---- context ----
 async function buildContext(b, st) {
   let skills = [];
   try {
@@ -157,55 +167,157 @@ async function buildContext(b, st) {
   } catch (e) { log(`${b.name}: could not fetch skill registry: ${e.message}`); }
   return { state: st, skills };
 }
-function buildPrompt(ctx) {
+
+// ---- Andy's native dialect -> our skill registry ----
+// Standalone copies of the engine's own vocabulary (decider.js is never a payload, no
+// cross-process import -- same discipline farmskills.js documents for its own copies).
+const SPECIES_LIST = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cherry', 'pale_oak', 'mangrove'];
+const ORE_ALIASES_LIST = {
+  iron_ore: ['iron_ore', 'deepslate_iron_ore'], gold_ore: ['gold_ore', 'deepslate_gold_ore'],
+  copper_ore: ['copper_ore', 'deepslate_copper_ore'], coal_ore: ['coal_ore', 'deepslate_coal_ore'],
+  diamond_ore: ['diamond_ore', 'deepslate_diamond_ore'], emerald_ore: ['emerald_ore', 'deepslate_emerald_ore'],
+  lapis_ore: ['lapis_ore', 'deepslate_lapis_ore'], redstone_ore: ['redstone_ore', 'deepslate_redstone_ore'],
+};
+const UBIQUITOUS_LIST = ['stone', 'deepslate', 'dirt', 'netherrack', 'cobblestone', 'grass_block', 'sand', 'gravel'];
+const PRODUCE_RESOURCES = new Set(['torch', 'cobblestone', 'coal', 'stick', 'crafting_table']);
+
+function normalizeBlockArg(raw) { return String(raw || '').trim().replace(/^["']|["']$/g, '').toLowerCase(); }
+function stripLogSuffix(name) { return name.replace(/_log$/, '').replace(/_wood$/, ''); }
+
+// Curated, deterministic, closed. Andy-4-micro is fine-tuned on mindcraft-ce's !command(args)
+// syntax; the prompt below offers it a SMALL menu drawn from that same syntax (not its full
+// ~30-command vocabulary) so it answers inside its own training distribution, and this maps
+// that answer back onto our real skill params. Anything it says outside this menu, or whose
+// args don't resolve to something recognizable, is a MISS -- returned as null, never guessed.
+function mapAndyCommand(cmd, argStrs) {
+  const num = (s, dflt) => { const n = parseInt(String(s || '').trim(), 10); return Number.isFinite(n) ? n : dflt; };
+  if (cmd === 'goToSurface') return { skill: 'ascendToSurface', args: {} };
+  if (cmd === 'searchForBlock' || cmd === 'collectBlocks') {
+    const block = normalizeBlockArg(argStrs[0]);
+    const n2 = num(argStrs[1], null);
+    const species = stripLogSuffix(block);
+    if (SPECIES_LIST.includes(species)) {
+      const args = { types: [species] };
+      if (cmd === 'searchForBlock') args.maxDist = n2 || 32; else args.count = n2 || 4;
+      return { skill: 'chopTrees', args };
+    }
+    const oreKey = Object.keys(ORE_ALIASES_LIST).find((k) => ORE_ALIASES_LIST[k].includes(block)) || null;
+    if (oreKey || UBIQUITOUS_LIST.includes(block)) {
+      const args = { target: oreKey || block };
+      if (cmd === 'searchForBlock') args.maxDist = n2 || 32; else args.count = n2 || 4;
+      return { skill: 'mineLane', args };
+    }
+    return null;
+  }
+  if (cmd === 'craftRecipe') {
+    const item = normalizeBlockArg(argStrs[0]);
+    const n2 = num(argStrs[1], 16);
+    if (PRODUCE_RESOURCES.has(item) || /_planks$/.test(item)) return { skill: 'produce', args: { resource: item, count: n2 } };
+    return null;
+  }
+  if (cmd === 'attack') {
+    const species = normalizeBlockArg(argStrs[0]);
+    if (species && species !== 'player') return { skill: 'huntAnimals', args: { species: [species] } };
+    return null;
+  }
+  return null;
+}
+function parseAndyResponse(raw) {
+  if (!raw) return null;
+  const m = /!([A-Za-z_][A-Za-z0-9_]*)\(([^)]*)\)/.exec(raw);
+  if (!m) return null;
+  return { cmd: m[1], argStrs: m[2].trim() ? m[2].split(',').map((x) => x.trim()) : [] };
+}
+const SITUATIONS = {
+  unproductive_idle: 'has been idle with no clear task for a while',
+  project_stalled: 'has a project that stopped making progress',
+  no_path: 'is stuck -- no path found to its goal',
+  no_tool: 'lacks a tool it needs',
+};
+// A bare closed-menu instruction ("reply with exactly one of these five") did NOT reliably hold
+// Andy-4-micro to the menu in smoke testing -- it answers from its own ~30-command fine-tuned
+// vocabulary regardless (e.g. `!moveAway(10)`, `!goToPlayer(...)`, `!newAction(...)`, or plain
+// chat with no `!command` at all). A one-shot example in its OWN dialect measurably improved
+// compliance on the matching case. This is expected to stay imperfect -- misses are logged with
+// raw text (not guessed into a dispatch) precisely so the mapping in mapAndyCommand can widen
+// over time from what Andy actually says, per Felix's "study the dialect" instruction.
+function buildAndyPrompt(ctx) {
   const s = ctx.state;
   const a = s.agenda || {};
   const d = a.direction || {};
   return [
-    'You are the deterministic-first fleet decider for a Minecraft autonomous-bot engine.',
-    'A bot has no direction (an "episode" is open) and needs exactly ONE new project set.',
-    'The engine spends zero tokens normally; you are the metered exception for this one decision.',
+    `You are ${s.name}, a Minecraft bot deciding your next action.`,
+    `Stats: health: ${s.health}, hunger: ${s.food}`,
+    'Available commands:',
+    '!goToSurface() - dig upward to open sky',
+    '!searchForBlock(block_name, distance) - go mine the nearest block of this type',
+    '!collectBlocks(block_name, count) - mine several blocks of this type nearby',
+    '!craftRecipe(item_name, count) - craft this item',
+    '!attack(animal_name) - hunt this animal',
     '',
-    `Bot: ${s.name}  role: ${s.role || 'none'}  hp:${s.health} food:${s.food}`,
-    `Position: ${JSON.stringify(s.position)}`,
-    `Episode reason (why): ${d.why}`,
-    `Current project: ${a.project || 'none'}  blocked: ${a.blocked || 'none'}`,
-    `Available skills (choose ONLY a name from this exact list): ${ctx.skills.join(', ')}`,
+    'Example:',
+    'Situation: has been idle with no clear task for a while',
+    'Response: !searchForBlock("oak_log", 32)',
     '',
-    'Reply with ONLY a single JSON object, no prose, no markdown code fences:',
-    '{"skill": "<one of the available skills>", "args": {...skill params...}, "repeat": <bool, optional>, "next": {"skill": "<name>", "args": {...}} (optional but recommended -- staging a next project lets the NEXT completion promote at zero tokens)}',
+    `Situation: ${SITUATIONS[d.why] || d.why || 'needs a new task'}`,
+    'Response:',
   ].join('\n');
 }
-async function askHaiku(ctx) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) { log('ANTHROPIC_API_KEY not set -- cannot call Haiku, skipping this decision (graceful degradation: the IDLE floor keeps the bot productive; the episode stays open for the next poll or a driver)'); return null; }
-  const prompt = buildPrompt(ctx);
-  const body = JSON.stringify({ model: HAIKU_MODEL, max_tokens: 300, messages: [{ role: 'user', content: prompt }] });
+
+// Guard inherited from mindcraft-ce/andy-start.sh: refuse the LLM path if Ollama has offloaded
+// ANDY_MODEL onto the GPU (andy-cpu must stay CPU-pinned). Not loaded yet is NOT a failure --
+// there's nothing to check until the first call loads it; a request/parse hiccup fails open
+// (`ok:true`) rather than blocking the whole soak on an ops-check the real /api/chat call would
+// surface anyway.
+function checkCpuPinned() {
   return new Promise((resolve) => {
-    const req = https.request({
-      host: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01',
-        'Content-Length': Buffer.byteLength(body) },
-      timeout: 20000,
-    }, (res) => {
+    const req = http.get({ host: OLLAMA_HOST, port: OLLAMA_PORT, path: '/api/ps', timeout: 5000 }, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => {
         try {
           const j = JSON.parse(data);
-          const text = j.content && j.content[0] && j.content[0].text;
-          if (!text) { log('haiku call: no text in response: ' + data.slice(0, 200)); return resolve(null); }
-          // strip an accidental markdown fence — the prompt asks for bare JSON, but don't
-          // let a stray ```json wrapper turn a real answer into a discarded one
-          const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-          resolve(JSON.parse(cleaned));
-        } catch (e) { log('haiku response parse failed: ' + e.message); resolve(null); }
+          const m = (j.models || []).find((mm) => mm.name === ANDY_MODEL || mm.model === ANDY_MODEL);
+          if (!m) return resolve({ ok: true, loaded: false });
+          resolve({ ok: (m.size_vram || 0) === 0, loaded: true, vram: m.size_vram || 0 });
+        } catch (e) { resolve({ ok: true, loaded: false }); }
       });
     });
-    req.on('error', (e) => { log('haiku call failed: ' + e.message); resolve(null); });
-    req.on('timeout', () => { req.destroy(); log('haiku call timed out'); resolve(null); });
+    req.on('error', () => resolve({ ok: true, loaded: false }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: true, loaded: false }); });
+  });
+}
+async function askAndy(ctx) {
+  const guard = await checkCpuPinned();
+  if (!guard.ok) {
+    log(`ABORT LLM path: ${ANDY_MODEL} size_vram=${guard.vram} (>0, on GPU) -- fix the model pin before spending another call`);
+    return { decision: null, raw: null, aborted: 'gpu_pinned' };
+  }
+  const prompt = buildAndyPrompt(ctx);
+  const body = JSON.stringify({ model: ANDY_MODEL, messages: [{ role: 'user', content: prompt }], stream: false });
+  const raw = await new Promise((resolve) => {
+    const req = http.request({
+      host: OLLAMA_HOST, port: OLLAMA_PORT, path: '/api/chat', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 30000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        try { const j = JSON.parse(data); resolve((j.message && j.message.content) || null); }
+        catch (e) { log('andy response parse failed: ' + e.message); resolve(null); }
+      });
+    });
+    req.on('error', (e) => { log('andy call failed: ' + e.message); resolve(null); });
+    req.on('timeout', () => { req.destroy(); log('andy call timed out'); resolve(null); });
     req.write(body); req.end();
   });
+  if (!raw) return { decision: null, raw: null };
+  const parsed = parseAndyResponse(raw);
+  if (!parsed) { log(`${ctx.state.name}: no !command() found in Andy's reply: ${raw.slice(0, 200)}`); return { decision: null, raw }; }
+  const mapped = mapAndyCommand(parsed.cmd, parsed.argStrs);
+  if (!mapped) { log(`${ctx.state.name}: Andy's '!${parsed.cmd}(...)' didn't map to a known skill -- discarding, not dispatching garbage`); return { decision: null, raw }; }
+  return { decision: mapped, raw };
 }
 
 function appendDecision(rec) {
@@ -232,7 +344,7 @@ async function handleBot(b, rules) {
   const role = st.role || null;
   const key = ruleKey(dir, role);
   const rule = rules[key];
-  let decision = null, src = null, decisionLatencyMs = null;
+  let decision = null, src = null, decisionLatencyMs = null, raw = null;
 
   if (rule) {
     decision = rule; src = 'rule'; decisionLatencyMs = 0;
@@ -246,13 +358,27 @@ async function handleBot(b, rules) {
     }
     const ctx = await buildContext(b, st);
     const t0 = Date.now();
-    const llm = await askHaiku(ctx);
+    const { decision: mapped, raw: rawOut, aborted } = await askAndy(ctx);
+    if (aborted) return;   // guard blocked before any inference ran -- no rate/cap charge, no decisions.jsonl noise; the console warning is the ops signal
     state.lastCallAt = state.lastCallAt || {}; state.lastCallAt[b.name] = Date.now();
     recordFleetCall();
-    if (!llm || typeof llm.skill !== 'string') { log(`${b.name}: no usable decision from Haiku for episode ${eid}`); return; }
-    if (!ctx.skills.includes(llm.skill)) { log(`${b.name}: Haiku picked unknown skill '${llm.skill}' -- discarding, not dispatching garbage`); return; }
-    if (llm.next && (!llm.next.skill || !ctx.skills.includes(llm.next.skill))) delete llm.next;
-    decision = llm; src = 'llm'; decisionLatencyMs = Date.now() - t0;
+    const llmLatencyMs = Date.now() - t0;
+    if (!mapped || typeof mapped.skill !== 'string' || !ctx.skills.includes(mapped.skill)) {
+      // logged with the RAW model output regardless of outcome (#68 Phase 3 dialect-study ask) --
+      // a rule/llm miss used to vanish into a console line only; now it's in decisions.jsonl too.
+      state.llmMisses = state.llmMisses || {};
+      state.llmMisses[dedupKey] = (state.llmMisses[dedupKey] || 0) + 1;
+      appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key, src: 'llm', decision: null,
+        raw: (rawOut || '').slice(0, 500), latency_ms: llmLatencyMs, dispatchOk: false, dispatchError: 'unmapped_or_unparsed' });
+      if (state.llmMisses[dedupKey] >= LLM_MISS_RETRY_LIMIT) {
+        state.handled[dedupKey] = Date.now();   // retry-once-then-skip: give up, the IDLE floor/driver/a future rule takes it from here
+        log(`${b.name}: giving up on episode ${eid} after ${LLM_MISS_RETRY_LIMIT} unusable Andy replies`);
+      } else {
+        log(`${b.name}: no usable decision from Andy for episode ${eid} (attempt ${state.llmMisses[dedupKey]}/${LLM_MISS_RETRY_LIMIT})`);
+      }
+      return;
+    }
+    decision = mapped; src = 'llm'; decisionLatencyMs = llmLatencyMs; raw = (rawOut || '').slice(0, 500);
   }
 
   let dispatchOk = false, dispatchError = null;
@@ -267,7 +393,7 @@ async function handleBot(b, rules) {
   // (e.g. the episode closed itself in the meantime -- a driver answered first) is still
   // "handled" for this eid; retrying would just re-derive the same stale-eid no-op forever.
   state.handled[dedupKey] = Date.now();
-  appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key, src, decision, latency_ms: decisionLatencyMs, dispatchOk, dispatchError });
+  appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key, src, decision, raw, latency_ms: decisionLatencyMs, dispatchOk, dispatchError });
   log(`${b.name}: ${src} decision for '${dir.why}' -> ${decision.skill} (dispatch ${dispatchOk ? 'ok' : 'FAILED: ' + dispatchError})`);
 }
 
@@ -297,7 +423,9 @@ process.on('exit', cleanupPid);
 process.on('SIGINT', () => { cleanupPid(); process.exit(0); });
 process.on('SIGTERM', () => { cleanupPid(); process.exit(0); });
 
-log(`decider.js starting -- poll every ${POLL_MS / 1000}s, driver grace ${DRIVER_GRACE_MS / 1000}s, fleet cap ${FLEET_CAP_PER_HOUR}/hr, model ${HAIKU_MODEL}`);
-if (!process.env.ANTHROPIC_API_KEY) log('WARNING: ANTHROPIC_API_KEY is not set -- rule.json hits will still dispatch, but every rule MISS will be a no-op until it is set');
+log(`decider.js starting -- poll every ${POLL_MS / 1000}s, driver grace ${DRIVER_GRACE_MS / 1000}s, fleet cap ${FLEET_CAP_PER_HOUR}/hr, model ${ANDY_MODEL} via ${OLLAMA_HOST}:${OLLAMA_PORT}`);
+checkCpuPinned().then((g) => {
+  if (g.loaded && !g.ok) log(`WARNING: ${ANDY_MODEL} is already loaded with size_vram=${g.vram} (on GPU) -- the LLM path will refuse to call until this is fixed; rule.json hits are unaffected`);
+});
 setInterval(() => { pollOnce().catch((e) => log('poll cycle error: ' + e.message)); }, POLL_MS);
 pollOnce().catch((e) => log('initial poll error: ' + e.message));
