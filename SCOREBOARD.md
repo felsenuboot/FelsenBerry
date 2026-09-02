@@ -1186,7 +1186,7 @@ per team-lead's queue order (soak #4 first, run #6 launches after unless told ot
 **Race book v2** (this file, immediately above) — v1 is superseded for this run.
 
 Fresh never-used crude name reserved: **MuffelManfred** (checked against `pids/*.meta`, both
-`usercache.json`s at `../localserver` and `../localserver-race`, and `logs/*.log` — clean on all
+`usercache.json`s at `~/minecraft/localserver` and `~/minecraft/localserver-race`, and `logs/*.log` — clean on all
 three).
 
 Race server `127.0.0.1:25600` confirmed DOWN at prep time (2026-09-02, post-wind-down check) — will
