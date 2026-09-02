@@ -104,7 +104,11 @@ function discoverBots() {
     let owner = null;
     try {
       const meta = fs.readFileSync(path.join(PIDS_DIR, name + '.meta'), 'utf8').trim();
-      owner = (meta.split('|')[0] || '').trim() || null;
+      // spawn.sh writes the literal string "unowned" (not an empty field) when no OWNER is
+      // given -- treat that sentinel as no owner, or every driverless bot would wait out the
+      // 60s driver grace this daemon's own header comment promises it never gets.
+      const rawOwner = (meta.split('|')[0] || '').trim();
+      owner = (rawOwner && rawOwner !== 'unowned') ? rawOwner : null;
     } catch (e) {}
     bots.push({ name, port, owner });
   }
