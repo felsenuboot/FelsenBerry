@@ -2923,3 +2923,60 @@ separate follow-ups.
 fix: n/a — confirming already-landed work + regression analysis, no new code from this entry.
 github: felsenuboot/felcrew-mcp#99 (confirmed fixed, live in commit 5999820), cross-reference #92, #96,
 #100
+
+### 2026-09-02 engine-dev — Soak #3 graded: FAIL, catastrophic — named suspect confirmed and narrowed to the exact line
+type: grading + finding
+status: --direction-gate verdict written (bench/gates/direction-soak3.json); named suspect traced precisely
+via a real ledger and a read-only live diagnostic, filed as its own issue
+what: formal grade of soak #3 (Direction Episodes Phase-3 acceptance RETRY, MatschMoritz/3106,
+127.0.0.1:25599, main@current with #96/#99 landed, --agenda), window 2026-09-02T17:55:58.473Z to
+18:55:58.473Z exactly, SOAK_BOT exemption confirmed noted per its own decisions.jsonl records.
+
+**VERDICT: FAIL, and badly** — SR (verified) **1.5%** [0.6%-3.7%] n=271 (soak #1 was 85.7%, soak #2 was
+85.7% too), outcomes `error:178 wedge:89 ok:4` — only 4 successful task completions in the entire hour.
+1 episode never closed (`dmtkgf01i10`, `project_stalled`, only 3min old at window's last-seen timestamp —
+likely still mid-decider-attempt rather than a dead-consumer like soak #2's, given the window closed right
+as it opened). Latency p50 205s / p90 224s — both miss target badly (vs. soak #1/#2's ~64s/~69s), a real,
+large regression in this specific metric, not a borderline miss. Decider: 17 decisions, only 5.9%
+rule-hit (94.1% LLM-consulted — much higher LLM load than prior soaks, since nothing in rules.json matches
+this failure's shape), Andy usability 31.3%, LLM calls/hr 17.0 (under the 30/hr cap). `closedBy`:
+decider:6(66.7%) **decider_exhausted:3(33.3%)** — the #99 `dirClose` fix (landed in commit 5999820, the
+same commit as #96) firing for real, three separate times, exactly as designed: episodes that would have
+rotted open forever pre-#99 instead closed cleanly and (per the `interventions` list) two of the three
+show a `dirDispatch`/`dirClose` pair from the decider genuinely working the ladder. **#99 is proven
+functioning correctly in this exact graded soak, independent of everything else that went wrong.**
+
+**Named suspect, confirmed exactly and more precisely than the working hypothesis**: `177x error
+ensureTool at -17,111,8 code:acquisition_failed` — one position, repeating for the entire hour. Pulled
+the literal `msg` field (matches Felix's own live screenshot verbatim): `"could not acquire sword:
+tier:payable:wooden_sword | depot:minerals:none | depot:wood:none | planks:6 | craft:no crafting table
+in reach and could not place one (already holding one — not re-crafting)"`, with `held:
+{"name":"crafting_table","count":1}` on every single record. **This is NOT the stick-intermediate
+checker/executor mismatch team-lead's working hypothesis named going in — it's specifically that the bot
+is holding a crafting table for the entire hour and the code never re-attempts placing it.** Traced to
+the exact lines (skills.js ~2189-2199, `craftToolChain`): the `alreadyHolding()` guard that correctly
+prevents crafting a SECOND pointless table (a real, documented fix from an earlier NacktNorbert/#84
+investigation, whose own comment already predicted this exact failure shape needed "a live geometry
+reproduction... before designing" a fix — this soak IS that reproduction) also, as an unintended side
+effect, prevents ever RE-ATTEMPTING placement of the table already held. One failed `placeCarriedTable()`
+call, and the gate is permanently closed for as long as the bot revisits this spot.
+
+**Read-only live diagnostic, post-window (does not touch the graded verdict)**: replayed
+`placeCarriedTable`'s own exact candidate/face-filter logic against the live, still-connected bot — a
+valid placement candidate genuinely exists at this position (`(-17,108,4)`, air with a solid `grass_block`
+floor, no overhang/water/anything exotic). So the candidate-selection MATH isn't the bug; the likely
+culprit is `bot.placeBlock()`'s own runtime reliability, which this codebase already has an open,
+cross-referenced concern about (#54's roadmap: "placeBlock (#19)... the flakiest primitive in the stack").
+Not confirmed by an actual placement attempt (kept this diagnosis strictly read-only). Filed as **#101**
+with the full trace and three suggested directions, cross-referencing #84 (a related but mechanically
+different class — that one is idle bots never trying, this is an active attempt whose one placement try
+is never retried).
+
+**RESTOCK itself also wedged 88 times at the identical position** (`wedge restock at -17,111,8`) —
+consistent with the same underlying gate: RESTOCK correctly keeps trying to fix the kit shortfall (no
+thrash in the ladder-coverage sense — `100% [97.9-100%]` firing-rung share, RESTOCK:90 TOOL:89 EAT:3, a
+CLEAN split of effort, not oscillation), it just can never succeed because the one action that would fix
+it (place the held table) never gets attempted a second time.
+fix: n/a — grading + diagnosis. bench/gates/direction-soak3.json (written verdict).
+github: felsenuboot/felcrew-mcp#68 (posted), felsenuboot/felcrew-mcp#101 (new, the exact bug), #99 (cross-
+reference — proven working correctly in this same soak), #84 (cross-reference, related class)
