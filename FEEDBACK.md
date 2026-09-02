@@ -2105,3 +2105,16 @@ RESULTS:
 **SEPARATE, more urgent finding surfaced by this**, outside #93's own scope but worth flagging loudly: **both live runs saw the bot reach severe near-death** — 0.33 HP and 0.17 HP respectively, worse than this fixture's own previously-recorded worst case (1.83 HP, cited in its own header comment as the reason the hpMin<6 check exists at all). Rung sequences (`REFLEX IDLE REFLEX IDLE POSTURE REFLEX IDLE REFLEX IDLE`) show REFLEX repeatedly firing and clearing while a single skeleton stayed engaged — consistent with BREAK_LOS's OWN documented pre-existing weakness (this file's #65 header notes: "BREAK_LOS can end a run reporting 'recovered' while the threat is still adjacent"), not anything touched by #92's fix (which only changed WALL_OFF and the orchestration standdown gate, never BREAK_LOS itself). Both fixture runs correctly FAILED on the hpMin<6 criterion — the fixture's own doctrine ("a near-death is not a pass on its own") worked exactly as designed and caught a real, sharp near-death both times. Flagging rather than root-causing further (out of scope for this audit and the soak-grading clock): worth a dedicated follow-up on whether BREAK_LOS's repeated-engagement handling has gotten WORSE, or these two runs were just unlucky RNG against a single aggressive skeleton — 2 data points is not enough to tell.
 fix: n/a — audit + verification only, no code change from this entry (#93's own fix already landed per engine-dev-3's commit).
 github: felsenuboot/felcrew-mcp#93 (audit posted, recommend closing); new near-death observation not yet filed as its own issue — recommend one if a third occurrence confirms it's not RNG.
+
+### 2026-09-02 engine-dev — #94 filed: BREAK_LOS/FLEE_HOME "recovered while still engaged" near-deaths, 3 sightings today
+type: cross-reference
+status: filed per team-lead's ruling (do not leave a same-day, multi-sighting near-death finding
+sitting as a FEEDBACK-flag)
+what: the BREAK_LOS point-blank death and FLEE_HOME close-range death from #92's own verification
+session, plus the two induced-stress-sequencing.sh near-deaths (0.33/0.17 HP) from the #93 audit
+entry above, are all the same documented pre-existing weakness (survival.js's own v5/#65 header:
+"BREAK_LOS can end a run reporting 'recovered' while the threat is still adjacent"), not a #92
+regression (#92 never touched BREAK_LOS/FLEE_HOME). Filed as its own issue with full evidence rather
+than waiting for a third induced-stress-sequencing.sh run.
+fix: n/a — finding filed, not fixed.
+github: felsenuboot/felcrew-mcp#94 (new)
