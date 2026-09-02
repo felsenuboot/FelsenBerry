@@ -51,7 +51,7 @@ const TASK_ERR_MSG_MAX = 240;
 
 const INV_KEYS = ['torch', 'cobblestone', 'oak_log', 'oak_planks', 'bread', 'coal', 'raw_iron',
   'iron_ingot', 'diamond', 'stick', 'dirt', 'wheat', 'iron_pickaxe', 'stone_pickaxe',
-  'wooden_pickaxe', 'iron_axe', 'iron_sword', 'shield', 'water_bucket'];
+  'wooden_pickaxe', 'diamond_pickaxe', 'iron_axe', 'iron_sword', 'shield', 'water_bucket'];
 
 const SALIENT = {
   come: (a) => ({ range: a.range ?? 1 }),
