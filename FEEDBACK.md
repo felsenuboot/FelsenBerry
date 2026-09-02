@@ -2538,3 +2538,42 @@ what: picked up test-driver's #97 handoff (RotzRudi, gear-race run #3). Live dia
 **Scoped OUT of this fix, on purpose, left open on #97**: (a) the generalized "stuck, no legal path" detector beyond underground (finding #1) — the live specimen had already self-resolved by the time I looked, so I have no live case to design/verify against right now, and this is a genuinely bigger design question (what recovery action even makes sense for a bot with zero inventory on an isolated platform — a survivable-fall-damage escape needs its own reasoning, not a quick patch); (b) decider retry-tracking of identical failing dispatches (finding #2) — this is the same shape as `#95`'s two HELD follow-ups (team-lead's ruling: let soak data justify them rather than building speculatively), so I'm treating this as evidence toward that same decision rather than a separate unilateral build; (c) guarding vanilla respawn-point placement (finding #4) — out of the bot engine's control by construction, not attempted.
 fix: agenda.js v25 (`sense()`'s panic-idle tracking ~line 288, `PANIC_STALE_MS` ~line 42, REFLEX rung ~line 612). bench/fixtures/agenda-ladder.js (3 new cases). bench/fixtures/reflex-panic-stale.sh (new).
 github: felsenuboot/felcrew-mcp#97 (comment to follow; issue stays open for findings #1/#2/#4)
+
+### 2026-09-02 engine-dev — #98 fix landed and verified (survival v8 / skills v59): both directions live-proven, no regression
+type: fix + verification
+status: shipped, no regression, both directions of the reachability gate proven live with real geometry
+what: built the fix argued in the entry above — `S.reachOf = _reachOf;` exposed in skills.js (v59, zero
+new logic, the exact existing probe made callable from another payload), and `pick()`'s FLEE_HOME routing
+in survival.js (v8) now gates on `homeReachable()` before committing, falling through to `branchWallOff`
+when it fails.
+
+**NO REGRESSION**: full `bench/preflight.sh` 199/199 on a fresh bot post-injection (skills v59/survival
+v8), including `survival-cannotheal.js` (7/7, #92 untouched) and everything else in the suite.
+
+**BOTH DIRECTIONS LIVE-VERIFIED, not just code-reasoned**, with a new permanent fixture
+(`bench/fixtures/flee-home-reachability.sh`): built two real geometries off the bot's own current
+position — an open, connected platform (home genuinely reachable) and a fully sealed box at the same
+straight-line distance class (home NOT reachable) — pointed `__survival.home` at the open one, fabricated
+the identical melee threat both times, and triggered the REAL `enter()`/`pick()` via `g.trigger()` (not a
+`drill()` override, same discipline as `survival-cannotheal.js`'s Section B).
+- **Home reachable**: `FLEE_HOME` fires, ~2.1s of REAL travel (position genuinely moved toward home) —
+  unchanged behavior for the common case.
+- **Home sealed off, same distance class**: falls through to `WALL_OFF`, resolving in 10-48ms — no 30-
+  second commitment burned finding out the hard way. 2/2 repeat runs, both clean.
+
+**One honest note on testing conditions**: the local test server's configured `home` (from
+`protected.json`, the real production fleet anchor) is literally floating air on THIS server — the actual
+base/plaza only exists on the production/cavecrew server. Discovered this while setting up the positive
+case (a straightforward "teleport near home" attempt kept reporting `reachable:false` even a few blocks
+away, which briefly looked like a bug in the fix before I checked `bot.blockAt` on `protected.json`'s own
+home coordinates and found air). Worked around it by overriding `__survival.home` to a real, built platform
+for the test rather than assuming the configured value corresponds to real terrain on every server — worth
+remembering for anyone else testing FLEE_HOME specifically on the local server rather than production.
+
+**Shared idiom, coordinated per team-lead's instruction**: messaged engine-dev-3 directly that `S.reachOf`
+now exists on `skills.js` (v59) specifically so their own #97 fix (reachability-before-REFLEX-pins) can
+call the identical, already-proven probe rather than building a second one that could drift from this one
+over time.
+fix: skills.js (`S.reachOf`, v59), survival.js (`homeReachable()` + `pick()`'s FLEE_HOME gate, v8),
+`bench/fixtures/flee-home-reachability.sh` (new).
+github: felsenuboot/felcrew-mcp#98 (fix landed and reported)

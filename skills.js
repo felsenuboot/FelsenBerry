@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 58;
+const ENGINE_VERSION = 59;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1566,6 +1566,12 @@ S.recoveryDetect = {
   findRepositionTarget,
   reposition: (b) => makeCtx(b || bot, { args: {}, phase: null, phases: [], progress: {} })._reposition(),
 };
+// #98: exposed so another independently-injected payload (survival.js's FLEE_HOME routing today;
+// dangerscan.js's own reachability-before-panic-pins check, #97, is expected to want the same
+// probe) can reuse the EXACT proven function instead of drifting into its own reimplementation —
+// same "share one idiom" reasoning as S.recoveryDetect above. Zero new logic: this is _reachOf
+// itself, unwrapped.
+S.reachOf = _reachOf;
 
 // #10: exposed for driver hand-eval scripts (both live reports came from those, not from an
 // engine skill) — `__skills.openContainerAuto(bot, block)` opens a furnace OR a chest-family

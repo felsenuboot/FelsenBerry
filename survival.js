@@ -1,4 +1,14 @@
-// survival v7 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v8 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v8 (#98): pick()'s FLEE_HOME routing chose on straight-line distance to home alone -- terrain,
+// water, or a cliff between here and home only surfaced after branchFleeHome had already
+// committed up to 30s of ownedGoto to it, exposed the whole time. Same "unverified deferral is a
+// disablement" shape as #94 (composition-rot doctrine, FEEDBACK.md 2026-09-02), just a different
+// branch deferring to a different fallback. Fixed by gating the routing decision on
+// S.reachOf(bot, g.home) (skills.js's own proven _reachOf probe, exposed for exactly this reuse,
+// v59) before committing -- unreachable falls through to WALL_OFF, the next thing pick() would
+// try anyway, instead of burning the full 30s find out. Fails open (treats home as reachable) if
+// skills.js isn't installed, matching this file's existing optional-payload degradation posture.
 //
 // v7 (#94): BREAK_LOS's corner-step search skips itself under critical HP on the assumption
 // that arrow-shadow/counter-attack/WALL_OFF cover the gap faster (the #65 fix below). That
@@ -91,7 +101,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 7,
+  enabled: true, version: 8,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -683,6 +693,21 @@ const branchWallOff = async (t) => {
 
 // ================= ORCHESTRATION =================
 
+// #98: straight-line distance to home says nothing about whether a PATH exists — terrain, water,
+// or a cliff between here and home would only be discovered after branchFleeHome has already
+// committed up to 30s of ownedGoto to it, exposed to whatever threat triggered the flee the whole
+// time. Reuses skills.js's own proven _reachOf probe (S.reachOf, #70's "checker must match the
+// executor" no-movement getPathTo search) rather than reimplementing it — same idiom eng-3's #97
+// fix is expected to want from a different file. Fails OPEN (treats home as reachable) if
+// skills.js isn't installed: this file already documents skills.js as optional elsewhere, and a
+// false "unreachable" from a missing optional payload would silently disable FLEE_HOME entirely
+// rather than degrade to today's behavior.
+const homeReachable = async () => {
+  const S = globalThis.__skills;
+  if (!S || typeof S.reachOf !== 'function') return true;
+  try { return Boolean(S.reachOf(bot, g.home)); } catch (_) { return true; }
+};
+
 const pick = async () => {
   const hazard = envHazard();
   if (hazard) return branchEnv(hazard);
@@ -697,8 +722,14 @@ const pick = async () => {
   const nearest = ts.length ? ts[0] : null;
   const dHome = dist(bot.entity.position, g.home);
   const meleeOnly = ts.length > 0 && ts.every((x) => !x.ranged);
-  if (dHome <= g.cfg.fleeHomeMax && meleeOnly && bot.health >= 6) return branchFleeHome(nearest);
-  if (!ts.length && dHome <= g.cfg.fleeHomeMax) return branchFleeHome(null);   // hurt, no visible threat
+  // #98: fleeTarget is `nearest` (melee threat, still fighting-fit) or `null` (hurt, no visible
+  // threat) exactly as before -- undefined means "not a flee candidate at all", distinct from a
+  // real null target, so the reachability gate below only ever runs for the two cases that used
+  // to unconditionally return.
+  const fleeTarget = (dHome <= g.cfg.fleeHomeMax && meleeOnly && bot.health >= 6) ? nearest
+    : (!ts.length && dHome <= g.cfg.fleeHomeMax) ? null
+    : undefined;
+  if (fleeTarget !== undefined && (await homeReachable())) return branchFleeHome(fleeTarget);
 
   return branchWallOff(nearest);
 };
@@ -892,7 +923,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 7, boundAt: Date.now(), stale: false };
+REG.survival = { version: 8, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -903,7 +934,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 7, home: g.home,
+  installed: true, version: 8, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
