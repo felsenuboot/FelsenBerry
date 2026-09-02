@@ -2694,3 +2694,14 @@ this file's own "argue before building" doctrine, that argument belongs on #96 a
 not something to rush from a teammate flag mid-soak.
 fix: n/a — diagnosis only, escalating #96.
 github: felsenuboot/felcrew-mcp#96 (updated with field evidence), cross-reference #94, #97
+
+### 2026-09-02 engine-dev-3 — #97 item 3 built: decider skips an identical dispatch from a frozen position
+type: fix (verified in isolation; live wiring deliberately deferred)
+status: logic built and isolation-verified; NOT yet exercised against the live decider process on purpose -- soak #3 is using that shared daemon right now
+what: implemented the design argued two entries up. `decider.js` now tracks `(position, why, lastError)` at every genuinely-new-episode attempt (`state.lastAttempt[bot]`, gated by the existing dedup so it only updates once per eid). If a new episode's signature matches the immediately-prior one on all three axes -- bot hasn't moved (1.5-block tolerance for settle/jitter), same stall reason, same underlying error -- the whole decision is skipped (no rules.json lookup, no Andy call) and the episode is closed via `dirClose(eid, 'frozen_repeat')` instead of either blindly re-dispatching the identical failing call or leaving it open.
+
+Verified the tracking logic in isolation with six cases before committing: a bot's first-ever attempt never flags (nothing to compare against); an identical repeat is caught on the 2nd occurrence AND still caught on a 3rd (not just a one-shot check); real movement (>1.5 blocks) correctly clears the flag; the same position with a genuinely different `why`/`lastError` correctly does NOT false-positive (a real change in circumstance still gets a real decision); and two different bots never cross-contaminate each other's tracked history. Syntax-checked.
+
+**Deliberately not restarting the live decider to exercise this against a real dispatch right now** -- soak #3 (formal Phase-3 acceptance) is running on the current shared decider process, and a restart to pick this up would touch its active measurement window exactly the kind of thing this whole soak-hygiene effort has been trying to prevent. Will do the live end-to-end verification (a real frozen bot, a real matching episode reopening, confirming the actual `dirClose` call fires and the fresh reopen still works afterward) at the next safe restart -- soak #3's window close -- before calling this fully proven, matching the standard the rest of today's fixes were held to.
+fix: decider.js (`handleBot`'s frozen-repeat check, right after the (bot,eid) dedup).
+github: felsenuboot/felcrew-mcp#97 (comment to follow)
