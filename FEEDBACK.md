@@ -3085,3 +3085,48 @@ fix: survival.js (`enter()`'s standdown-arming predicate, v10), `bench/fixtures/
 (Section C, 3 new cases).
 github: felsenuboot/felcrew-mcp#100 (fix landed and reported) — closes the last open survival-lane item
 from today's finds (#92, #94, #96, #98, #99, #100 all now shipped and verified)
+
+### 2026-09-02 engine-dev — wait-filler sweep #2 (audit-only): dangerscan's own raycast-budget assumption is trusted as verified truth by pick()'s BREAK_LOS routing
+type: audit
+status: AUDIT-ONLY, nothing built — one real finding, filed for a maintainer decision on priority
+what: per team-lead's standing wait-filler authority (composition-rot-style sweep, argued first,
+audit-only unless approved), swept the independently-injected payloads NOT covered by today's earlier
+sweep (`dangerscan.js`, `basekeeping.js`, `digguard.js`, `reachguard.js`, `toolguard.js`, `producer.js`,
+`farmskills.js`) for the same "defer/trust a signal without verifying it" shape.
+
+**Most files check out clean, several explicitly and well**: `reachguard.js`/`digguard.js` both carry
+deliberate "No self-wrap fallback" comments (refusing a second guard layer specifically to avoid the
+stacking class #55 already fixed — the doctrine applied proactively, not found lacking). `basekeeping.js`'s
+own header explicitly reasons through its one approximation (torch coverage tracked in code rather than
+re-reading light, because of a known server-side lighting bug) and states the worst case plainly ("a few
+extra torches... a non-issue") — exactly the kind of explicit, argued trade-off #94's own "measured
+hypothesis vs silent disablement" distinction calls out as NOT composition rot.
+
+**One real finding, in `dangerscan.js`'s `scan()` (~line 162-205)**: LOS is computed via real raycasts
+(`hasLOS`), but the loop bounds itself to `g.thresholds.maxRaycasts` (currently 8) per scan tick, nearest
+candidate first. Once that budget is exhausted mid-scan, the comment says outright what happens: `// budget
+spent: assume no LOS rather than skipping the threat` — every REMAINING candidate that tick gets `los:
+false` in its own `threats[]` entry, **not because a raycast confirmed no line of sight, but because none
+was ever attempted.** Nothing downstream — `survival.js`'s `pick()`, specifically the `ranged &&
+los`-gated `BREAK_LOS` routing — has any way to tell an assumed-false `los` from a genuinely-verified one;
+both look identical in the `threats[]` array. A real skeleton (or stray/witch/bogged) beyond the 8th-
+nearest hostile within the 24-block scan radius, that genuinely HAS line of sight on the bot, would be
+silently treated as not-visible and never routed to `BREAK_LOS` at all — falling through toward
+`FLEE_HOME`/`WALL_OFF`/the new `FIGHT_BACK`/`FLEE_AWAY` branches instead, none of which are built for
+"corner-step or arrow-shadow against a ranged attacker that's actually shooting."
+
+**Why this is narrower than today's other findings, stated honestly**: it only manifests with MORE than 8
+hostile/mob entities simultaneously within 24 blocks (a mob farm, a crowded night-surface spawn, a horde
+event) — not an everyday single-attacker encounter like #94/#96/#99's dominant patterns. The scan's own
+prioritization (nearest-first) means the MOST dangerous (closest) threats are always the ones that get
+real raycasts; a budget-exhausted assumption only affects farther, lower-priority candidates. This softens
+the severity without eliminating the shape: a distant-but-genuinely-visible ranged attacker among a crowd
+is exactly the survival-doctrine's own "fleeing a ranged mob in the open is the Bernd death" scenario the
+whole `BREAK_LOS` branch exists to prevent.
+fix: n/a — audit only. Not building without approval, per the standing instruction. If worth fixing: the
+cheapest option is probably tagging budget-exhausted entries with an explicit `losAssumed: true` field
+(free — the information already exists at the point `los` is assigned, just discarded) so `pick()` or a
+future refinement COULD treat "assumed false" differently from "verified false" without dangerscan itself
+needing to spend more raycasts than its own budget allows.
+github: n/a yet — recommend filing once a maintainer decides whether this is worth a tracker issue given
+its narrower likelihood, or stays a FEEDBACK note.
