@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 54;
+const ENGINE_VERSION = 55;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -4045,6 +4045,150 @@ S.define('safeDescend', {
   },
   doneMsg: (t) => (t.result && t.result.endY < t.result.startY   // #67: no net descent (base floor protected -> dig_failed, 0 steps) is a no-op — log-only
     ? `Staircase done: y=${t.result.startY} -> y=${t.result.endY} in ${t.result.steps} steps (${t.result.stoppedBecause}).` : null),
+});
+
+// ---------- ascendToSurface ----------
+// The gap test-driver named live (FEEDBACK.md, 2026-09-02): a bot sealed in a mining dead-end
+// (OhneHoseOtto/3140, GEAR-RACE run #1) had `come` fail from every target tried, including
+// straight up from its own x/z — `bot.pathfinder.goto` found literally zero viable first
+// steps, because excavating a brand-new vertical shaft through solid rock is not a movement
+// mineflayer-pathfinder's graph search generates; it only routes through space that already
+// exists. Confirmed on the live specimen (read-only diagnosis, no action taken): NOT a
+// WALL_OFF-style sealed coffin (that would be a small, deliberately-shaped void) — a plain
+// mining dead-end, 120/124 solid cells in a 5-block radius, with a clean 12-block column of
+// stone/dirt/grass straight up to open sky and nothing else (lava/bedrock/protected) in it.
+// So the honest answer to "bot is entombed, what skill do I set?" used to be "none exist" —
+// this is that skill, mirroring `safeDescend`'s proven staircase shape rather than inventing a
+// new mechanism: same forward-and-diagonal dig, same tripwires, just the vertical sign
+// flipped, and — unlike descending — no fall/void hazard because you can't fall UP.
+//
+// WHY A STAIRCASE, NOT A VERTICAL SHAFT WITH PILLARING: climbing straight up through solid
+// rock by digging a hole and jumping does not work — there is nothing to land ON once the
+// rock is gone, only the digging player's own placed blocks would give that (pillar-jumping),
+// and this codebase's #54 roadmap explicitly keeps block-placement-dependent self-rescue (R5)
+// gated behind placeBlock (#19) being hardened, which it is not. A 45-degree ascending
+// staircase needs zero placement: the block one step ahead at the CURRENT floor level is left
+// solid on purpose — it becomes the stair tread — while only the cells above it (where the
+// bot's new feet/head go) and the headroom above the bot's current position (so it can jump
+// without hitting its head) get dug. Real player technique, not a new invention.
+S.define('ascendToSurface', {
+  tool: 'pickaxe',
+  description: 'Dig a 45-degree staircase UP to open sky (or a target Y) — the mirror of safeDescend, for a sealed or off-course bot with no pathfinder route to the surface. Places no blocks; stops honestly at lava, bedrock, or no net ascent.',
+  params: { toY: 'optional target Y — omit to climb until the column overhead is open sky', dir: "'north'|'south'|'east'|'west' (default: facing)", torchEvery: 'steps between torches (default 8)', maxSteps: 'cap (default 128)' },
+  validate: (a) => (a.toY == null || (typeof a.toY === 'number' && isFinite(a.toY)) ? null : 'toY must be numeric if given'),
+  fn: async (ctx) => {
+    const { bot, args } = ctx;
+    const toY = typeof args.toY === 'number' ? args.toY : null;
+    const maxSteps = Math.min(args.maxSteps || 128, 512);
+    const torchEvery = args.torchEvery ?? 8;
+    const DIRS = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+    let dx, dz;
+    if (args.dir && DIRS[args.dir]) { [dx, dz] = DIRS[args.dir]; }
+    else {
+      const yaw = bot.entity.yaw;
+      const vx = -Math.sin(yaw), vz = -Math.cos(yaw);
+      if (Math.abs(vx) >= Math.abs(vz)) { dx = Math.sign(vx) || 1; dz = 0; } else { dx = 0; dz = Math.sign(vz) || 1; }
+    }
+    // "have we broken through to open sky" — same discipline as dangerscan.js's columnOpen:
+    // scan the column above for a clear run with no solid block; unloaded-chunk cells return
+    // false ("not open yet"), never a guess of success.
+    const columnOpen = () => {
+      const feet = bot.entity.position.floored();
+      for (let dy = 2; dy <= 24; dy++) {
+        const b = bot.blockAt(feet.offset(0, dy, 0));
+        if (!b) return false;
+        if (b.boundingBox === 'block') return false;
+      }
+      return true;
+    };
+    const startY = Math.floor(bot.entity.position.y);
+    let steps = 0, dug = 0, torches = 0, saidTorch = false;
+    let noAscent = 0, lastStepY = startY;
+    const torchState = {};
+    let stoppedBecause = 'reached';
+    let lastSaidY = startY;
+    ctx.progress(0, toY != null ? Math.max(1, toY - startY) : null, 'y-levels');
+    ctx.setPhase('ascending', 'Digging a staircase up toward the surface.');
+
+    while (steps < maxSteps) {
+      ctx.step();
+      const F = bot.entity.position.floored();
+      if (toY != null && F.y >= toY) break;
+      if (toY == null && columnOpen()) break;
+      const ahead = F.offset(dx, 0, dz);       // stays SOLID on purpose — the stair tread
+      const newFeet = ahead.offset(0, 1, 0);   // dig: the new standing cell
+      const newHead = ahead.offset(0, 2, 0);   // dig: the new head cell
+      const jumpClear = F.offset(0, 2, 0);     // dig: headroom above the CURRENT position, or the jump bonks its head
+
+      // hazard scan ahead: lava must not be broken into blind. Water is survivable (unlike
+      // descending's void/lava concerns, there is no fall-hazard going up) so it is not an
+      // abort, just not specially handled either.
+      let lavaSeen = false;
+      for (let f = 0; f <= 2 && !lavaSeen; f++) {
+        for (let s = -1; s <= 1 && !lavaSeen; s++) {
+          for (let y = 1; y <= 3; y++) {
+            const p = F.offset(dx * f + (dx ? 0 : s), y, dz * f + (dz ? 0 : s));
+            const b = bot.blockAt(p);
+            if (b && b.name === 'lava') { lavaSeen = true; break; }
+          }
+        }
+      }
+      if (lavaSeen) { stoppedBecause = 'lava'; ctx.say('Lava right above. Not digging into that.'); break; }
+
+      // gravity column above the dig site: same discipline as safeDescend — open it first and
+      // let it settle before the bot's head ends up under a sand/gravel column.
+      for (const p of [newHead.offset(0, 1, 0), jumpClear.offset(0, 1, 0)]) {
+        const above = bot.blockAt(p);
+        if (above && GRAVITY.has(above.name)) { await ctx.digBlock(p); await ctx.sleep(700); }
+      }
+
+      let blocked = null;
+      for (const p of [newFeet, newHead, jumpClear]) {
+        const r = await ctx.digBlock(p);
+        if (r.ok && !r.already) dug++;
+        else if (!r.ok) { blocked = r.reason || 'cannot_dig'; break; }
+      }
+      if (blocked === 'no_tool') { stoppedBecause = 'no_tool'; break; }
+      if (blocked === 'undiggable') { stoppedBecause = 'bedrock'; break; }
+      if (blocked) { stoppedBecause = blocked; break; }
+
+      try { await ctx.goto(new goals.GoalBlock(newFeet.x, newFeet.y, newFeet.z), 10000); }
+      catch (_) {
+        try { await ctx.goto(new goals.GoalBlock(newFeet.x, newFeet.y, newFeet.z), 8000); }
+        catch (_) { stoppedBecause = 'stuck'; break; }
+      }
+      steps++;
+      // net-ascent assertion, mirroring safeDescend's own tripwire: abort after 3 consecutive
+      // steps that gain no height, rather than spinning until the pickaxe breaks.
+      const feetY = Math.floor(bot.entity.position.y);
+      if (feetY <= lastStepY) {
+        noAscent++;
+        if (noAscent >= 3) {
+          stoppedBecause = 'no_ascent';
+          ctx.log(`3 steps with no net ascent (still y=${feetY}) — aborting before this eats the pickaxe`);
+          break;
+        }
+      } else { noAscent = 0; }
+      lastStepY = feetY;
+      ctx.progress(Math.floor(bot.entity.position.y) - startY, null);
+      if (torchEvery > 0) {
+        const tr = await ctx.autoTorch(torchState, torchEvery);
+        if (tr.placed) {
+          torches++;
+          if (!saidTorch) { saidTorch = true; ctx.say('Lighting the shaft as I climb.'); }
+        }
+      }
+      const nowY = Math.floor(bot.entity.position.y);
+      if (nowY - lastSaidY >= 16) { lastSaidY = nowY; ctx.say(`Now at y=${nowY}, still climbing.`); }
+      if (steps % 32 === 0) await ctx.collectDrops(6, 8000);
+    }
+    if (steps >= maxSteps && stoppedBecause === 'reached') stoppedBecause = 'max_steps';
+    ctx.setPhase('collecting', 'Sweeping the shaft clean.');
+    await ctx.collectDrops(8, 10000);
+    return { startY, endY: Math.floor(bot.entity.position.y), steps, dug, torches, stoppedBecause, surfaceReached: columnOpen() };
+  },
+  doneMsg: (t) => (t.result && t.result.endY > t.result.startY   // no net ascent is a no-op — log-only, matching safeDescend's own #67 doctrine
+    ? `Climbed out: y=${t.result.startY} -> y=${t.result.endY} in ${t.result.steps} steps (${t.result.stoppedBecause})${t.result.surfaceReached ? ', open sky reached' : ''}.` : null),
 });
 
 // ---------- buildSchematic ----------
