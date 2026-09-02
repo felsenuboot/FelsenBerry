@@ -205,3 +205,22 @@ Known honest gaps, so nothing here reads as more finished than it is:
 - The soak's 10+ `wedge` outcomes were root-caused (restock hauling on a 5s search budget,
   fixed in v29, plus a planner-scalar leak in enterHaul fixed in v30) and are no longer open.
 
+
+## Plan re-evaluation (Fable 5.1, 2026-09-02 night — goal re-set: "play like a human player in Minecraft")
+
+Sound, keep: the soak/race duality + honest instruments; the fix loop (5 runs, 5 different killers,
+0 repeat killers); the four-lane team and its earned laws.
+
+Two structural blind spots (both dispatched):
+1. **The stone wall is partly a missing DRIVE, not a bug** — nothing proactively upgrades gear
+   (ensureTool picks a tier only when a tool is NEEDED; run #3 held 24 cobblestone and never crafted a
+   stone pickaxe). A human crafts the better tool the moment materials are in hand. → gear-progression
+   drive (eng-3, before soak #4): the first rung of the HELD "gear-upgrade behaviour".
+2. **Combat is being hardened branch by branch when a wood-tier human simply avoids it** — six survival
+   fixes in one day, every racer still died/near-died at night. → NIGHT-SHELTER behavior (dig-in-and-cap
+   or 1x1 hut at dusk, torch, wait; exit at dawn) designed by engine-dev, placed as a SHELTER rung by
+   eng-3; plus opportunistic food (kill what you pass) later. Removes the killer CLASS for the whole
+   wood/stone era.
+
+Over-invested: lead time on crossed-message routing (tmux visibility now lets teammates coordinate
+more directly); Andy's ~25% usable-reply rate is acceptable while rules carry the load.
