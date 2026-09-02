@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 56;
+const ENGINE_VERSION = 57;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -677,16 +677,27 @@ function makeCtx(bot, task) {
 
     // R2 (#54): break off the EXACT wedge cell toward a nearby safe standing cell, so a re-issued
     // path starts from somewhere new. Dead-reckoning on purpose — NOT a sub-goto — so it can never
-    // recurse into this same recovery, and bounded to ~1.5s. Returns true if we actually displaced.
-    // A safe cell is: a solid floor with two empty cells above (standable), within a couple blocks,
-    // not a protected structure. digguard still vetoes any dig; this only walks, it never breaks.
+    // recurse into this same recovery, and bounded to ~1.5s. A safe cell is: a solid floor with
+    // two empty cells above (standable), within a couple blocks, not a protected structure.
+    // digguard still vetoes any dig; this only walks, it never breaks.
+    //
+    // Returns {displaced, candidateFound, base, candidate} rather than a bare boolean (engine-dev,
+    // FEEDBACK.md #54 2ab0202): a single `displaced:false` was conflating two mechanically distinct
+    // failures a natural firing on FrischFriedhelm actually hit (9 identical-looking retries before
+    // one finally worked) — findRepositionTarget returning nothing (candidateFound:false, a real
+    // geometry dead end) vs a candidate existing but the dead-reckoning walk not covering enough
+    // ground in 1.5s (candidateFound:true, displaced:false). `base`/`candidate` carry FULL float
+    // precision (not floored) so a run of "identical" wedge attempts can be checked for the third
+    // hypothesis — residual sub-block drift from _unstick's own hop-backward meaning consecutive
+    // attempts searched from slightly different actual origins despite floor()ing to the same cell.
     async _reposition() {
       const base = bot.entity.position.clone();
       const bx = Math.floor(base.x), by = Math.floor(base.y), bz = Math.floor(base.z);
       const cand = findRepositionTarget(bx, by, bz,
         (x, y, z) => { try { return bot.blockAt(new Vec3(x, y, z)); } catch (_) { return null; } },
         (pos, name) => ctx.isProtected(pos, name));
-      if (!cand) return false;
+      const baseOut = { x: base.x, y: base.y, z: base.z };
+      if (!cand) return { displaced: false, candidateFound: false, base: baseOut, candidate: null };
       const target = new Vec3(cand.x, cand.y, cand.z);
       try {
         await bot.lookAt(target.offset(0, 1.0, 0), true);
@@ -707,7 +718,8 @@ function makeCtx(bot, task) {
       } finally {
         try { bot.setControlState('forward', false); bot.setControlState('jump', false); } catch (_) {}
       }
-      return bot.entity.position.distanceTo(base) > 1.0;
+      const displaced = bot.entity.position.distanceTo(base) > 1.0;
+      return { displaced, candidateFound: true, base: baseOut, candidate: { x: cand.x, y: cand.y, z: cand.z } };
     },
 
     // gotoR (#54): the ordered recovery WRAPPER around goto. goto already runs R0 (re-verify
@@ -779,13 +791,21 @@ function makeCtx(bot, task) {
           // actually happened, not what was about to be attempted — lets metrics.mjs score
           // eng-2's #54-review prediction (the re-issued A*, not the reposition, is the win)
           // by splitting retry outcomes on displaced=true vs false.
-          const displaced = await ctx._reposition();
+          const rep = await ctx._reposition();
+          const { displaced, candidateFound, base: repBase, candidate: repCandidate } = rep;
           if (G.__r2FaultProof && G.__r2FaultProof.reposition == null) {
             const p = bot.entity.position;
-            G.__r2FaultProof.reposition = { displaced, at: Date.now(), posAfter: { x: p.x, y: p.y, z: p.z } };
+            G.__r2FaultProof.reposition = { displaced, candidateFound, at: Date.now(), posAfter: { x: p.x, y: p.y, z: p.z } };
           }
-          pushLog('info', `recovery R2 (attempt ${attempt + 1}/${r2Max}): reposition${displaced ? '' : ' (no displacement)'} + re-issue (${Math.round((deadline - Date.now()) / 1000)}s budget left)`);
-          try { const m = MET(); if (m && m.recovery) m.recovery('R2', attempt + 1, Boolean(e && e.injected) ? { displaced, injected: true } : { displaced }); } catch (_) {}
+          const why = displaced ? '' : (candidateFound ? ' (candidate found, walk fell short)' : ' (no candidate found)');
+          pushLog('info', `recovery R2 (attempt ${attempt + 1}/${r2Max}): reposition${why} + re-issue (${Math.round((deadline - Date.now()) / 1000)}s budget left)`);
+          try {
+            const m = MET();
+            if (m && m.recovery) {
+              const fields = { displaced, candidateFound, base: repBase, candidate: repCandidate };
+              m.recovery('R2', attempt + 1, Boolean(e && e.injected) ? Object.assign(fields, { injected: true }) : fields);
+            }
+          } catch (_) {}
         }
       }
     },
