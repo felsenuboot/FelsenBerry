@@ -3383,3 +3383,133 @@ nothing here should be read as new urgency.
 fix: n/a — both audit/argument, no code changed.
 github: felsenuboot/felcrew-mcp#96 (residual question argued, recommend no further action — comment
 posted), #104 (re-checked, no new evidence, left open as-is)
+
+### 2026-09-02 engine-dev — NIGHT-SHELTER behavior design (audit/design only, per Felix's re-set
+goal + team-lead's upgraded ask): a proactive SHELTER rung, subsuming #96
+type: proposal (doctrine: argue before building) — supersedes this file's own earlier #96-residual
+entry above, per team-lead's direct steer
+status: designed, not built. Buildable as written; placement in agenda.js is eng-3's call
+(ack-before-edit on their file — nothing here touches agenda.js/skills.js/survival.js)
+what: Felix re-set the session goal to "play like a human player." Team-lead's re-evaluation named
+the actual gap precisely: six survival-lane fixes landed today (#92/#94/#96/#98/#99/#100) and every
+one hardens a REACTION to combat already underway. A human at wood tier does not fight through the
+night — at dusk they dig in or box themselves in and wait. SCOREBOARD.md's own gear-race record
+confirms this isn't hypothetical: runs #1-#5, one after another, all died or came within a hit of
+dying to a mob at night (`SCOREBOARD.md:924` "no run has ever crafted a stone pickaxe... died"; the
+run #5 zombie deaths at T+29s and 21:09:21 happened with "every rung of the new floor firing
+correctly" — the reactive ladder worked exactly as designed and the bot still fought and nearly
+died, because nothing upstream of combat ever considered NOT fighting). This design subsumes #96
+(closed: FIGHT_BACK/FLEE_AWAY, "zero defense unrepresentable") because #96's own answer to "unkitted
+bot, no filler, in a fight" and SHELTER's answer to "unkitted bot, dusk approaching" are the same
+insight one step earlier: the best defense is not needing one.
+
+**(1) Trigger — checked what already exists before designing a new signal.** Two existing, already-
+proven, geometry-backed fields do almost all of the work: `dangerscan.js`'s `surfaceExposed` (real
+sky-access geometry, not a bare light read — the LIGHT RULE this project already learned the hard
+way, `LEARNING_HANDOFF.md:380`) and `light`/`skyLight` (real per-tick raycast/blockAt reads). Neither
+one is clock-based, which matters: confirmed by reading `CAVECREW_HANDOFF.md:5,68` and
+`LEARNING_HANDOFF.md:384` that the cavecrew (live) server runs FROZEN daylight (surface light never
+drops — "frozen daylight makes the SURFACE safe") while the local test servers (25599/25600) run a
+real day/night cycle. A clock-based trigger (`bot.time.isDay`) would need per-server special-casing
+and would silently do nothing useful on cavecrew even when it looked wired up. A light-level trigger
+needs none: on cavecrew, surface light never drops, so it correctly never fires there (matches the
+existing doctrine that surface is already safe there); on a cycling world, it fires for real. Recommended
+trigger, reusing existing fields only:
+```
+fire = surfaceExposed === true && (light == null || light < 8)   // same darkness threshold LIGHT/POSTURE already use
+       && gearTier(bot) < TIER.stone                              // wooden or bare — see below
+       && dangerState !== 'panic'                                  // REFLEX/POSTURE already own real emergencies
+```
+`gearTier`: skills.js already carries a tier order (`skills.js:1669`, `['wooden','stone','iron',
+'diamond']`) for ensureTool's own payable-tier logic — reusable directly as `Math.max(tierIndex(weapon),
+tierIndex(armor)) < 1` (below stone). A bot in iron/diamond is combat-capable enough that fighting
+through the night is a reasonable choice, not a gap.
+**Optional predictive half, explicitly non-load-bearing**: where the daylight cycle is confirmed LIVE
+(sampled once at runtime — exactly `research/eval-methodology.md:333`'s own "verify the daylight
+assumption once rather than assuming it," two `bot.time.timeOfDay` reads a minute apart, advancing =
+live), a dusk-approaching read (`timeOfDay` entering ~12000-13000, before it's actually dark) can fire
+SHELTER a little EARLIER so construction finishes before light actually crosses 8 — pure optimization,
+never the sole trigger, so a wrong or unverified read costs only the early start, never a false
+shelter or a missed one (the light-level check above still gates the real thing either way).
+
+**(2) The shelter primitive — pick by carried stock, reuse what already exists.** Two shapes, and
+neither needs new digging/placing mechanics invented from scratch:
+- **Dig-in-and-cap** (cheap, underground-adjacent): dig straight down 2 (any pickaxe; through dirt/
+  grass, no tool at all), place one block overhead from inside, `torchInline()` (already exists,
+  `agenda.js:444` — the exact "torch the block below my feet" primitive LIGHT/POSTURE already call)
+  before capping. **The one needed block is usually free**: `survival.js:156`'s own filler set
+  (`cobblestone, cobbled_deepslate, dirt, stone, andesite, diorite, granite, netherrack`) already
+  covers ordinary ground, so the block just DUG is itself valid cap material — a bot with a pickaxe
+  and literally empty pockets can still sink and seal itself. Needs one genuinely new primitive
+  (nothing in skills.js digs straight down N and self-seals from inside today; `safeDescend` builds
+  a 45-degree STAIRCASE, a different shape for a different purpose) — but the cap-placement step
+  itself is a direct lift of `branchWallOff`'s own roof-cell logic (`survival.js:628-629`,
+  `feet.offset(0,2,0)` placed last "skeletons shoot down shafts") at a shallower relative offset.
+- **1x1 hut** (surface, needs ~10-13 filler blocks): this is not new either — `branchWallOff`'s own
+  cell list (`survival.js:612-629`: 4 feet-level + 4 head-level + 4 roof-side + 1 cap = 13 cells,
+  built in an existing, tested, threat-facing-aware order) already builds exactly this box, on open
+  ground, from a standing position. SHELTER's surface variant is that same cell list run
+  PROACTIVELY (no live threat to face first, no `shieldUp` needed) rather than reactively — a
+  parameterization of existing code, not a new algorithm.
+- **Pick by stock**: `filler` count (already read by `agenda.js:256`, `s.filler`) `< 2` → dig-in (the
+  block from digging covers the cap even at zero carried filler); otherwise, and only where digging
+  down isn't viable (bot already underground, or geometry refuses — reuse `seekPlaceableSpot`'s
+  standability test, `skills.js` v60, #101, for "is there solid ground under my feet at all" before
+  choosing dig-in over hut), fall back to the hut.
+
+**(3) Exit.** Three named conditions, each backed by an existing signal — no new state needed beyond
+what SHELTER itself owns:
+- **Dawn**: the SAME asymmetry as the trigger — `surfaceExposed===true && light>=9` (existing LIGHT
+  clear threshold) is the authoritative, both-server-safe read; the verified-live `timeOfDay` crossing
+  back past dusk is again an optional early-warning, never load-bearing.
+- **Hunger pressure**: specifically `food<=6 && foodCount===0` (critical AND cannot eat in place) —
+  a bot that HAS food does not need to leave; SHELTER's own `act()` should just call `eatInline()`
+  in place (same call `EAT`/`EAT_CRITICAL` already use) whenever `food<=17 && foodCount>0`, so routine
+  eating never requires breaking cover at all. Only genuine starvation-with-nothing-to-eat forces an
+  exit to go find food.
+- **A project the ladder deems worth the risk**: deliberately NOT automatic — this is the same
+  judgment call `A.project`/PROJECT's own attempts-based blocking already encodes (a driver/decider
+  sets `A.project`; PROJECT's `fire()` already only cares whether one exists and isn't done). SHELTER
+  should `clear()` when `A.project` is set AND is not itself one SHELTER would have refused to start
+  in this state (e.g., a driver explicitly overriding is a signal, not a bug to guard against) — this
+  needs no new mechanism, just SHELTER not fighting a rung with a genuinely lower prio number that
+  fires (see placement below).
+
+**(4) Where it lives.** Recommend prio ~2.5 — below REFLEX(0)/POSTURE(1)/EAT_CRITICAL(2) (all either
+real emergencies or safely in-place actions that should still preempt), above DEPOSIT(3)/EAT(4)/
+TOOL(5)/RESTOCK(6)/LIGHT(7)/PROJECT(8)/ESCAPE(8.5) — every one of which either requires TRAVEL
+(DEPOSIT, TOOL's ensureTool, RESTOCK) or is the exact routine work dusk should interrupt (LIGHT,
+PROJECT). This is why EAT sits at prio 4 (below the recommended SHELTER slot) but SHELTER's own
+`act()` still calls `eatInline()` itself, per (3) — deliberately not relying on ladder ordering to
+let EAT interrupt SHELTER; a rung latches per `choose()`'s own rule (`agenda.js:958-963`:
+`demanded.prio >= owner.prio` keeps the current owner), so EAT(4)/DEPOSIT(3) firing while SHELTER(2.5)
+is latched correctly does nothing on its own — SHELTER has to want to hand off, which is exactly
+what (3)'s three named exits are for. This is eng-3's file and their call on the exact number; the
+constraint that matters is "above every travel/exposure rung, at or below the genuine emergency
+rungs," not the literal 2.5.
+**Composition**: LIGHT (prio 7) and SHELTER overlap in mechanism (`torchInline`) but not in trigger —
+LIGHT fires for a bot mid-task that happens to be dark and underground; SHELTER fires for a bot about
+to spend the night exposed. A bot already sheltered never reaches LIGHT (SHELTER latches higher).
+WALL_OFF (survival.js, reactive) stays exactly as-is and is the correct fallback if SHELTER's own
+trigger is somehow too late and a real threat closes in anyway — REFLEX(0)/POSTURE(1) still sit above
+SHELTER and hand off to survival.js's `pick()` the instant `dangerState` says so, same as today.
+`basekeeping.js`'s spawnproofing is a different concern entirely (permanent registered structures,
+not a roaming bot's own night) and is out of scope here.
+
+**(5) Fixture plan.** A real-dusk fixture, matching this session's own "live-verify, not just
+`drill()`" doctrine for anything gating survival: RCON `time set 12000` (or wait for it, on a server
+confirmed live-cycling per (1)'s verification step) on an open-surface site with an unkitted bot
+(below-stone gear, deliberately, matching #96's own induced-stress precedent) and confirm (a) SHELTER
+fires before `light` actually crosses 8, not after; (b) the dig-in-and-cap case completes and seals
+with zero carried filler (digging its own cap block) and the hut case completes with filler present;
+(c) `light>=9` at dawn clears it and the bot resumes its prior project; (d) a driver-set `A.project`
+mid-night correctly pulls the bot back out per (3)'s third exit. A companion frozen-daylight run on
+the SAME code (any local server with `doDaylightCycle false` set, or literally the cavecrew server
+if a safe supervised window exists) should confirm SHELTER never fires there — the negative case
+matters as much as the positive one, per (1)'s own claim that this generalizes to both servers.
+
+fix: n/a — design only, per AUDIT/DESIGN-ONLY instruction; awaiting build approval.
+github: felsenuboot/felcrew-mcp#96 (subsumed — this is the completion of its own "prevent the state"
+direction, at the right layer: before dusk, not after departure), felsenuboot/felcrew-mcp#105 (new,
+this design, so it doesn't rot as a FEEDBACK-only footnote) — note: felcrew-mcp is this repo's old
+name, GitHub transparently redirects it to felsenuboot/FelsenBerry; same repo, same tracker.
