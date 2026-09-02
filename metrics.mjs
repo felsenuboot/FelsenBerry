@@ -256,7 +256,11 @@ if (notes.length) {
   console.log('\n── ladder coverage ── (no `note` events — this ledger predates the agenda, or the bot never ran it)');
 }
 
-// ---------- direction (idle-as-a-number, IDLE_TRIGGER_SPEC / agenda v21) ----------
+// ---------- direction (idle-as-a-number, IDLE_TRIGGER_SPEC / Direction Episodes) ----------
+// Version note: the spec was written as agenda v20->v21, but engine-dev-3 landed the ESCAPE
+// rung (#89 digOut) as v21 first (unrelated to this), so Direction Episodes ships as v22
+// instead -- a number, not a functional change. Nothing below keys off a version number;
+// only `A._directionCheck`'s existence (checked live, not inferred from `agenda` in /state).
 // Direction Episodes: "needs direction" is latched, level-triggered engine state
 // (research/IDLE_TRIGGER_SPEC.md). An episode opens on a deterministic ladder edge
 // (project_done/project_blocked/no_tool) or level (unproductive_idle/project_stalled) and
@@ -370,7 +374,7 @@ if (dirRecs.length) {
     }
   }
 } else {
-  console.log('\n── direction ── (no `direction` events — this ledger predates agenda v21, or the bot never ran it)');
+  console.log('\n── direction ── (no `direction` events — this ledger predates Direction Episodes, or the bot never ran it)');
 }
 // contradiction alarm (queue-ahead graft, spec §4.2): a dead trigger with a live ladder-note
 // stream prints as IDLE-heavy while direction records are ZERO -- an optional-guarded emit
@@ -392,7 +396,7 @@ if (dirRecs.length) {
     const idleShare = 1 - (list.filter((r) => r.agenda && r.agenda !== 'IDLE').length / list.length);
     if (idleShare > 0.5) {
       console.log(`\n  *** CONTRADICTION (${bot}): ladder coverage shows ${pct(idleShare)} IDLE-transition share but ZERO \`direction\` records exist ***`);
-      console.log('      Either agenda v21 is not on this bot yet, or the trigger is dead while the ledger is live -- these two numbers can never honestly disagree once v21 is running.');
+      console.log('      Either Direction Episodes is not on this bot yet, or the trigger is dead while the ledger is live -- these two numbers can never honestly disagree once it is running.');
     }
   }
 }

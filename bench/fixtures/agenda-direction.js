@@ -1,15 +1,22 @@
 // bench/fixtures/agenda-direction.js — Direction Episodes regression (research/IDLE_TRIGGER_SPEC.md
-// §4.3, agenda v21). Ten cases, the acceptance backbone for felcrew-mcp#68's trigger half.
+// §4.3). Ten cases, the acceptance backbone for felcrew-mcp#68's trigger half.
 //
-// STATUS (2026-09-02, engine-dev): SKELETON, written against the spec text BEFORE agenda v21
-// landed (engine-dev-3's lane, phase 1 of the spec's phased plan). `A._directionCheck` and the
-// harvest-block promotion logic do not exist on any live bot yet -- this file cannot be run
-// until they do. Structure and the ten case descriptions are pinned to the spec verbatim;
-// the INJECTION SHAPE (exactly which A.* fields directionCheck reads, and whether promotion
-// needs its own exposed hook or must be driven through a fuller tick()-style call) is my
-// best-effort reading of §1.1h/§1.1g and WILL need a pass against the real code once it lands
-// -- flagged rather than guessed silently. Coordinate with engine-dev-3 before trusting this
-// file's assertions; update this header once verified live.
+// VERSION NOTE: the spec was written as agenda v20->v21, but engine-dev-3 landed the ESCAPE
+// rung (#89 digOut) as v21 first (unrelated to this work), so Direction Episodes ships as v22
+// instead -- a number, not a functional change. This file never keys off a version number,
+// only `A._directionCheck`'s existence, so nothing below needed changing for it.
+//
+// STATUS (2026-09-02, engine-dev): SKELETON, written against the spec text BEFORE Direction
+// Episodes landed (engine-dev-3's lane, phase 1 of the spec's phased plan). `A._directionCheck`
+// and the harvest-block promotion logic do not exist on any live bot yet -- this file cannot
+// be run until they do. Structure and the ten case descriptions are pinned to the spec
+// verbatim; the INJECTION SHAPE (exactly which A.* fields directionCheck reads, and whether
+// promotion needs its own exposed hook or must be driven through a fuller tick()-style call)
+// is my best-effort reading of §1.1h/§1.1g and WILL need a pass against the real code once it
+// lands -- flagged rather than guessed silently. UPDATE (2026-09-02): engine-dev-3 confirmed
+// promotion gets its own hook, `A._promoteCheck`, same discipline as `_directionCheck`/
+// `_idleWorkOutcome` -- exact signature to follow once section 1.1g is real code. Coordinate
+// with engine-dev-3 before trusting this file's assertions; update this header once verified live.
 //
 // Pattern follows agenda-ladder.js (dry-run via direct A.* field injection, save/restore,
 // try/finally) and agenda-idlework.js (stubbing __skills.start / calling exposed pure hooks
@@ -22,7 +29,7 @@
 //     --data "$(jq -Rn --rawfile c bench/fixtures/agenda-direction.js '{code:$c}')" | jq .result
 const A = globalThis.__agenda;
 const out = { version: A.version, cases: [] };
-if (!A._directionCheck) { out.skipped = 'no __agenda._directionCheck -- engine predates agenda v21 (IDLE_TRIGGER_SPEC)'; return out; }
+if (!A._directionCheck) { out.skipped = 'no __agenda._directionCheck -- engine predates Direction Episodes (IDLE_TRIGGER_SPEC)'; return out; }
 
 const saved = {
   project: A.project, owner: A.owner, blocked: A.blocked, nextProject: A.nextProject,
