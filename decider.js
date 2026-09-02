@@ -376,7 +376,21 @@ async function handleBot(b, rules) {
         raw: (rawOut || '').slice(0, 500), latency_ms: llmLatencyMs, dispatchOk: false, dispatchError: 'unmapped_or_unparsed' });
       if (state.llmMisses[dedupKey] >= LLM_MISS_RETRY_LIMIT) {
         state.handled[dedupKey] = Date.now();   // retry-once-then-skip: give up, the IDLE floor/driver/a future rule takes it from here
-        log(`${b.name}: giving up on episode ${eid} after ${LLM_MISS_RETRY_LIMIT} unusable Andy replies`);
+        // #95: a give-up used to stop here -- "handled" only in decider-state.json, the
+        // episode itself never closed, and agenda's own single-latch (openEpisode's `if
+        // (d.episode) return`) then silently blocked every future stall detection for as
+        // long as the underlying condition persisted (soak #2's dead-consumer: 9+ repeat
+        // kit_missing failures over 30+ minutes, zero further direction-episode activity of
+        // any kind). Close it explicitly via dirClose (same eid-CAS safety as dirDispatch,
+        // touches nothing but the episode) so agenda's existing per-`why` reopen backoff
+        // (30s->60s->120s->300s) gets a chance to open a FRESH episode later if the stall is
+        // still real -- giving the decider (or a driver, or a future rule) another shot
+        // instead of permanent silence. Fire-and-forget: if this fails (bot gone, network),
+        // the episode just stays open as it always did -- no new failure mode introduced.
+        try {
+          await evalOn(b.port, `return __agenda.dirClose(${JSON.stringify(eid)}, 'decider_exhausted');`);
+        } catch (e) { /* best-effort -- worst case, unchanged from today's behavior */ }
+        log(`${b.name}: giving up on episode ${eid} after ${LLM_MISS_RETRY_LIMIT} unusable Andy replies -- closed decider_exhausted so a fresh episode can reopen later`);
       } else {
         log(`${b.name}: no usable decision from Andy for episode ${eid} (attempt ${state.llmMisses[dedupKey]}/${LLM_MISS_RETRY_LIMIT})`);
       }

@@ -1,6 +1,7 @@
 // bench/fixtures/agenda-direction.js — Direction Episodes regression (research/IDLE_TRIGGER_SPEC.md
-// §4.3). Eleven cases (the spec's original ten plus case 11, team-lead's setProject/nextProject
-// ruling), the acceptance backbone for felcrew-mcp#68's trigger half.
+// §4.3). Twelve cases (the spec's original ten, plus case 11 for team-lead's setProject/
+// nextProject ruling, plus case 12 for #95's dirClose), the acceptance backbone for
+// felcrew-mcp#68's trigger half.
 //
 // VERSION NOTE: the spec was written as agenda v20->v21, but engine-dev-3 landed the ESCAPE
 // rung (#89 digOut) as v21 first (unrelated to this work), so Direction Episodes ships as v22
@@ -220,6 +221,44 @@ try {
     T('11d: keepNext:true is the explicit opt-in that preserves a stale staged next', A.nextProject && A.nextProject.skill, 'harvestGrass');
   } else {
     out.cases.push({ label: '11: setProject next-clearing ruling', PASS: null, skipped: true });
+  }
+
+  // ---- 12 (#95): dirClose closes a give-up WITHOUT touching A.project, and the SAME reopen
+  // backoff a real dispatch uses still lets a fresh episode open later if the stall persists.
+  // Before this existed, a decider give-up (2 unmappable Andy replies, no dispatch at all) left
+  // the episode open forever -- openEpisode's single-latch (`if (d.episode) return`) then
+  // silently blocked every later stall detection for as long as the underlying condition
+  // persisted (soak #2's dead-consumer: 9+ repeat kit_missing failures, zero further
+  // direction-episode activity of any kind for 30+ minutes).
+  if (A.dirClose) {
+    A.project = { skill: 'chopTrees', args: {}, lastError: 'kit_missing', attempts: 3 };
+    A.blocked = null;
+    resetDirection({ prevLvl: 'active', lastProductiveAt: Date.now() - 200000 });
+    check({ task: null });   // opens a project_stalled episode (E3a)
+    const eid12 = A.direction.episode.id;
+    const projectBefore = JSON.stringify(A.project);
+    const staleClose = A.dirClose('not-the-real-eid', 'decider_exhausted');
+    T('12a: dirClose with a stale/wrong eid is a no-op', staleClose && staleClose.skipped, 'stale');
+    T('12b: episode untouched by the stale close', A.direction.episode && A.direction.episode.id, eid12);
+    const realClose = A.dirClose(eid12, 'decider_exhausted');
+    T('12c: dirClose with the REAL eid succeeds', realClose && realClose.ok, true);
+    T('12d: episode is closed', A.direction.episode, null);
+    T('12e: closed counter incremented', A.direction.closed, 1);
+    T('12f: UNLIKE dirDispatch, dirClose never touches A.project (still the same stalled project)',
+      JSON.stringify(A.project), projectBefore);
+    const reopenAt12 = A.direction.reopenAt.project_stalled;
+    T('12g: the SAME per-why reopen backoff a real dispatch uses is armed', typeof reopenAt12, 'number');
+    // the underlying stall is STILL real (A.project never changed) -- once the backoff
+    // elapses, directionCheck must be able to open a FRESH episode for the SAME why, proving
+    // this is "closed and re-openable later", not a second way to leave it stuck forever.
+    A.direction.lastProductiveAt = Date.now() - 200000;   // immediately quiet again
+    check({ task: null, now: reopenAt12 + 1000 });        // 1s past the backoff, no real wait needed
+    T('12h: after the backoff elapses, the SAME still-stalled project opens a FRESH episode',
+      A.direction.episode && A.direction.episode.why, 'project_stalled');
+    T('12i: it really is a fresh episode (a new id, not the closed one)',
+      A.direction.episode.id !== eid12, true);
+  } else {
+    out.cases.push({ label: '12: dirClose (#95)', PASS: null, skipped: true });
   }
 
   out.passed = out.cases.filter((c) => c.PASS === true).length;

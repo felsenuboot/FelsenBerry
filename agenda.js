@@ -102,7 +102,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 23, enabled: true,
+  version: 24, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -1220,6 +1220,27 @@ A.dirDispatch = (eid, spec) => {
   const ep = A.direction.episode;
   if (!ep || ep.id !== eid) return { ok: false, skipped: 'stale' };
   return A.setProject(Object.assign({}, spec, { by: spec.by || 'decider' }));
+};
+// #95: an episode the decider (or a driver) gives up on WITHOUT dispatching anything used to
+// rot open forever -- closeEpisode only ever fired through setProject (a real decision) or
+// markProductive's self-recovery, so a give-up with no dispatch left the episode open with
+// nothing further watching it: agenda's own single-latch (openEpisode's `if (d.episode)
+// return;` above) then silently blocks every subsequent stall detection from ever opening a
+// fresh episode, for as long as the underlying condition persists. dirClose is the missing
+// third path: same eid-CAS safety as dirDispatch (a stale/answered-elsewhere eid no-ops), but
+// it does NOT touch A.project/A.nextProject -- it only closes the episode and starts the SAME
+// per-`why` reopen backoff every other close already uses (30s->60s->120s->300s, §2.3 of
+// research/IDLE_TRIGGER_SPEC.md). If the stall is still genuinely unresolved, directionCheck's
+// own level detector re-opens a FRESH episode once quiet exceeds its window again and the
+// backoff has elapsed -- giving the decider/a driver another shot later (conditions may have
+// changed) instead of silence for the rest of the run. `closedBy` should name the give-up
+// reason (e.g. 'decider_exhausted') so metrics/FEEDBACK can tell an escalation-driven close
+// apart from a real decision.
+A.dirClose = (eid, closedBy) => {
+  const ep = A.direction.episode;
+  if (!ep || ep.id !== eid) return { ok: false, skipped: 'stale' };
+  closeEpisode(closedBy || 'decider_exhausted', null, { now: now() });
+  return { ok: true };
 };
 A.sense = sense;
 A.rung = (id) => RUNG_BY_ID[id] || null;
