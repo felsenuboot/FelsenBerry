@@ -256,6 +256,147 @@ if (notes.length) {
   console.log('\n── ladder coverage ── (no `note` events — this ledger predates the agenda, or the bot never ran it)');
 }
 
+// ---------- direction (idle-as-a-number, IDLE_TRIGGER_SPEC / agenda v21) ----------
+// Direction Episodes: "needs direction" is latched, level-triggered engine state
+// (research/IDLE_TRIGGER_SPEC.md). An episode opens on a deterministic ladder edge
+// (project_done/project_blocked/no_tool) or level (unproductive_idle/project_stalled) and
+// closes on anything that fills the project slot -- a driver, the fleet decider, a
+// promoted queued-next, or deterministic self-recovery. `latency_ms` is stamped by the
+// engine at close time, not recomputed here. Pairing is by `eid`, exactly like the
+// recovery-ladder section pairs by `gid` above.
+const dirRecs = recs.filter((r) => r.ev === 'direction');
+const undirectedFractionByBot = {};   // stashed for the contradiction alarm below
+if (dirRecs.length) {
+  console.log('\n── direction (idle-as-a-number) ──');
+  const byBot = {};
+  for (const r of dirRecs) (byBot[r.bot] = byBot[r.bot] || []).push(r);
+  // session wall clock proxy: this bot's own full observed record span (first to last `t`
+  // in its ledger), same pragmatic span-from-records approach the rest of this file uses
+  // rather than requiring a clean connect/disconnect pair.
+  const allByBot = {};
+  for (const r of recs) (allByBot[r.bot] = allByBot[r.bot] || []).push(r.t);
+
+  const rows = [];
+  for (const [bot, list] of Object.entries(byBot)) {
+    const opens = list.filter((r) => r.op === 'open');
+    const closes = list.filter((r) => r.op === 'close');
+    const promotes = list.filter((r) => r.op === 'promote');
+    const opensByEid = new Map(opens.map((o) => [o.eid, o]));
+    const closesByEid = new Map(closes.map((c) => [c.eid, c]));
+
+    const byWhy = {};
+    for (const o of opens) byWhy[o.why] = (byWhy[o.why] || 0) + 1;
+
+    const latencies = closes.map((c) => c.latency_ms).filter(Number.isFinite).sort((a, b) => a - b);
+    const pct90 = latencies.length ? latencies[Math.min(latencies.length - 1, Math.ceil(0.9 * latencies.length) - 1)] : null;
+    const med = median(latencies);
+
+    const closedByCounts = {};
+    for (const c of closes) closedByCounts[c.closedBy] = (closedByCounts[c.closedBy] || 0) + 1;
+
+    // undirected time: closed episodes contribute close.t - open.t; STILL-OPEN episodes
+    // (no matching close in this ledger window) contribute up to the bot's last-seen record
+    // -- this is also the open-unclosed / dead-consumer detector, not a separate pass.
+    const allT = allByBot[bot] || list.map((r) => r.t);
+    const lastSeen = Math.max(...allT), firstSeen = Math.min(...allT);
+    const sessionMs = Math.max(1, lastSeen - firstSeen);
+    let undirectedMs = 0;
+    const unclosed = [];
+    for (const o of opens) {
+      const c = closesByEid.get(o.eid);
+      if (c) undirectedMs += Math.max(0, c.t - o.t);
+      else { undirectedMs += Math.max(0, lastSeen - o.t); unclosed.push(o); }
+    }
+    const hours = sessionMs / 3600000;
+    undirectedFractionByBot[bot] = { opened: opens.length, fraction: undirectedMs / sessionMs };
+
+    rows.push({ bot, opens: opens.length, closes: closes.length, promotes: promotes.length,
+      byWhy, med, pct90, closedByCounts, undirectedFrac: undirectedMs / sessionMs,
+      perHr: hours > 0 ? opens.length / hours : null, unclosed, lastSeen });
+  }
+  rows.sort((a, b) => b.opens - a.opens);
+
+  console.log('  bot              opened closed promoted  latency(med/p90)  undirected%  ep/hr');
+  for (const r of rows) {
+    const lat = r.med != null ? `${Math.round(r.med / 1000)}s/${Math.round((r.pct90 ?? r.med) / 1000)}s` : 'n/a';
+    console.log(`  ${r.bot.padEnd(16)} ${String(r.opens).padStart(6)} ${String(r.closes).padStart(6)} ${String(r.promotes).padStart(8)}  ${lat.padStart(16)}  ${pct(r.undirectedFrac).padStart(10)}  ${r.perHr != null ? r.perHr.toFixed(1) : 'n/a'}`);
+    console.log(`    by why: ${Object.entries(r.byWhy).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(' ') || '(none)'}`);
+    const cbTotal = Object.values(r.closedByCounts).reduce((a, b) => a + b, 0) || 1;
+    console.log(`    closedBy: ${Object.entries(r.closedByCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}(${pct(v / cbTotal)})`).join(' ') || '(none closed)'}   <- promoted = never touched an LLM, self_recovered = deterministic floor worked`);
+    if (r.unclosed.length) {
+      for (const o of r.unclosed) {
+        const ageMin = Math.round((r.lastSeen - o.t) / 60000);
+        const tag = ageMin >= 30 ? '  *** DEAD-CONSUMER: open >30min, nothing ever answered it ***' : '';
+        console.log(`    OPEN, unclosed: eid=${o.eid} why=${o.why} age=${ageMin}min${tag}`);
+      }
+    }
+  }
+  // fleet aggregate
+  const totalOpen = rows.reduce((a, r) => a + r.opens, 0);
+  const totalClose = rows.reduce((a, r) => a + r.closes, 0);
+  const totalPromote = rows.reduce((a, r) => a + r.promotes, 0);
+  const allLat = dirRecs.filter((r) => r.op === 'close' && Number.isFinite(r.latency_ms)).map((r) => r.latency_ms).sort((a, b) => a - b);
+  const fleetMed = median(allLat);
+  const fleetP90 = allLat.length ? allLat[Math.min(allLat.length - 1, Math.ceil(0.9 * allLat.length) - 1)] : null;
+  const fleetUndirected = rows.length ? rows.reduce((a, r) => a + r.undirectedFrac, 0) / rows.length : 0;
+  console.log(`  fleet: ${totalOpen} opened, ${totalClose} closed, ${totalPromote} promoted, undirected-time ${pct(fleetUndirected)} (avg across bots)` +
+    (fleetP90 != null ? `, latency p50 ${Math.round(fleetMed / 1000)}s / p90 ${Math.round(fleetP90 / 1000)}s${fleetP90 >= 120000 ? '  <- target is p90<120s driverless, MISSED' : ''}` : ''));
+
+  // promote cross-check: the true completion->start gap is the NEXT task_start's gap_ms,
+  // not a self-reported latency -- two independent instruments on the same fact (spec §1.1g).
+  const promoteRecs = dirRecs.filter((r) => r.op === 'promote');
+  if (promoteRecs.length) {
+    const gaps = [];
+    for (const p of promoteRecs) {
+      const after = recs.filter((r) => r.ev === 'task_start' && r.bot === p.bot && r.t > p.t && r.gap_ms != null).sort((a, b) => a.t - b.t)[0];
+      if (after) gaps.push(after.gap_ms);
+    }
+    const gmed = median(gaps);
+    console.log(`  promote cross-check: median next-task gap_ms ${gmed != null ? Math.round(gmed) + 'ms' : 'n/a'} over ${gaps.length}/${promoteRecs.length} promotes matched` +
+      (gmed != null && gmed > 2500 ? '  *** expected <=2500ms, exceeded ***' : ''));
+  }
+
+  if (has('decisions')) {
+    const src = flag('decisions');
+    if (typeof src === 'string' && fs.existsSync(src)) {
+      const decisions = fs.readFileSync(src, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      const byHour = decisions.length ? (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) / 3600000 : 0;
+      const ruleHits = decisions.filter((d) => d.src === 'rule').length;
+      const llmCalls = decisions.filter((d) => d.src === 'llm').length;
+      const skipped = decisions.filter((d) => d.src === 'skipped_cap').length;
+      console.log(`  decider: ${decisions.length} decisions${byHour > 0 ? ` over ${byHour.toFixed(1)}h (${(llmCalls / byHour).toFixed(1)} LLM calls/hr vs 30/hr cap)` : ''}, rule-hit ${pct(decisions.length ? ruleHits / decisions.length : 0)}, skipped_cap ${skipped}`);
+    } else {
+      console.log(`  --decisions: no file at '${src}'`);
+    }
+  }
+} else {
+  console.log('\n── direction ── (no `direction` events — this ledger predates agenda v21, or the bot never ran it)');
+}
+// contradiction alarm (queue-ahead graft, spec §4.2): a dead trigger with a live ladder-note
+// stream prints as IDLE-heavy while direction records are ZERO -- an optional-guarded emit
+// into nothing is indistinguishable from a rung that never runs (#38/#54-R2 lesson) unless
+// something is watching for exactly this shape. Silence while idle is reported as the
+// failure it is, not swallowed.
+//
+// MUST be checked PER-BOT, not just pooled fleet-wide: during a staged v21 rollout (the
+// live shape right now) a healthy already-upgraded bot's direction records make the FLEET
+// total nonzero, which would silently hide a genuinely dead/pre-v21 bot sitting right next
+// to it in the same run -- caught live testing this against a synthetic mixed-version
+// ledger, not theoretical.
+{
+  const notesByBot = {}, dirByBot = {};
+  for (const r of notes) (notesByBot[r.bot] = notesByBot[r.bot] || []).push(r);
+  for (const r of dirRecs) (dirByBot[r.bot] = dirByBot[r.bot] || []).push(r);
+  for (const [bot, list] of Object.entries(notesByBot)) {
+    if (list.length < 5 || (dirByBot[bot] || []).length) continue;
+    const idleShare = 1 - (list.filter((r) => r.agenda && r.agenda !== 'IDLE').length / list.length);
+    if (idleShare > 0.5) {
+      console.log(`\n  *** CONTRADICTION (${bot}): ladder coverage shows ${pct(idleShare)} IDLE-transition share but ZERO \`direction\` records exist ***`);
+      console.log('      Either agenda v21 is not on this bot yet, or the trigger is dead while the ledger is live -- these two numbers can never honestly disagree once v21 is running.');
+    }
+  }
+}
+
 // ---------- recovery ladder (#54) ----------
 // R2's own acceptance criterion is its own firing frequency (its sink did not exist until
 // telemetry.js grew M.recovery — see FEEDBACK.md, "M.recovery emits into a sink that DOES NOT
