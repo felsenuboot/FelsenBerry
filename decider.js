@@ -374,6 +374,38 @@ async function handleBot(b, rules) {
   const dedupKey = b.name + ':' + eid;
   if (state.handled[dedupKey]) return;
 
+  // #97 item 3: a bot that hasn't moved AND is stalling on the exact same why+lastError as
+  // its LAST dispatch attempt is very unlikely to be helped by dispatching the identical
+  // thing again -- test-driver's live evidence: three identical chopTrees dispatches from a
+  // frozen position, back to back, across three separate episodes. Track the signature at
+  // every genuinely-new-episode attempt (this runs once per eid, gated by the dedup check
+  // above) and skip the WHOLE decision -- saving an Andy call too, not just the dispatch --
+  // when nothing observable about the situation has changed since last time. Closes the
+  // episode via the SAME dirClose #95 already built (closedBy:'frozen_repeat') rather than
+  // either blindly re-dispatching an identical failing call or leaving the episode open --
+  // the exact same reopen-backoff every other close uses gives it another shot later if the
+  // world (position, kit, whatever) actually changes.
+  const FROZEN_POS_TOLERANCE = 1.5;   // blocks -- "hasn't moved" allows for settle/jitter
+  state.lastAttempt = state.lastAttempt || {};
+  const prevAttempt = state.lastAttempt[b.name];
+  const curPos = st.position || null;
+  const lastError = (dir.detail && dir.detail.lastError) || null;
+  const frozenRepeat = Boolean(prevAttempt && curPos
+    && Math.abs(curPos.x - prevAttempt.pos.x) < FROZEN_POS_TOLERANCE
+    && Math.abs(curPos.y - prevAttempt.pos.y) < FROZEN_POS_TOLERANCE
+    && Math.abs(curPos.z - prevAttempt.pos.z) < FROZEN_POS_TOLERANCE
+    && prevAttempt.why === dir.why && prevAttempt.lastError === lastError);
+  if (curPos) state.lastAttempt[b.name] = { pos: curPos, why: dir.why, lastError };
+  if (frozenRepeat) {
+    state.handled[dedupKey] = Date.now();
+    appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key: ruleKey(dir, st.role || null),
+      src: 'skipped_frozen_repeat', decision: null, latency_ms: null });
+    try { await evalOn(b.port, `return __agenda.dirClose(${JSON.stringify(eid)}, 'frozen_repeat');`); }
+    catch (e) { /* best-effort -- worst case, episode just stays open as it always did */ }
+    log(`${b.name}: skipping an identical dispatch from a frozen position (why=${dir.why}, lastError=${lastError}) -- closed frozen_repeat so a fresh episode can reopen if the world actually changes`);
+    return;
+  }
+
   const role = st.role || null;
   const key = ruleKey(dir, role);
   const rule = rules[key];
