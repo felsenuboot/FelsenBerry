@@ -1268,11 +1268,11 @@ design, so `#108`'s FOOD rung is exercised as intended).
 |---|---|---|
 | Join | **T+0 (08:58:28Z / entity id 35)** | fresh spawn, position (3.5, 101, 3.5), hp 20/20, food 20/20, empty inventory confirmed via `/state` |
 | Wooden pickaxe | **T+1m15s (08:59:43Z)** | `Tool ready: wooden_pickaxe (crafted)`, log-confirmed on `world-race6` server.log — 2nd-fastest ever behind run #4's T+59s, well ahead of run #5's T+7m25s. No re-issue needed (per trigger table); RESTOCK now self-provisioning kit (torch/bread/cobblestone/stick) toward the stone attempt. |
-| Stone pickaxe | pending — **the wall** | 0 of 4 comparable runs (#1-#4) have ever reached this; run #5 suspended mid-kit-assembly, excluded |
+| Stone pickaxe | **T+31m50s (09:30:18.526Z) — THE WALL IS BROKEN** | `Tool ready: stone_pickaxe (crafted)`, log-confirmed on `world-race6` server.log. **First stone pickaxe ever reached live by this program** (runs #1-#4 all DNF'd before this tier; run #5 suspended mid-kit-assembly, excluded). Steering-call tally AT this exact tick: 9 (see full list below) — full engine stamp at this moment: skills v62, agenda v30, survival v11, dangerscan v6 (unchanged from spawn). Crafted 1.9s before a fatal creeper explosion (see death entry below) — the tier was genuinely reached regardless of the tool's subsequent loss on death. |
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
 
-Steering calls: 7 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+Steering calls: 10 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
 08:58:53.698Z (T+25s), clean on first attempt, per Race book v2's trigger table; (2) Food/kit-refusal
 branch, `setProject({skill:'huntAnimals',args:{anyMob:true,radius:32,repeat:true}})` at 09:08:09.749Z
 (T+9m41s) after the identical `food 0/4` kit-gate refusal repeated twice (09:06:05Z, 09:07:19Z, ~74s
@@ -1316,13 +1316,64 @@ identical `no cow within 32 blocks`. **Same discrepancy run #2 already found and
 a read-only `/eval` entity scan (`Object.values(bot.entities).filter(species...)`) at 09:24:16Z
 found a pig **19 blocks away** at (-72,112,-18) — well inside the 32-block search — meaning
 `huntAnimals{anyMob:true}` is not actually searching non-cow species despite the flag, only
-reporting/trying cow. Not filed as a fresh finding (run #2's SCOREBOARD entry already flagged this
-exact gap); (7) `setProject({skill:'come',args:{x:-72,y:112,z:-18}})` at 09:24:29.708Z (T+26m1s),
-steered directly at the scanned pig rather than trusting the search again. Deaths: 0 so far.
-Monitor: armed — 15s `/state` poll
-(IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus real-time
-`server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans
-(combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
+reporting/trying cow. **Root-caused and written up in FEEDBACK.md 09:28Z**: `anyMob` only relaxes
+the entity-TYPE validation, never touches the species list default (`['cow']`) — Race book v2's own
+documented food-refusal fallback has always been missing an explicit `species` argument, likely the
+same unrooted cause behind run #2's own unresolved "raw entity-list distance vs whatever
+huntAnimals' search actually filters on" note; (7) `setProject({skill:'come',args:{x:-72,y:112,
+z:-18}})` at 09:24:29.708Z (T+26m1s), steered directly at the scanned pig; (8)
+`setProject({skill:'huntAnimals',args:{anyMob:true,radius:32,repeat:true}})` at 09:24:59.261Z, still
+species-less, failed identically at point-blank range — confirmed the root cause beyond doubt; (9)
+`setProject({skill:'huntAnimals',args:{species:['cow','pig','sheep','chicken','rabbit'],radius:32,
+repeat:true}})` at 09:25:53.640Z (T+27m25s), explicit species list this time — **worked immediately**,
+`Hunt over: 1/1 kills. Haul: 1 porkchop` at 09:26:07Z. **Second live finding, written up in
+FEEDBACK.md 09:28Z**: the porkchop still did NOT unblock `mineLane`/`chopTrees`'s `food 0/2` kit
+refusal — `skills.js`'s OWN separate `FOODS` allowlist (feeding the `excursion` kit-tier gate) lists
+only COOKED meats; `#108`'s raw-meat fix was applied to `agenda.js`'s textually-near-identical but
+independent copy only (the one feeding the FOOD rung's `s.foodCount`), never to skills.js's. No
+cook/smelt-food skill exists in the registry either, so a role-less racer that hunts raw meat
+currently has no legal `setProject` path to satisfy this specific gate. Proposed one-line fix (same
+raw-meat set, same poison-risk exclusion of chicken) written up for engine-dev/eng-3, not applied by
+me (skills.js is shared, not my lane mid-race).
+
+**DEATH #1 — creeper explosion, 09:30:21.427Z, T+31m53s.** Full timeline (server-log-timestamped,
+not inferred): 09:30:10.201Z `Creeper at 7.9 blocks - backing off, do NOT touch it` (dangerscan
+correctly identified and started disengaging) -> HP held at 20 through 09:30:12 (`Stable again
+(CREEPER, HP 20/20)`) -> explosion at close range: 09:30:15.427Z hp=18 -> 09:30:16.424Z hp=16 ->
+09:30:17.442Z hp=6 (single big jump — the actual detonation) -> `Walling myself in to patch up` fired
+at 09:30:17.726Z (WALL_OFF engaging, correctly, immediately) -> **09:30:18.526Z `Tool ready:
+stone_pickaxe (crafted)` — the wall-breaking milestone landed 1.9s into the death spiral, before the
+wall could complete** -> hp 4 (09:30:18.425) -> hp 2 (09:30:19.425) -> hp 0 (09:30:20.425) -> `bot
+died — respawning` (09:30:21.427Z). The zero-defense floor (`#96`) engaged in the right order
+(disengage -> wall) but a creeper's burst damage output-paced it — same honest ceiling run #5's
+writeup already named ("the bot can now always try something" is not "the bot now always survives"),
+not a regression. **Inventory wiped on death, confirmed via read-only `/eval`** (empty array) —
+consistent with every prior run's death (`#1`/`#2`/run #3's three deaths). The stone pickaxe crafted
+moments earlier is GONE, but the TIER was genuinely reached and is recorded as reached regardless
+(per Race book v2's own instruction: record the milestone "regardless of how the rest of the run
+goes").
+
+**Respawn — `#103` (agenda v28, landed by eng-3 mid-run, commit `2caaf66`) fired live for the first
+time in this race program.** `AGENDA_EVENT {"op":"open","eid":"dmtlbr0d01","why":"respawned",...}` at
+09:30:23.508Z — **2.08s after the death line**, essentially the "near-instant" respawn Race book v2
+predicted, and the fix opened a `needs_direction` episode immediately rather than leaving `agenda`
+silently `IDLE`/no-project (the exact ambiguity-with-calm-idle gap `#103` was filed to close). SHELTER
+fired unprompted right after (`Digging in for the night` — still night, `bot.time.isDay` confirmed
+false) — correctly defensive before anything else. Followed Race book v2's combat-loss-at-night
+branch precisely: (1) detected the death from the log line, not inferred; (2) took a read-only
+inventory check BEFORE deciding what to set (confirmed empty, not assumed); (3) re-armed from the
+bottom — (10) `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at 09:31:09.649Z — same
+as the opening move, since TOOL bootstraps wood regardless of tier held a moment ago; (4) skipped the
+corpse-recovery detour (death coords ~60 blocks from the current bootstrap site, well past the
+~15-20 block worthwhile-detour threshold); (5) **death-to-re-arm gap: 48.2s** (09:30:21.427Z ->
+09:31:09.649Z) — logged here as its own timed interval per the branch's instruction, comparable
+across future runs.
+
+Steering calls: 10 total (see full list above). Deaths: 1 (creeper explosion, organic, zero-defense
+floor engaged in the right order but outpaced by burst damage — not a bug). Monitor: armed —
+actionable-only filter (milestone first-seen, death/damage, hp<8/food<6, rung-stuck>90s,
+`needs_direction` opened, server errors) per team-lead's tightened cadence, plus real-time
+`server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans.
 
 Decider daemon: was NOT running at prep time; messaged engine-dev-3 to coordinate first (concurrently
 on TODO 4b in decider.js), said I'd wait for their ack. **Did not wait long enough — started it at

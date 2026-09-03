@@ -4861,3 +4861,59 @@ outcome blocks — v31). `bench/fixtures/agenda-ladder.js` (8 new cases: thresho
 against EAT_CRITICAL/SHELTER, the escalatedAt no-re-fire-storm guard, and a non-wood
 `depot_reach` class proving the mechanism is remedy-class-generic).
 github: felsenuboot/FelsenBerry (TODO 5c)
+
+---
+### 2026-09-03 09:28Z — test-driver — run #6 live finding: two independent FOODS allowlists drifted — `#108`'s raw-meat fix only patched agenda.js's copy, not skills.js's excursion-kit gate
+Caught live on GammelGerhard (gear-race run #6) mid the same food-item deadlock as the standdown finding above.
+Precisely reproduced, not inferred:
+1. `huntAnimals` (my own manual fallback, with `species` explicitly listed — see the separate `anyMob:true` finding
+   below) killed a pig: `Hunt over: 1/1 kills. Haul: 1 porkchop`. Confirmed via read-only `/eval`
+   (`bot.inventory.items()`): 1 raw `porkchop` in the bag.
+2. `mineLane`/`chopTrees` STILL refuse to start: `Not setting off half-kitted — I still need: food 0/2` — unchanged
+   before and after the kill.
+3. Read `skills.js` directly: line 128's `FOODS` set (feeds the `excursion`/`underground`/`deep` kit-tier check at
+   line 2433, `S.start`'s pre-flight gate — the exact thing printing "Not setting off half-kitted") lists ONLY
+   cooked meats (`cooked_beef`, `cooked_porkchop`, ...) — no raw forms at all.
+4. Read `agenda.js` directly: its OWN, SEPARATE `FOODS` set (line 227, feeds `s.foodCount` -> the `FOOD` rung's
+   fire condition) was extended for `#108` (comment right above it, verbatim: "a real hunt (FOOD rung) kills an
+   animal and collects RAW meat ... this set only recognized the COOKED forms ... deliberately NOT raw_chicken")
+   to include `beef, porkchop, mutton, rabbit`. **This fix was applied to agenda.js's copy only.** skills.js's
+   copy — a textually near-identical set, in the same repo, solving the identical raw-meat-recognition problem —
+   was never touched.
+5. Consequence: a starving bot's FOOD rung (agenda.js) now correctly recognizes a fresh kill and stops firing —
+   `#108` genuinely works for THAT purpose. But a bot with FULL hunger trying to `mineLane`/`chopTrees` its way
+   through the `excursion` kit gate (skills.js's `S.start` pre-flight, a completely different code path) gets ZERO
+   credit for the exact same raw meat in the exact same inventory. Two allowlists, one bug class, one fix applied
+   to one of the two copies.
+6. **No engine-side recovery exists for the gate that's still broken**: checked the registry (`./task.sh list`)
+   and `skills.js`/`producer.js` for any cook/smelt-food skill — none exists (`producer.js` only smelts logs into
+   charcoal for torch fuel, `restock` only withdraws from depot chests, which this role-less racer has none of).
+   So today, a role-less racer that hunts its way to raw meat still cannot satisfy `excursion`'s `foodItems:2`
+   gate by any legal `setProject` path — bread needs an established wheat farm this bot doesn't have, and cooking
+   raw meat has no skill to dispatch. Flagging as the likely reason no run in this program has crossed wood→stone
+   through the kit-topping-up phase cleanly even after `#88`/`#96`/`#99`/`#100`/`#101`/`#108` all landed.
+**Proposed fix shape (not applied — skills.js is a shared file, not my lane to edit mid-race without ack; matches
+the fix pattern `#108` already established)**: add the same four raw meats (`beef, porkchop, mutton, rabbit`,
+deliberately excluding `raw_chicken` for the same poison-risk reason agenda.js's comment gives) to skills.js's
+`FOODS` set at line 128, mirroring the already-decided policy exactly. One-line-shaped, same risk profile already
+approved once. Separately, a `smeltItem`/`cook` skill is a real gap for any role-less racer past this point;
+flagging, not proposing a design here.
+github: felsenuboot/FelsenBerry (companion to `#108`; blocks run #6's wood→stone progress as of 09:28Z)
+
+---
+### 2026-09-03 09:28Z — test-driver — run #6 live finding: `huntAnimals{anyMob:true}` does not widen the species list, contrary to Race book v2's documented driver fallback
+`anyMob` (skills.js `S.define('huntAnimals', ...)`, `validate()`) only relaxes the entity-TYPE check (lets a
+non-animal mob like a zombie be targeted IF explicitly named in `args.species`) — it does not touch the actual
+search species list, which stays `args.species || ['cow']` regardless of `anyMob`. Confirmed live: a read-only
+`/eval` entity scan (`Object.values(bot.entities).filter(species...)`) found a pig 19 blocks away while
+`huntAnimals{anyMob:true,radius:32,repeat:true}` (Race book v2's own documented food-refusal fallback, used
+verbatim, no `species` argument) reported `no cow within 32 blocks` twice in a row at that exact position. Passing
+`species:['cow','pig','sheep','chicken','rabbit']` explicitly (matching what `agenda.js`'s own FOOD rung already
+does internally) fixed it immediately — killed the pig on the very next attempt. Race book v2's documented
+fallback (SCOREBOARD.md, "Known-failure branch plans", carried across v1 and v2 unchanged) has always been
+missing this argument; likely why run #2's own hunt search also read strangely narrow at the time (that entry
+flagged "an unresolved discrepancy... raw entity-list distance vs whatever huntAnimals' own search actually
+filters on" without root-causing it — this is that root cause). Recommend SCOREBOARD's Race book documented
+fallback be corrected for future runs; not editing that section myself mid-race (it's live steering doctrine, not
+a static record) — flagging for whoever writes Race book v3 or the next SCOREBOARD pass.
+github: felsenuboot/FelsenBerry (Race book v2 correction; also explains run #2's unresolved discrepancy note)
