@@ -56,6 +56,10 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    additions (only agenda.js's copy did) → a hunted porkchop cannot satisfy mineLane/chopTrees' food-kit gate; make ONE shared FOODS
    source. (b, #114) huntAnimals{anyMob:true} never widens species past ['cow'] → explicit species list (cow, pig, sheep, chicken last).
    (c) note: no cook/smelt skill in the registry — file as follow-up, don't build now. Fixtures + preflight; verify on 25599 only.
+5f. **Multi-threat gap: untracked spider kills the bot while WALL_OFF builds against the creeper it saw** (engine-dev, survival/dangerscan
+   lane; run #6 death #1 09:30:17–21Z, test-driver f50f6b7): -10 HP co-timed with "Creeper at 2.8 blocks", then three -2 bite drops with
+   NO dangerscan mention of a spider. Threat tracking must hold N threats (nearest-first) and WALL_OFF must not run mid-build with an
+   unseen melee attacker landing hits — re-scan on damage-without-named-source. Fixture against real mobs on 25599 (RCON summon OK there).
 6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
