@@ -5193,3 +5193,109 @@ github: filed via issue-manager (see their tracker sync) — flagging severity a
 a starvation-death risk for any role-less bot (the current unassigned fleet shape, #88) that
 survives its first hunt but not its second meal shortfall, i.e. the ORDINARY continuation of
 exactly the scenario #108 was built to fix.
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5g: respawn/spawn-camp handling (agenda v33)
+type: fix + fixture, design revised from the original brief (reported to lead first, per their
+own instruction — see the design exchange this entry summarizes)
+status: built (items 1/2/3/5 — agenda.js only; item 4 is survival.js, sent to engine-dev for
+ack, not applied here, per the lead's ruling to land the rest without it if they're slow),
+live-verified (real tick loop, real deaths via RCON), `bench/fixtures/agenda-ladder.js` 67/67
+(up from 52/52, 15 new cases), `bench/preflight.sh` 257/257 on throwaway bots (25599 only).
+
+**Design correction, reported before building**: the literal brief ("SHELTER runs before any
+project/kit work") doesn't match test-driver's own 3-death evidence (FEEDBACK ~09:40Z).
+SHELTER (prio 2.5) already structurally outranks PROJECT/TOOL/RESTOCK (prio 3-8.5) — that part
+was never broken. The real gaps: (a) Death #2's dig-in DID fire but lost the race to a hostile
+already at 2.5 blocks; (b) Death #3's dig-in never fired because `dangerState` was ALREADY
+`'panic'` by the first evaluable tick, and survival.js's own `shouldShelter()` correctly defers
+to REFLEX/POSTURE (prio 0/1, which structurally outrank SHELTER too — no widening of SHELTER's
+own fire() can ever preempt them) — but REFLEX just yields to survival.js's SEPARATE reactive
+escalation ladder (BREAK_LOS/WALL_OFF/FLEE_AWAY, untouched here — Death #4 shows it works when
+given room). Lead's ruling: build the revised shape.
+
+**(1) `bot._deathTimes`** — a rolling death-timestamp array, bot-level not A-level (survives
+re-injection, same reasoning as `#103`'s `_respawnedNeedsDirection`: a death re-injects this
+whole file). **Live-caught building this**: `bot.on('death', ...)` runs at module top-level,
+which means it re-registers on EVERY re-injection with nothing ever removing the old listener
+— `MaxListenersExceededWarning: 11 death listeners` observed live after a handful of deaths.
+The pre-existing `_respawnedNeedsDirection` handler was accidentally immune (setting the same
+boolean twice is a no-op); a COUNTING handler is not — accumulated listeners meant one real
+death pushed N timestamps, inflating `recentDeaths` well past reality (measured: 3 real deaths
+read as 6). Fixed at the root for BOTH handlers: install exactly once per real bot object via
+a `bot._deathHandlersInstalled` guard flag.
+
+**(2) `sense()` gains `s.recentDeaths`/`s.spawnCamped`/`s.justRespawned`/`s.hostileNear`/
+`s.isDay`.** The release math (raw death-count vs. the window; dawn+stable early release; the
+10-minute hard cap) is factored into a PURE function, `spawnCampCheck(deathTimes, nowMs,
+openedAt, isDay)`, exposed as `A._spawnCampCheck` — same discipline as `A._idleWorkOutcome`/
+`A._promoteCheck` — so a fixture can drive all three release paths with SYNTHETIC timestamps,
+no real wall-clock waiting for a 90s window or a 10-minute cap. `s.isDay` reuses survival.js's
+own `isDaylight()` via the SAME `sv.shelter.status()` call `s.shelterActive` already made (one
+call, two fields) rather than a second, independently-drifting day/night check in this file —
+the exact bug class `#113`'s shared-FOODS fix just closed, avoided here from the start.
+
+**(3) SHELTER's `fire()`** ORs in two new triggers, both explicitly NOT touching survival.js's
+`d.state==='panic'` exclusion (moot given rung ordering, not worth the risk to a mature,
+already-tuned system): `spawnCamped` (blanket override once genuinely camped — night/gear/
+panic-state irrelevant, "something is actively killing this bot") and `justRespawned &&
+surfaceExposed && (isDay===false || hostileNear)` (starts the dig-in SOONER in the pre-panic
+window post-respawn, addressing Death #2's shape — losing a race it was already running).
+Live-verified: RCON-killed a bot at night, isolated 300 blocks out — respawn snapped it back
+to world spawn (RCON `kill` is a normal death, not a teleport-then-kill; the isolation only
+held for the FIRST death of each test, a real live-test constraint worth remembering for next
+time) — `rung:'SHELTER'` and `"Digging in for the night"` fired at `ticks:1`, within one 2s
+tick of every single respawn.
+
+**(5) Suppression while spawn-camped**: `SPAWN_CAMP_SUPPRESSED` (TOOL/RESTOCK/FOOD/LIGHT/
+PROJECT/ESCAPE) gated in `safeFire()` — the single central point every rung's fire() already
+passes through, one Set literal rather than six separate edits. Deliberately excludes REFLEX/
+POSTURE/EAT_CRITICAL/SHELTER/DEPOSIT/EAT/REMEDY (combat, shelter, eating and dropping excess
+inventory are not "going out to work"; REMEDY only ever fires from an ALREADY-pending failure,
+and with TOOL/RESTOCK/PROJECT suppressed nothing NEW feeds it during a camp). A decider/driver
+`setProject()` during suppression is NOT lost — `A.setProject` has no dependency on rung
+fire(), so it still sets `A.project` and closes the direction episode exactly as always; the
+project simply doesn't get its TURN to run until suppression clears, at which point its own
+rung's fire() re-evaluates true against the ALREADY-set project. IDLE (the floor, never
+suppressed — "zero defense must be unrepresentable") gets its own inline `spawnCamped` check in
+its own `act()`: holds position instead of dispatching role-default work, since SHELTER
+structurally outranks it and should own the body whenever camped, but IDLE is still reachable
+if SHELTER genuinely can't act. Live-verified: 3 RCON kills in ~8s produced a single
+`spawn_camp` ledger event (`op:'open', deaths:3` — confirmed the listener-leak fix, which had
+initially produced two spurious `open` events for one real streak before the fix).
+
+**Ledger**: `spawn_camp` (own event type, not folded into `direction` — a camp span isn't a
+direction episode) via the same `m.emit` two-surface discipline `dirEmit` uses. `op:'open'`
+(deaths, pos) / `op:'close'` (deaths, reason: `hard_cap`|`stable_dawn`|`window_aged_out`,
+spanMs) — soak #5's grade can count spans and their release reason independently.
+
+**Fixture** (`bench/fixtures/agenda-ladder.js`, 15 new cases): (A) SHELTER's widened fire() —
+night-after-respawn, hostile-near-after-respawn even in daylight, and two negative cases
+(safe-and-day, not-surface-exposed) proving the widening doesn't over-fire; (B) suppression —
+SHELTER deliberately standing down (a real build failure) so RESTOCK/TOOL being suppressed is
+actually observable rather than masked by SHELTER always outranking them anyway, plus a
+sanity case proving suppression doesn't leak when not camped; (C) `A._spawnCampCheck`'s pure
+release math — all three release paths (window-aged-out, dawn+stable, hard-cap) plus two
+sanity baselines (below-threshold, mid-camp), all via synthetic timestamps.
+
+**Not built**: item 4 (a degraded shallower dig-in when there's no filler AND the ground isn't
+verified 3-deep — today still falls through to `no_viable_primitive` and does nothing during
+a spawn camp). Sent engine-dev a concrete proposed diff for ack (cross-lane: survival.js) —
+flagged a real geometric question in it myself (the cap-placement offset likely isn't correctly
+parametrized for a dig shallower than 2) rather than presenting something that looks plausible
+but I haven't verified against their primitive.
+
+**Soak-hygiene note, own mistake, flagged to engine-dev directly**: RCON `kill` triggers a
+normal death — respawn snaps back to world spawn regardless of where the bot was teleported
+beforehand. My isolation-teleport only held for each test's FIRST death; every subsequent
+respawn (needed to accumulate the 3-death spawn-camp streak) happened at world spawn, which
+turned out to be ~11 blocks from engine-dev's own live ZombieFutter (#115 WALL_OFF) test at the
+time. Stopped my test bot the moment I noticed (a `<join>` log line), flagged the proximity to
+engine-dev immediately. Worth remembering for future respawn-cycle live tests: isolate the
+RESPAWN point (bed/anchor), not just the pre-death position.
+
+fix: `agenda.js` (`bot._deathTimes`/`bot._spawnCamp`, `bot._deathHandlersInstalled` listener
+dedup, `spawnCampCheck`/`A._spawnCampCheck`, `spawnCampEmit`, SHELTER's widened fire(),
+`SPAWN_CAMP_SUPPRESSED` in `safeFire()`, IDLE's spawnCamped hold — v33). `bench/fixtures/
+agenda-ladder.js` (+15 cases).
+github: felsenuboot/FelsenBerry#116 (TODO 5g, items 1/2/3/5; item 4 pending engine-dev)

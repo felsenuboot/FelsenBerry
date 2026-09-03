@@ -131,6 +131,12 @@ const A = {
   // 5c: same-remedy-repeats-across-positions escalation (TODO 5c, soak #4). remedyClass ->
   // {n, firstAt, escalatedAt}. See the REMEDY rung + remedyFail/remedyOk below.
   remedy: {},
+  // TODO 5g (#116): spawn-camp span tracking lives on `bot._spawnCamp`, NOT here — see the
+  // `bot.on('death', ...)` block below for why (same reasoning as `_respawnedNeedsDirection`/
+  // `_deathTimes`: a death re-injects this whole file, wiping every field on `A`, including
+  // this one, mid-streak — live-caught testing THIS exact feature: two spurious `spawn_camp`
+  // "open" ledger events for what was really one continuous streak, because `A.spawnCamp.active`
+  // kept resetting to `false` on every re-injection).
   metrics: { ticks: 0, transitions: 0, acts: 0, errors: 0, byRung: {} },
   log: [],
   // Direction Episodes (research/IDLE_TRIGGER_SPEC.md, agenda v21->v22 — #68's trigger half).
@@ -174,7 +180,32 @@ globalThis.__agenda = A;
 // injection's tick() loop is the one still running (old ones stop their own timer on
 // idempotent replace) sees and consumes the real, current flag, immune to how many times
 // re-injection happened in between.
-bot.on('death', () => { bot._respawnedNeedsDirection = true; });
+// TODO 5g (#116), live-caught building this very feature: `bot.on('death', ...)` runs at
+// module top-level, which re-executes on EVERY re-injection (this whole file's own doctrine,
+// documented right above) — and nothing ever removed the OLD listener, so listeners
+// accumulated 1-for-1 with death count (`MaxListenersExceededWarning: 11 death listeners`,
+// observed live after a handful of deaths). The pre-5g `_respawnedNeedsDirection` handler
+// happened to be harmless under that bug (setting the same boolean true twice is a no-op) —
+// but a COUNTING handler is not idempotent: N accumulated listeners means one real death
+// pushes N timestamps, inflating `s.recentDeaths` and firing spawnCamped on far fewer real
+// deaths than SPAWN_CAMP_N actually asks for. Fixed at the root, for both handlers: install
+// exactly once per real bot object (the flag itself is the same "survives re-injection, bot-
+// level not A-level" state everything else on this line already relies on).
+if (!bot._deathHandlersInstalled) {
+  bot._deathHandlersInstalled = true;
+  bot.on('death', () => { bot._respawnedNeedsDirection = true; });
+  // TODO 5g (#116): spawn-camp death streak, same bot-level-not-A-level reasoning as
+  // `_respawnedNeedsDirection` right above (a death re-injects this whole file, wiping any
+  // A-level state, but never replaces the bot object) — pruned to the rolling window inside
+  // sense() itself, not here, so a fresh injection sees the SAME real history immediately
+  // rather than an empty array until its own first death.
+  bot.on('death', () => { bot._deathTimes = (bot._deathTimes || []).concat(Date.now()); });
+}
+// TODO 5g (#116): the OPEN SPAN itself (active/openedAt/deaths) — same bot-level home, and for
+// the identical reason: `openedAt` anchors the hard-cap release path, so it must NOT reset on
+// every death within the same still-open streak (a death is exactly when a re-injection
+// happens). `|| {...}` only initializes it once per real bot connection, never on re-injection.
+bot._spawnCamp = bot._spawnCamp || { active: false, openedAt: 0, deaths: 0 };
 
 const now = () => Date.now();
 const note = (msg) => {
@@ -193,6 +224,43 @@ const DIRECTION_STALL_MS       = 180000;   // E3a: stalled-project window
 const DIRECTION_BARREN_RUNS    = 3;        // E3b: consecutive zero-yield repeat runs
 const DIRECTION_REOPEN_MS      = [30000, 60000, 120000, 300000];  // same shape as STAND_DOWN_MS
 
+// TODO 5g (#116): spawn-camp constants. From test-driver's own incident (run #6, FEEDBACK
+// ~09:40Z): 3 deaths in 63s, each respawn drawing hostile fire again within seconds — faster
+// than SHELTER's proactive dig-in could win the race, and faster than any driver could
+// meaningfully steer. SPAWN_CAMP_WINDOW_MS/N cover that exact shape with margin. The three
+// release paths (see sense()'s own spawn-camp block and tick()'s transition-close call) are a
+// hard requirement, not a nicety: NOTHING that can suppress ordinary dispatch may be allowed
+// to suppress it forever, or a chronic condition (not just a real camp) could deadlock the
+// bot's own autonomy — composition-rot doctrine, "zero defense must be unrepresentable"
+// extends to "zero recovery must be unrepresentable" too.
+const SPAWN_CAMP_WINDOW_MS = 90000;     // rolling window a death streak is measured over
+const SPAWN_CAMP_N = 3;                 // deaths within the window that count as "camped"
+const SPAWN_CAMP_STABLE_MS = 60000;     // dawn + this long since the last death -> early release
+const SPAWN_CAMP_HARD_CAP_MS = 600000;  // absolute ceiling regardless of ongoing deaths
+const RESPAWN_GRACE_MS = 20000;         // "just respawned" window — SHELTER's early-trigger grace
+
+// Pure: the spawn-camp release math, factored out of sense() so a fixture can drive it with
+// SYNTHETIC timestamps (no real wall-clock waiting for a 90s window or a 10-minute hard cap —
+// same discipline as A._idleWorkOutcome/A._promoteCheck below). `deathTimes` is expected
+// already-pruned-or-not (this function only READS it, filtering internally); `openedAt` is
+// bot._spawnCamp.openedAt (0 if no streak is currently open — the hard cap is then vacuously
+// false, matching "not currently camped" with nothing to cap).
+const spawnCampCheck = (deathTimes, nowMs, openedAt, isDay) => {
+  const recent = (deathTimes || []).filter((t) => nowMs - t < SPAWN_CAMP_WINDOW_MS);
+  const recentDeaths = recent.length;
+  const lastDeathAt = recentDeaths ? recent[recent.length - 1] : 0;
+  const rawSpawnCamped = recentDeaths >= SPAWN_CAMP_N;
+  // early release: dawn AND stable (no death) for SPAWN_CAMP_STABLE_MS — lets the bot resume
+  // BEFORE the raw death-count would otherwise have aged out of the window on its own.
+  const stableAtDawn = isDay === true && Boolean(lastDeathAt) && (nowMs - lastDeathAt) > SPAWN_CAMP_STABLE_MS;
+  // hard ceiling: measured from when THIS streak first opened — a circuit breaker independent
+  // of whether deaths keep resetting the rolling window, so a chronic condition can never
+  // suppress dispatch forever.
+  const hardCapped = Boolean(openedAt) && (nowMs - openedAt) > SPAWN_CAMP_HARD_CAP_MS;
+  return { recentDeaths, lastDeathAt, rawSpawnCamped, stableAtDawn, hardCapped,
+    spawnCamped: rawSpawnCamped && !stableAtDawn && !hardCapped };
+};
+
 // dirEmit(op, fields): the SAME two-surface discipline as note()'s S.log mirror, so a direction
 // event is never invisible on one side while claimed on the other (#38 doctrine — an emit into
 // a sink that doesn't exist, or that nothing reads, is indistinguishable from one that never
@@ -203,6 +271,13 @@ const DIRECTION_REOPEN_MS      = [30000, 60000, 120000, 300000];  // same shape 
 const dirEmit = (op, fields) => {
   try { console.log(new Date().toISOString() + ' AGENDA_EVENT ' + JSON.stringify(Object.assign({ ev: 'direction', op }, fields))); } catch (e) {}
   try { const m = M(); if (m && m.emit) m.emit('direction', Object.assign({ op }, fields)); } catch (e) {}
+};
+// TODO 5g (#116): same two-surface discipline as dirEmit, its own event type (not folded into
+// 'direction' — a spawn-camp span is not a direction episode) so soak #5's grade can count
+// open/close spans and their `reason`/`deaths` independently.
+const spawnCampEmit = (op, fields) => {
+  try { console.log(new Date().toISOString() + ' AGENDA_EVENT ' + JSON.stringify(Object.assign({ ev: 'spawn_camp', op }, fields))); } catch (e) {}
+  try { const m = M(); if (m && m.emit) m.emit('spawn_camp', Object.assign({ op }, fields)); } catch (e) {}
 };
 
 const cfg = (() => {
@@ -405,11 +480,22 @@ const sense = (inject) => {
     // "every predicate input comes through the snapshot" rule s.tools/s.upgrade already
     // follow — bench/fixtures/agenda-ladder.js's dry-run injection cannot inject "what
     // survival.js's own g.shelter object currently contains", only fields on s itself.
-    s.shelterShould = false; s.shelterActive = false;
+    s.shelterShould = false; s.shelterActive = false; s.isDay = null;
     if (sv && sv.shelter) {
       try { s.shelterShould = Boolean(sv.shelter.should()); } catch (e) {}
-      try { s.shelterActive = Boolean(sv.shelter.status().active); } catch (e) {}
+      // ONE status() call, both fields read off it — isDay is TODO 5g's (below), reusing
+      // survival.js's own isDaylight() rather than a second, independently-drifting copy of
+      // day/night logic in this file (the exact bug class #113's shared FOODS fix just closed).
+      try { const st = sv.shelter.status(); s.shelterActive = Boolean(st.active); s.isDay = st.isDay; } catch (e) {}
     }
+    // TODO 5g (#116): spawn-camp detection. Pruned to the rolling window every real tick (dry
+    // run skips this whole function body, see sense()'s own early `if (inject) return ...`).
+    bot._deathTimes = (bot._deathTimes || []).filter((t) => s.now - t < SPAWN_CAMP_WINDOW_MS);
+    const camp = spawnCampCheck(bot._deathTimes, s.now, bot._spawnCamp.openedAt, s.isDay);
+    s.recentDeaths = camp.recentDeaths;
+    s.justRespawned = Boolean(camp.lastDeathAt) && (s.now - camp.lastDeathAt) < RESPAWN_GRACE_MS;
+    s.hostileNear = Boolean(s.threat && s.threat.d <= 16);
+    s.spawnCamped = camp.spawnCamped;
     // #97: track an unbroken "panic, but survival.js isn't engaging" streak, plus whether any
     // damage landed during it. Either signal breaking (state leaves panic, survival engages,
     // or a hit lands) resets the streak immediately -- see PANIC_STALE_MS's own comment.
@@ -616,6 +702,7 @@ const idleWorkOutcome = (skill, result, error) => {
   return did ? 'worked' : 'barren';
 };
 A._idleWorkOutcome = idleWorkOutcome;   // exposed for bench/fixtures/agenda-idlework.js
+A._spawnCampCheck = spawnCampCheck;     // exposed for bench/fixtures/agenda-ladder.js (TODO 5g)
 
 // ---------------- 5c: same-remedy-repeats-across-positions escalation ----------------
 // Soak #4 (2026-09-03): a repeated remedy kept getting redispatched from a fresh position
@@ -879,8 +966,21 @@ const RUNGS = [
   // clear(), never on fire() staying true, which is exactly how choose()'s owner/clear logic
   // already works everywhere else in this file (see its own comment) — no special-casing
   // needed here, just don't make the mistake of gating fire() on shelterActive too.
+  // TODO 5g (#116): two additional triggers, ORed onto survival.js's own shelterShould, both
+  // deliberately NOT touching shouldShelter()'s `d.state==='panic'` exclusion (survival.js's
+  // own doctrine there — "REFLEX/POSTURE already own this" — stays correct: REFLEX/POSTURE
+  // sit at prio 0/1, ABOVE SHELTER's 2.5, so they win arbitration over SHELTER regardless of
+  // what SHELTER's own fire() says the instant real panic is active; widening fire() cannot
+  // preempt them and was never going to fix the "already panicking" case). What these DO fix,
+  // from the exact incident (test-driver, run #6, FEEDBACK ~09:40Z): Death #2's dig-in fired
+  // but lost the race to a hostile that hadn't reached full panic-range yet — `spawnCamped`
+  // and the `justRespawned` grace window get SHELTER starting SOONER, in the pre-panic window,
+  // rather than waiting for shouldShelter()'s own (correctly conservative) gearTier/exact-
+  // night gates. `spawnCamped` alone covers a bot already mid-streak even in daylight or with
+  // decent gear — the point past 3 deaths in 90s isn't "is this normally worth sheltering
+  // for", it's "something is actively killing this bot, stop everything else".
   { id: 'SHELTER', prio: 2.5,
-    fire: (s) => s.shelterShould,
+    fire: (s) => s.shelterShould || s.spawnCamped || (s.justRespawned && s.surfaceExposed && (s.isDay === false || s.hostileNear)),
     clear: (s) => !s.shelterActive,
     act: async (s) => {
       // Not a __skills task (enter() stops any running one itself, then drives the body
@@ -1268,6 +1368,14 @@ const RUNGS = [
     act: async (s) => {
       if (oursRunning(s)) return 'running';
       gradeIdleWork(s);                                          // #67b: score the finished run first
+      // TODO 5g (#116): the floor still has to be reachable (SPAWN_CAMP_SUPPRESSED never
+      // touches IDLE, on purpose — "zero defense must be unrepresentable"), but its NORMAL job
+      // (wander off doing role-default work) is exactly what a spawn camp must not do. SHELTER
+      // (prio 2.5) outranks IDLE and fires whenever spawnCamped is true, so in practice IDLE
+      // only reaches this branch if SHELTER itself genuinely cannot act (no survival.js shelter
+      // API, or standing down after a real build failure) — holding position is still the
+      // right floor behaviour then, not marching off to chop wood mid-camp.
+      if (s.spawnCamped) return 'holding';   // oursRunning(s) already false here (checked above)
       if (s.now - (A._idleAt || 0) < 30000) return 'cooldown';   // don't spam
       A._idleAt = s.now;
       // ROLE-DEFAULT WORK FIRST. The floor of the ladder is "do something useful", not "look
@@ -1328,8 +1436,25 @@ const standDown = (id) => {
   A.standDown[id] = now() + ms;
   note(`${id} made no progress — standing down ${Math.round(ms / 1000)}s so lower rungs can run`);
 };
+// TODO 5g (#116): while genuinely spawn-camped, ordinary "go do project/kit work" dispatch is
+// suppressed entirely — automating exactly what a driver had to do BY HAND on run #6 (holding
+// every setProject call, letting survival.js's own reactive escalation run uninterrupted until
+// stable). Deliberately does NOT touch REFLEX/POSTURE/EAT_CRITICAL/SHELTER/DEPOSIT/EAT/REMEDY:
+// combat and shelter handling must keep running (that is the whole point), eating held food and
+// dropping excess inventory are not "going out to work", and REMEDY only ever fires from an
+// ALREADY-pending failure (TOOL/RESTOCK/PROJECT are suppressed below it, so nothing NEW feeds
+// it during a camp) — letting it finish a relocate it already started is harmless and can only
+// help. A decider/driver setProject() during suppression is NOT lost: setProject itself has no
+// dependency on rung fire() — it still sets A.project and closes the direction episode exactly
+// as always (see A.setProject's own header) — the project simply does not get its TURN to
+// actually RUN until suppression clears, at which point its own rung's fire() re-evaluates
+// true (A.project is already set) and it picks up where a normal dispatch would have. IDLE
+// (the floor) gets its own spawnCamped short-circuit inline (its own act(), below) rather than
+// being suppressed here — floor must always be reachable, "zero defense must be unrepresentable".
+const SPAWN_CAMP_SUPPRESSED = new Set(['TOOL', 'RESTOCK', 'FOOD', 'LIGHT', 'PROJECT', 'ESCAPE']);
 const safeFire = (r, s) => {
   try {
+    if (s.spawnCamped && SPAWN_CAMP_SUPPRESSED.has(r.id)) return false;
     if (!r.safety && A.standDown[r.id] && A.standDown[r.id] > s.now) return false;
     return Boolean(r.fire(s));
   } catch (e) { A.metrics.errors++; return false; }
@@ -1373,6 +1498,24 @@ const tick = () => {
   if (A._yieldedToNav) { A._yieldedToNav = false; note('/goto2 released the body — resuming'); }
   if (s.dangerState === 'calm' && A.calmSince === 0) A.calmSince = s.now;
   if (s.dangerState !== 'calm') A.calmSince = 0;
+
+  // TODO 5g (#116): spawn-camp span open/close, ledger-visible for soak #5's grade. Reads
+  // s.spawnCamped (computed in sense(), so a dry-run fixture can inject it directly) rather
+  // than re-deriving it here — one source of truth for the boolean, this block only tracks
+  // the TRANSITION and stamps openedAt for the hard-cap release path sense() itself reads.
+  // `bot._spawnCamp`, NOT `A.spawnCamp` — see its own init comment (bot.on('death',...) above)
+  // for why: A-level state does not survive the re-injection every death itself triggers.
+  if (s.spawnCamped && !bot._spawnCamp.active) {
+    bot._spawnCamp.active = true; bot._spawnCamp.openedAt = s.now; bot._spawnCamp.deaths = s.recentDeaths;
+    spawnCampEmit('open', { deaths: s.recentDeaths, pos: s.pos || null });
+    note(`spawn-camp detected (${s.recentDeaths} deaths in ${SPAWN_CAMP_WINDOW_MS / 1000}s) — suppressing project/kit dispatch`);
+  } else if (!s.spawnCamped && bot._spawnCamp.active) {
+    const reason = (s.now - bot._spawnCamp.openedAt) > SPAWN_CAMP_HARD_CAP_MS ? 'hard_cap'
+      : (s.isDay === true ? 'stable_dawn' : 'window_aged_out');
+    spawnCampEmit('close', { deaths: bot._spawnCamp.deaths, reason, spanMs: s.now - bot._spawnCamp.openedAt });
+    note(`spawn-camp cleared (${reason}) — dispatch resuming`);
+    bot._spawnCamp.active = false; bot._spawnCamp.openedAt = 0; bot._spawnCamp.deaths = 0;
+  }
 
   // harvest our finished task before deciding anything
   if (A.activeTaskId && s.task && s.task.id === A.activeTaskId && !s.task.running) {

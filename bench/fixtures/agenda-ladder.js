@@ -17,6 +17,7 @@ const savedSD = A.standDown, savedShort = A._restockShort, savedAt = A._restockS
 const savedRemedy = A.remedy;
 const savedSDCount = A.standDownCount, savedUnproductive = A.unproductive;
 const savedLastProductiveAt = A.direction.lastProductiveAt;
+const savedSpawnCamp = bot._spawnCamp;   // TODO 5g: lives on `bot`, not `A` — see agenda.js's own comment
 const out = { version: A.version, cases: [] };
 
 // a "healthy at work" baseline; each case overrides only what it is testing
@@ -198,6 +199,63 @@ try {
     Date.now() - A.direction.lastProductiveAt < 5000);
   T('the SAME redirect now fires PROJECT immediately, not still blocked', {}, 'PROJECT');
   A.standDown = {}; A.standDownCount = {}; A.unproductive = {};
+  A.project = { skill: 'mineLane', args: {}, restockFloor: { torches: 16, food: 4, filler: 16 } };
+
+  // 5g (#116): respawn/spawn-camp shapes (test-driver's run-#6 incident, FEEDBACK ~09:40Z —
+  // 3 deaths in 63s, each respawn drawing hostile fire again within seconds). Two mechanisms:
+  // (A) SHELTER's fire() gets two EARLY triggers ORed onto survival.js's own shelterShould, so
+  //     it starts sooner in the pre-panic window (Death #2's shape: the dig-in fired but lost
+  //     the race). (B) once genuinely spawn-camped, ordinary project/kit dispatch is
+  //     suppressed entirely (Death #3/#4's shape — automates what a driver did by hand).
+  bot._spawnCamp = { active: false, openedAt: 0, deaths: 0 };
+
+  // (A) SHELTER's widened fire() — every input comes through the injected snapshot, same rule
+  // as every other rung here.
+  T('just respawned, surface exposed, night -> SHELTER (even with shelterShould false)',
+    { justRespawned: true, surfaceExposed: true, isDay: false, shelterShould: false }, 'SHELTER');
+  T('just respawned, surface exposed, DAY but a hostile is near -> SHELTER',
+    { justRespawned: true, surfaceExposed: true, isDay: true, hostileNear: true, shelterShould: false }, 'SHELTER');
+  T('just respawned, surface exposed, day, NO hostile near -> does not force shelter, PROJECT runs',
+    { justRespawned: true, surfaceExposed: true, isDay: true, hostileNear: false, shelterShould: false }, 'PROJECT');
+  T('just respawned but NOT surface-exposed (e.g. underground) -> does not force shelter',
+    { justRespawned: true, surfaceExposed: false, isDay: false, hostileNear: true, shelterShould: false }, 'PROJECT');
+  T('spawnCamped alone forces SHELTER regardless of night/hostile/gear', { spawnCamped: true, isDay: true, hostileNear: false }, 'SHELTER');
+
+  // (B) suppression — SHELTER itself standing down (a real build failure) so the ladder's
+  // reaction to a spawn-camped bot is actually observable, not just masked by SHELTER always
+  // outranking everything below it anyway.
+  A.standDown = { SHELTER: Date.now() + 60000 };
+  T('spawnCamped + SHELTER down + torches low -> RESTOCK suppressed, floor IDLE (not RESTOCK)',
+    { spawnCamped: true, torches: 4 }, 'IDLE');
+  T('spawnCamped + SHELTER down + broken tool -> TOOL suppressed too, floor IDLE',
+    { spawnCamped: true, tools: { pickaxe: { name: 'iron_pickaxe', dur: 10 } } }, 'IDLE');
+  T('NOT spawnCamped, SHELTER down, torches low -> RESTOCK fires normally (suppression does not leak)',
+    { spawnCamped: false, torches: 4 }, 'RESTOCK');
+  A.standDown = {};
+
+  // (C) the release math itself — A._spawnCampCheck is pure, driven by SYNTHETIC timestamps
+  // (no real wall-clock wait for a 90s window or a 10-minute hard cap).
+  const TC = (label, deathTimes, nowMs, openedAt, isDay, expectCamped) => {
+    let got = null, err = null;
+    try { got = A._spawnCampCheck(deathTimes, nowMs, openedAt, isDay); } catch (e) { err = String(e.message || e); }
+    out.cases.push({ label, expect: expectCamped, got: got && got.spawnCamped, err, PASS: !err && got && got.spawnCamped === expectCamped });
+  };
+  const T0 = 1000000000;   // an arbitrary synthetic "now" anchor
+  TC('3 deaths within the 90s window, no dawn signal -> camped',
+    [T0 - 80000, T0 - 40000, T0 - 5000], T0, T0 - 5000, false, true);
+  TC('only 2 deaths within the window -> below threshold, not camped',
+    [T0 - 40000, T0 - 5000], T0, T0 - 5000, false, false);
+  TC('3 deaths total, but the oldest has aged OUT of the 90s window -> not camped (window release)',
+    [T0 - 95000, T0 - 40000, T0 - 5000], T0, T0 - 5000, false, false);
+  TC('3 deaths in window, but DAY and stable (last death > 60s ago) -> not camped (dawn release)',
+    [T0 - 85000, T0 - 80000, T0 - 65000], T0, T0 - 85000, true, false);
+  TC('3 deaths in window, dawn but NOT yet stable (last death < 60s ago) -> still camped',
+    [T0 - 85000, T0 - 40000, T0 - 5000], T0, T0 - 85000, true, true);
+  TC('3 deaths in window, the OPEN span itself exceeds the 10-minute hard cap -> not camped (hard-cap release)',
+    [T0 - 80000, T0 - 40000, T0 - 5000], T0, T0 - 700000, false, false);
+  TC('3 deaths in window, span still well under the hard cap -> camped (sanity baseline)',
+    [T0 - 80000, T0 - 40000, T0 - 5000], T0, T0 - 60000, false, true);
+  bot._spawnCamp = { active: false, openedAt: 0, deaths: 0 };
 
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.rung}`);
@@ -208,4 +266,5 @@ try {
   A.remedy = savedRemedy;
   A.standDownCount = savedSDCount; A.unproductive = savedUnproductive;
   A.direction.lastProductiveAt = savedLastProductiveAt;
+  bot._spawnCamp = savedSpawnCamp;
 }
