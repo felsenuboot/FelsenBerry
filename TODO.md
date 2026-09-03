@@ -72,16 +72,14 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    project — mineLane/safeDescend straight down from inside the shelter, torching, never breaking the seal upward — and re-check
    dawn/threat exits each cycle. Not a criterion-1 calibration change: the bar is "playing", and sheltered idling is not playing.
    Fixture in agenda-ladder (sealed + night → underground project dispatched; dawn → exit); live on 25599 with RCON night.
-5n. **BREAK_LOS re-fires forever against a melee-range skeleton — unarmed bot dies 2/2** (#121, engine-dev, survival.js, HIGH, GATES soak #6;
-   engine-dev #32 pass 7cd4183: CREEPER branch confirmed clean for the first time; BREAK_LOS: skeleton at 0.5–0.8 blocks, same
-   "breaking line of sight" line every ~250 ms, no cell to step to, unarmed → counter-attack never fires → dead, twice). Fix shape:
-   a branch that makes no progress for N cycles must ESCALATE, never loop — order: WALL_OFF if filler; else fists (a human punches a
-   skeleton at 0.5 blocks; unarmed counter-attack allowed below some HP or when cornered); else FLEE_AWAY. Fixture = the same
-   induced-stress-sequencing.sh, must PASS unarmed. Issue number from issue-manager.
-5p. **Heal-deadlock band: food 13–17, foodCount 0, low HP** (#123, eng-3, agenda FOOD rung, HIGH — run #7 12:28Z: hp 6.8, food 15, walled in,
-   nothing routes to food): natural regen needs food ≥18, FOOD fires only at ≤12, so a hurt bot with no food items sits in the band
-   forever (run #2/#5 heal-deadlock shape, distinct from #117). Fix: FOOD also fires on (hp < some floor, e.g. ≤10) && food < 18 &&
-   foodCount==0 — "I need to heal" is a food need; keep EAT precedence; fixture in agenda-ladder; live on 25599 with RCON-set hp/food.
+5n. **BREAK_LOS no-progress loop** (#121, engine-dev) — CORE LANDED 365fdad (survival v14): per-threat streak (10s expiry) → same-call
+   escalation WALL_OFF-if-filler → one bare-hand attempt when cornered ≤1.5 / hp<4 and reachable → FLEE_AWAY; fist outcome ledgered.
+   Three more live bugs fixed en route (9s of unopposed damage before escalation; sticky "desperate" re-picking fists 5×). **Still gates
+   soak #6:** induced-stress-sequencing.sh not yet 3/3 — no deaths, but FLEE_AWAY (pre-existing) retreats in the open on raw distance
+   and takes near-unopposed damage (hpMin 1.3 / 0.5 vs ≥6 wanted). 5n-b: FLEE_AWAY gets LOS-biased retreat (design first). Armed path
+   diff-unchanged, live kill trace not yet re-watched.
+5q. **EAT/REFLEX rung thrash** (eng-3, agenda, after 5p): EAT_CRITICAL↔REFLEX↔EAT alternating per tick once BREAK_LOS survives long enough
+   for hunger cycling (engine-dev 5n trace). Hysteresis between EAT and REFLEX ownership; fixture in agenda-ladder.
 5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
    (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
    can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
