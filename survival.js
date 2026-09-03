@@ -1771,7 +1771,7 @@ const pick = async () => {
   return branchWallOff(nearest);
 };
 
-const enter = async (why, pickOverride) => {
+const enter = async (why, pickOverride, _bypassLockout) => {
   if (!g.enabled || g.active) return;
   // lockoutMs exists to stop THRASHING on an already-resolved encounter — it must never
   // gag the critical-HP backstop mid-encounter. Found live in #65: BREAK_LOS can end a run
@@ -1782,8 +1782,13 @@ const enter = async (why, pickOverride) => {
   // active response. Critical HP always breaks through, exactly like the backstop already
   // claims to do "even with no dangerscan installed" (line ~15) — that promise was false
   // whenever a prior panic had JUST ended, which is precisely when it matters most.
+  // `_bypassLockout`: internal-only, set by this function's own level-triggered re-entry
+  // below -- never set by an external caller. The lockout's whole PURPOSE is "don't thrash on
+  // an already-resolved encounter"; a level-triggered continuation is, by construction, one
+  // that already confirmed the threat is NOT resolved, so applying the same 10s cooldown here
+  // would silently reintroduce the exact gap this mechanism exists to close.
   const critical = Boolean(bot.entity) && bot.health > 0 && bot.health < g.cfg.hpPanic;
-  if (!pickOverride && !critical && Date.now() - g.lastEnd < g.cfg.lockoutMs) return;
+  if (!pickOverride && !_bypassLockout && !critical && Date.now() - g.lastEnd < g.cfg.lockoutMs) return;
   if (!bot.entity || bot.health <= 0) return;
   // #92: once WALL_OFF has already diagnosed THIS exact situation as cannot-heal with the
   // threat genuinely clear, a stray food/health tick re-firing the 'hp' backstop must not
@@ -1919,6 +1924,38 @@ const enter = async (why, pickOverride) => {
     shieldDown();
     if (guarded) resumeGuard();
     try { if (globalThis.__danger && globalThis.__danger.clearPanic) globalThis.__danger.clearPanic(); } catch (e) {}
+  }
+  // #121, enter()-level re-trigger gap (2026-09-03, lead's ruling -- third live occurrence of
+  // the same invariant: BREAK_LOS's own "none" ending in v14, FLEE_AWAY's imperfect-separation
+  // cycles this session, now closed generically here instead of per-branch). dangerscan's
+  // onDanger is EDGE-triggered (fires once per panic-state TRANSITION, not every scan tick), so
+  // a branch that "recovers" without actually resolving the threat used to sit completely idle
+  // until the next edge or the separate hp<8 backstop -- both of which can be several seconds
+  // and a lot of free damage away. Level-triggered instead: if the threat is STILL actionable
+  // right after this cycle ends, poll briefly (100ms steps, capped at 500ms) rather than wait
+  // for an external trigger, then re-enter immediately if it hasn't cleared on its own in that
+  // window. `_bypassLockout` (see its own comment above `enter`'s signature) skips the 10s
+  // thrash-guard for this ONE continuation -- it exists specifically because the threat is
+  // confirmed NOT resolved, the exact opposite of what the lockout assumes. Never applies to an
+  // explicit drill()/pickOverride call (a forced test scenario runs exactly once, same
+  // convention as every other override gate in this file) or once standdown is armed (which by
+  // construction only happens when actionableThreats() is already empty, so it can never race
+  // this check). Bounded by construction, not by a hop counter: each continuation is a REAL
+  // pick()/branch cycle (seconds, not a tight loop), and #121/5r's own panicStreak/branchWalkOff
+  // escalation forcibly separates the bot from a threat that keeps costing zero-damage cycles,
+  // so this cannot spin forever even against a threat that never fully clears on its own.
+  if (!pickOverride && g.enabled && bot.entity && bot.health > 0 && !g.standdown) {
+    const gapT0 = Date.now();
+    let gapMs = 0;
+    while (actionableThreats().length > 0 && gapMs < 500) {
+      await sleep(100);
+      gapMs = Date.now() - gapT0;
+    }
+    if (actionableThreats().length > 0) {
+      pushLog('warn', `panic_reenter (${why}) after ${gapMs}ms -- threat still actionable, level-triggered`);
+      try { const m = globalThis.__metrics; if (m && m.panic) m.panic('reenter', why, bot.health, { gap_ms: gapMs }); } catch (e) {}
+      return enter(why, pickOverride, true);
+    }
   }
 };
 
