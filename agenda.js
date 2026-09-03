@@ -116,7 +116,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 29, enabled: true,
+  version: 30, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -212,9 +212,19 @@ const cfg = (() => {
 const HOME = Array.isArray(cfg.home) ? { x: cfg.home[0], y: cfg.home[1], z: cfg.home[2] } : { x: -3, y: 111, z: 4 };
 const DEPOT = (cfg.depot || {});
 
+// #food-acquisition drive, live-caught: a real hunt (FOOD rung) kills an animal and collects
+// RAW meat — huntAnimals itself never cooks anything — but this set only recognized the
+// COOKED forms, so s.foodCount stayed 0 even holding a fresh kill, and the rung stood down
+// thinking it had failed when it had actually just fed the bag something invisible to it.
+// Added the raw meats that are safe to eat in vanilla with no poison/hunger-effect risk
+// (beef, porkchop, mutton, rabbit); deliberately NOT raw_chicken, which carries a real chance
+// of the Hunger status effect raw — a starving bot should still be able to eat it as an
+// absolute last resort, but that is a deliberate risk/reward call this set alone shouldn't
+// make silently, so it stays out until that's decided on purpose.
 const FOODS = new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken',
   'cooked_rabbit', 'cooked_cod', 'cooked_salmon', 'baked_potato', 'apple', 'carrot', 'beetroot',
-  'melon_slice', 'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp']);
+  'melon_slice', 'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp',
+  'beef', 'porkchop', 'mutton', 'rabbit']);
 const FILLERS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite', 'granite']);
 const ROLE_TOOL = { miner: 'pickaxe', lumberjack: 'axe', hunter: 'sword', builder: null, farmer: 'hoe' };
 // What a bot DOES when nobody has given it a project. A good human player with no assignment
@@ -1018,6 +1028,55 @@ const RUNGS = [
       return rr.ok ? 'started' : (rr._transient ? 'busy' : 'refused');
     } },
 
+  // #food-acquisition drive (team-lead's priority, measured live from a starving soak-4 bot):
+  // "hungry and nothing to eat -> go get food", the human reflex EAT/RESTOCK never covered.
+  // EAT (prio 4) needs foodCount>0 to fire at all — it can only EAT held food, never acquire
+  // more. RESTOCK (prio 6) already tries a food floor when one applies, but only WITHDRAWS or
+  // (for other resources) PRODUCES — its own STEP 3 comment says outright "food: no farm or
+  // cook path is wired to this rung yet", so an empty depot leaves it standing down with
+  // nothing else to try. Worse for a role:null, project-less bot specifically: activeFloors(s)
+  // resolves through effectiveKit (project's kit or ROLE_WORK's) or ROLE_FLOOR[s.role] — with
+  // neither a project nor a role, activeFloors returns null and RESTOCK's fire() short-
+  // circuits false immediately, so nothing checks food AT ALL. This is the #88 residual
+  // team-lead flagged, now measured live on MampfManfred (food 0, health 10, mid-soak).
+  //
+  // Deliberately NOT gated on activeFloors/effectiveKit — a bot that is actually starving
+  // needs food regardless of whether it has a role or project naming a floor. Priority 6.5:
+  // after RESTOCK's own (cheaper, depot-first) attempt has had its chance, before LIGHT/
+  // PROJECT/ESCAPE — a human eats before continuing whatever they were doing, but doesn't
+  // preempt a genuine tool/restock need to do it.
+  { id: 'FOOD', prio: 6.5,
+    fire: (s) => s.foodCount === 0 && s.food <= 12,
+    clear: (s) => s.foodCount > 0,
+    act: async (s) => {
+      if (oursRunning(s)) return 'running';
+      // Widening radius on repeated empty hunts (team-lead's spec), tracked via the harvest
+      // block below (huntAnimals outcome -> A._foodHuntFails). After two failed hunts, fall
+      // back to harvestGrass -- not real food, but real, honest progress (never a silent
+      // stand-still) while whatever fauna exists is scarce; the GENERIC "completed but its
+      // own condition still holds" detector (this file's own doctrine, same one RESTOCK/TOOL
+      // already rely on) stands FOOD down on its own backoff once THAT stops helping too —
+      // no bespoke retry-tracking needed beyond the one counter.
+      // force:true — live-caught: huntAnimals' own kit ('hunt': {torches:8, weapon:true},
+      // skills.js) refused to even START without 8 torches on hand, which a starving,
+      // otherwise-unprovisioned bot (the exact shape this rung exists for) will often not
+      // have. huntAnimals itself already degrades gracefully with no weapon at all (bare-hand
+      // fallback, safe against passive animals — they never fight back), so skipping the kit
+      // gate here is a deliberate, bounded escape hatch for a genuine emergency, the same
+      // "escape hatch: args.force=true (logged, so a shortcut is always visible after the
+      // fact)" convention skills.js's own kit check already documents — not a new pattern.
+      const fails = A._foodHuntFails || 0;
+      if (fails < 2) {
+        const radius = Math.min(32 + fails * 16, 64);
+        const r = runSkill('huntAnimals', { species: ['cow', 'pig', 'sheep', 'chicken', 'rabbit'], count: 1, radius, force: true }, 'FOOD');
+        if (r.ok) return 'started';
+        return r._transient ? 'busy' : 'refused';
+      }
+      const r2 = runSkill('harvestGrass', { radius: 24, force: true }, 'FOOD');
+      if (r2.ok) return 'started';
+      return r2._transient ? 'busy' : 'refused';
+    } },
+
   { id: 'LIGHT', prio: 7,
     fire: (s) => s.surfaceExposed === false && (s.light == null || s.light < 8) && s.torches > 0,
     clear: (s) => s.light != null && s.light >= 9,
@@ -1333,6 +1392,14 @@ const tick = () => {
       // is exactly the kind of progress that should reset the stall clock even though it
       // never touches p.progress (TOOL isn't the project).
       if (raw && raw.name === 'ensureTool' && !raw.error) markProductive(s, 'ensure_tool');
+      // food-acquisition drive: track hunt outcome for FOOD's own widening-radius/fallback
+      // logic (A._foodHuntFails). A real kill is real progress — same doctrine as produce's
+      // partial-batch case above, judged by outcome, not by "did the task complete".
+      if (raw && raw.name === 'huntAnimals') {
+        const killed = (raw.result && raw.result.killed) || 0;
+        if (killed > 0) { A._foodHuntFails = 0; markProductive(s, 'hunt'); }
+        else A._foodHuntFails = (A._foodHuntFails || 0) + 1;
+      }
     } catch (e) {}
 
     // GENERAL "completed but did not achieve" detector. A rung whose skill finishes cleanly

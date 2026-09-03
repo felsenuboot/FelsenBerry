@@ -106,6 +106,18 @@ try {
     { upgrades: { sword: { cls: 'sword', to: 'stone_sword' } } }, 'TOOL');
   T('s.upgrades has ONLY an axe entry -> TOOL still fires',
     { upgrades: { axe: { cls: 'axe', to: 'stone_axe' } } }, 'TOOL');
+  // food-acquisition drive: fires with NO project and NO role (activeFloors would be null,
+  // so RESTOCK's own food floor check never triggers for this bot at all — the #88 residual
+  // team-lead measured live) — proves FOOD is independent of role/project floors on purpose.
+  // A.project (module state, not a snapshot field) has to be cleared for real here, same as
+  // the existing "no project -> IDLE" case below — a bare `role:null` in the injected
+  // snapshot does not touch it.
+  A.project = null;
+  T('starving (foodCount 0, food 12), no project, no role -> FOOD', { foodCount: 0, food: 12, role: null }, 'FOOD');
+  T('foodCount 0 but food NOT yet low (food 15), no project -> nothing fires, floor is IDLE', { foodCount: 0, food: 15, role: null }, 'IDLE');
+  A.project = { skill: 'mineLane', args: {}, restockFloor: { torches: 16, food: 4, filler: 16 } };
+  T('food low but SOME food still held -> EAT owns it, not FOOD', { foodCount: 2, food: 10 }, 'EAT');
+  T('RESTOCK still outranks a mere starving-with-no-floor state when torches are ALSO short', { foodCount: 0, food: 12, torches: 4 }, 'RESTOCK');
   T('torches 4 (below floor 16) -> RESTOCK', { torches: 4 }, 'RESTOCK');
   T('dark + carrying torches -> LIGHT', { surfaceExposed: false, light: 3 }, 'LIGHT');
   A.project = null;

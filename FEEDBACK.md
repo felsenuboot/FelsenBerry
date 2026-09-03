@@ -4428,3 +4428,58 @@ priority helper, TOOL's fire/clear/act — v29). `bench/fixtures/agenda-ladder.j
 sword-only and axe-only pending upgrades each fire TOOL, 34/34).
 github: felsenuboot/FelsenBerry#107 (extends the already-closed pickaxe-only fix; the
 durability-vs-tier bug applied to that shipped work too, not just this extension)
+
+### 2026-09-03 engine-dev-3 — food-acquisition drive built and verified (agenda v30): the
+human reflex "hungry, nothing to eat -> go get food", requested live after MampfManfred hit
+food 0 / health 10 mid-soak-4
+type: fix + fixture + live verification
+status: built, live-verified end to end (a real hunt killed a real cow and the kill was
+correctly recognized as food after a second bug fix — see below), `bench/fixtures/agenda-
+ladder.js` 38/38 (up from 34/34), `bench/preflight.sh` 216/216. All live testing >=400 blocks
+from MampfManfred, per the soak-hygiene law.
+what: new FOOD rung, prio 6.5 (after RESTOCK's own cheaper depot-first attempt, before LIGHT/
+PROJECT/ESCAPE). Deliberately NOT gated on `effectiveKit`/`activeFloors` the way RESTOCK's own
+food floor is — team-lead's own live probe found the actual gap: a role:null, project-less bot
+(MampfManfred's real state) has `activeFloors(s)` return null, so RESTOCK's fire() short-
+circuits false and NOTHING checks food at all. `fire: foodCount===0 && food<=12`, independent
+of role/project, closes that specific hole. Act: `huntAnimals` (widening radius on repeated
+empty hunts, tracked via one counter, `A._foodHuntFails`, reset on a real kill via a new
+harvest-block entry mirroring restock/produce's existing pattern), falling back to
+`harvestGrass` after two empty hunts — not real food, but real, honest progress rather than a
+silent stand-still. Standing-down-with-backoff needed NO new machinery: the file's own generic
+"completed but its own fire() condition still holds" detector (already used by RESTOCK/TOOL)
+handles it for free once neither path helps.
+
+**Two real bugs found live, both would have made the rung LOOK like it was failing even when
+hunting genuinely worked.** (1) `huntAnimals`' own kit (`'hunt': {torches:8, weapon:true}`,
+skills.js) refused to even START without 8 torches on hand — exactly what a starving,
+otherwise-unprovisioned bot (the shape this rung exists for) will often not have. Fixed with
+`force:true` (skills.js's own documented escape hatch — "a shortcut is always visible after
+the fact" — not a new pattern); huntAnimals already degrades safely with no weapon at all
+(bare-hand, safe against passive animals). (2) A real hunt KILLED a cow and collected raw
+`beef` — but `FOODS` (this file's own food-item allowlist, feeding `s.foodCount`) only
+recognized COOKED meat forms, so the kill was invisible to the whole food-tracking system and
+FOOD stood itself down thinking it had failed. Added the raw meats safe to eat in vanilla with
+no poison/hunger-effect risk (beef, porkchop, mutton, rabbit) — deliberately NOT raw chicken,
+which carries a real chance of the Hunger status effect; a starving bot eating it as an
+absolute last resort is a real, deliberate risk/reward call this allowlist alone shouldn't
+make silently, left for a future, explicit decision rather than folded in here.
+
+**Scope decision, argued rather than silently skipped**: team-lead also asked for "a matching
+zero-token rules.json entry so the decider path covers it too." Not built this pass — FOOD is
+already a fully deterministic, zero-token ENGINE fix (the project's own determinism codicil:
+prefer engine gates over decider/LLM involvement wherever possible) that handles the common
+case (fauna reachable) entirely without the decider. rules.json's own key scheme
+(`why|role|lastError|barrenBucket`) has no way to express "and also starving" — encoding that
+would be a real design change to the rule-matching scheme itself, not a one-line addition, and
+risks disrupting the EXISTING `unproductive_idle|none|none|*` entries (currently all
+`chopTrees`) for cases that have nothing to do with food. The residual case FOOD's own
+fallback can't solve (truly no fauna AND no reachable grass) still eventually reaches
+`unproductive_idle` via the existing generic 120s-quiet window, unchanged from before this fix
+— not worse than today, just not specially routed. Flagging as a genuine follow-up rather than
+silently dropping the ask.
+fix: `agenda.js` (new FOOD rung, `A._foodHuntFails` + huntAnimals harvest-block tracking,
+`FOODS` raw-meat additions — v30). `bench/fixtures/agenda-ladder.js` (4 new cases: fires
+independent of role/project, respects EAT/RESTOCK precedence, 38/38).
+github: n/a yet — filing after this entry lands, since it was built mid-soak as a priority
+interrupt rather than from a pre-filed issue.
