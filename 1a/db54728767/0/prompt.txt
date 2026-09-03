@@ -77,3 +77,19 @@ Full writeup in FEEDBACK.md ("GOAL.md criterion 3 vitals floor built into humanb
 <event>RUN #6 wall-clock T+30min (09:28:30Z) — cap 90 min = 10:28:28Z</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5c is done and pushed, but with an attribution wrinkle worth knowing about: my `git add agenda.js bench/fixtures/agenda-ladder.js FEEDBACK.md && git commit` raced with your own commit on the same working tree — your commit (16604e7, "GOAL: criterion 3 floor...") landed a beat before mine and its "Entire-Checkpoint" mechanism appears to have swept up my already-staged files too, so my 3 files are bundled into your commit instead of a commit of their own. My `git commit` then correctly found nothing left to commit. Verified via `git show --stat 16604e7`: agenda.js/bench/fixtures/agenda-ladder.js/FEEDBACK.md are all there with my actual diffs, and `git ls-remote origin main` confirms it's pushed. Content is safe, just filed under your commit/authorship rather than mine — flagging so the history makes sense later, not asking for a fixup.
+
+What landed: `A.remedy` — a remedy-CLASS failure counter (wood_gather, depot_reach) that survives the `A.setProject`-always-resets-attempts problem I found (a decider-dispatched chopTrees project never accumulated its own 3-strikes escalation because every dirDispatch builds a brand-new project object). New REMEDY rung, prio 4.8 (between EAT and TOOL/RESTOCK/PROJECT), fires once per distinct failure count via an escalatedAt guard, hands the body straight back after one move — no bespoke backoff, reuses the file's existing generic "completed but did not achieve" detector if the move itself fails. Tier 1 (2nd failure) = relocateToWork's own bigger hop (64 vs default 40). Tier 2 (3rd+) = directed findBlock scan (128 blocks) + come() straight to a real target, per your note — not another blind heading. Wired into the 3 real call sites (PROJECT's harvest branch, ensureTool's outcome, restock's reached:0 check). depot_reach has no directed target (the depot itself is what restock's already aimed at) so its tier 2 falls back to tier 1, still counted/logged.
+
+Live-verified against the REAL tick loop, not just the dry-run fixture (injected A.remedy.wood_gather.n=2/3 on a throwaway bot, SchlappSchlonz DECIDER_EXCLUDE=1 on 25599, stopped after): tier 1 dispatched relocateToWork({skill:'chopTrees',hops:64}), got boxed_in (small test area), released cleanly — no re-fire loop. Tier 2 dispatched come() to a real found log block, escalatedAt tracked correctly. bench/fixtures/agenda-ladder.js 46/46 (8 new cases), preflight 224/224.
+
+Ledger event `remedy_escalate` (op:fail|escalate, cls, n, tier, pos) is emitted via the same m.emit two-surface discipline dirEmit uses — the raw signal is in metrics-*.jsonl now; I did NOT touch metrics.mjs itself to build a grader for it (your lane). Diagnosis + full writeup in FEEDBACK.md (append-only entry, wedge coords and root-cause included as you asked).
+
+Correction to my earlier framing, confirmed by the dig: the soak-4 freeze wasn't uniformly "wood-gather" — the (-21,108,-3)/(-18,109,3) wedges were RESTOCK failing to reach the depot chest (a route problem), separate from the (-45,114,*) site's clean wood-search failures. Both are now unified under the same escalation mechanism as distinct classes (wood_gather / depot_reach), which is why I built it remedy-class-generic rather than wood-specific.
+
+Ready for what's next — didn't see a TODO 5d item when I last read TODO.md; let me know if one's been added.
+</cross-session-message>
