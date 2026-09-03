@@ -502,6 +502,15 @@ const threatsNow = () => {
 // over" call sites below switch to this filtered view.
 const ACTIONABLE_MAX_D = 12;
 const actionableThreats = () => threatsNow().filter((x) => x.los === true || x.d <= ACTIONABLE_MAX_D);
+// #121/5r: g.panicStreak's own thresholds. PANIC_STREAK_ESCALATE_AT=3 matches "give it a few
+// honest tries" -- one WALL_OFF/pick() cycle that happens to take zero damage is completely
+// normal (a threat that's simply not attacking yet); only sustained repetition against the
+// SAME threat id is the signal. PANIC_STREAK_EXPIRY_MS=5min, generous because a single WALL_OFF
+// cycle can itself run up to 60s (branchWallOff's own wait loop) -- much longer than
+// breakLosStreak's 10s (that streak's cycles are seconds, not up-to-a-minute), but still finite
+// so a mineflayer entity-id reuse hours later can never inherit a stale count.
+const PANIC_STREAK_ESCALATE_AT = 3;
+const PANIC_STREAK_EXPIRY_MS = 5 * 60 * 1000;
 const entOf = (t) => (t && t.id != null ? bot.entities[t.id] : null);
 
 // #115 (run #6 death #1, 2026-09-03, test-driver): threatsNow() is dangerscan's own list
@@ -1714,7 +1723,37 @@ const enter = async (why, pickOverride) => {
     // own no-real-threat path into branchWallOff(null), which is why it took a long time
     // (WALL_OFF's regen-wait) for reasons that had nothing to do with BREAK_LOS, corner
     // stepping, or the underwater entity at all.
-    out = await (pickOverride || pick)();
+    // #121/5r: the actual escalation CHECK -- found missing on review of this same commit
+    // before it could ship silently broken: g.panicStreak and branchWalkOff existed but
+    // nothing ever read or advanced them, so fix 2 (the lead's explicit second ask) was pure
+    // scaffolding. Never overrides an explicit drill()/pickOverride call, same convention as
+    // standdown's own gate above -- a forced test scenario must always get the real branch it
+    // asked for. A stale streak (>PANIC_STREAK_EXPIRY_MS since the last update) is treated as
+    // no streak at all, same reasoning as breakLosStreak's own time expiry.
+    const topThreat = ts.length ? ts[0] : null;
+    const hpAtEntry = bot.health;
+    const streakLive = topThreat && g.panicStreak.threatId === topThreat.id
+      && Date.now() - g.panicStreak.lastAt < PANIC_STREAK_EXPIRY_MS;
+    if (!pickOverride && streakLive && g.panicStreak.count >= PANIC_STREAK_ESCALATE_AT) {
+      out = await branchWalkOff(topThreat);
+    } else {
+      out = await (pickOverride || pick)();
+    }
+    // #121/5r: advance the streak using hp BEFORE this cycle vs AFTER -- "zero damage taken"
+    // per the lead's own literal wording, not a branch-reported progress flag, so this stays
+    // generic across every branch rather than trusting each branch's own (differently-shaped)
+    // notion of success. Any real damage, or a different top threat id, resets to a fresh
+    // streak; the same threat with no damage taken increments it.
+    if (topThreat) {
+      const damaged = bot.health < hpAtEntry - 0.01;
+      if (!damaged && streakLive) {
+        g.panicStreak.count++; g.panicStreak.lastAt = Date.now(); g.panicStreak.lastHp = bot.health;
+      } else {
+        g.panicStreak = { threatId: topThreat.id, count: 0, lastAt: Date.now(), lastHp: bot.health };
+      }
+    } else {
+      g.panicStreak = { threatId: null, count: 0, lastAt: 0, lastHp: null };
+    }
     g.branch = out && out.branch;
     g.lastBranch = g.branch;
     g.recovered++;
