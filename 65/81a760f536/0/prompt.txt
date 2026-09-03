@@ -1,0 +1,42 @@
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=null project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-15,99,-10)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-15,99,-10) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=RESTOCK project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-15,99,-10)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-24,100,-10) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-24,100,-10) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
