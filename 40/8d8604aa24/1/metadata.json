@@ -1,0 +1,91 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "408d8604aa24",
+  "session_id": "84e92e28-accf-4788-8150-54b0242cfc06",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:28:24.889976009Z",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "save_step_count": 4,
+  "files_touched": [
+    "FEEDBACK.md",
+    "agenda.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "27bb450c3b84",
+  "checkpoint_transcript_start": 1183,
+  "transcript_lines_at_start": 1183,
+  "compact_transcript_start": 217,
+  "token_usage": {
+    "input_tokens": 66,
+    "cache_creation_tokens": 21562,
+    "cache_read_tokens": 9137231,
+    "output_tokens": 10082,
+    "api_call_count": 33
+  },
+  "session_metrics": {
+    "turn_count": 29
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T09:28:24.775375708Z",
+    "agent_lines": 95,
+    "agent_removed": 3,
+    "human_added": 286,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 381,
+    "total_lines_changed": 385,
+    "agent_percentage": 25.454545454545453,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 881,
+      "agent_lines_removed": 75
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 881,
+      "agent_lines_removed": 75,
+      "user_added_per_file": {
+        "agenda.js": 64
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 367,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1066,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "FEEDBACK.md": 57,
+        "bench/fixtures/vitals-floor.mjs": 98,
+        "bench/gates/direction-soak4-c3floor.json": 25,
+        "bench/gates/humanbar-soak4-c3floor.json": 30,
+        "bench/gates/humanbar4-soak4-c3floor.json": 64,
+        "bench/gates/trail-soak4-c3floor.json": 37,
+        "bench/lib/vitals-floor.mjs": 56
+      }
+    }
+  ]
+}
