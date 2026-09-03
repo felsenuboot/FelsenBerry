@@ -1,4 +1,15 @@
-// survival v17 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v18 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v18 (#127, TODO 5m-c, 2026-09-03): 5m-b's dispatch-side mitigation still lost 4/4 live trials
+// against a real, persistent threat — the remaining gap is `branchWallOff` boxing the bot in at
+// its CURRENT (open corridor) position instead of using the sealed chamber a few blocks away.
+// This is the data half of that fix, published by shelterEnter() so branchWallOff (a separate
+// task, engine-dev's own lane) can read it: `g.shelter.nightMining = {chamberPos, lanePos,
+// mouthCells}`, refreshed right before every dispatch (so `lanePos` is always where the bot is
+// ABOUT to mine, never stale from a previous batch) and cleared to null on any exit (this
+// function's own finally block, alongside the other `g.shelter.*` resets) so a later, unrelated
+// shelter session never inherits it. No behavior change here — this only publishes data;
+// whatever branchWallOff does with it is that task's own scope.
 //
 // v17 (#120 follow-up, TODO 5m-b, 2026-09-03): live-caught, TWICE, that a threat interrupting a
 // night-mining batch (TODO 5m, v15) can kill the bot: `branchWallOff` couldn't seal the open
@@ -265,7 +276,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 17,
+  enabled: true, version: 18,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -297,7 +308,11 @@ const g = {
     shelterMaxWaitMs: 900000, // #92/#65-style hard expiry: never wait silent-forever on a wrong signal
   },
   filler: ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite', 'granite', 'netherrack'],
-  shelter: { active: false, kind: null, since: 0, exitRequested: false, exitReason: null, extraFiller: [] },
+  shelter: { active: false, kind: null, since: 0, exitRequested: false, exitReason: null, extraFiller: [],
+    // TODO 5m-c: published by shelterEnter() before each night-mining dispatch, cleared on any
+    // exit -- {chamberPos, lanePos, mouthCells}, all plain {x,y,z}. branchWallOff's own read
+    // side (engine-dev's lane) is a separate task; this is just the data going out.
+    nightMining: null },
 };
 globalThis.__survival = g;
 
@@ -1673,6 +1688,21 @@ const shelterEnter = async () => {
       }
       return placed;
     };
+    // TODO 5m-c (lead's ask, #127 follow-up): publish where the bot actually is mid-lane, not
+    // just the chamber, so branchWallOff (engine-dev's read side, a separate task) can choose
+    // to seal at the chamber instead of boxing in the open corridor. Called right before every
+    // dispatch (both the retry branch and a fresh batch) so `lanePos` is always where the bot
+    // is ABOUT to mine, not stale from a previous batch; cleared on any exit (this function's
+    // own finally block) so a later, unrelated shelter session never inherits stale data.
+    const publishNightMining = () => {
+      if (!chamber) { g.shelter.nightMining = null; return; }
+      const p = bot.entity.position;
+      g.shelter.nightMining = {
+        chamberPos: { x: chamber.x, y: chamber.y, z: chamber.z },
+        lanePos: { x: p.x, y: p.y, z: p.z },
+        mouthCells: NIGHTMINE.nightMineResealCells(chamber),
+      };
+    };
     while (Date.now() - t0 < g.cfg.shelterMaxWaitMs) {
       if (g.shelter.exitRequested) { exitReason = g.shelter.exitReason || 'external'; stopNightMine(exitReason); break; }
       if (threatsNow().length > 0) {
@@ -1720,6 +1750,7 @@ const shelterEnter = async () => {
               // before the next reseal, on top of the proactive between-batch defense below.
               const args = Object.assign({ force: true },
                 NIGHTMINE.nightMineArgs(nightMine.target, built.restY, { count: 1, maxDist: 2 }));
+              publishNightMining();
               const r = S.start(bot, 'mineLane', args);
               if (r.ok) { nightMine.taskId = r.taskId; emitNightMine('start', { target: nightMine.target, batchesUsed: nightMine.batchesUsed }); }
               else nightMine.active = false;
@@ -1767,6 +1798,7 @@ const shelterEnter = async () => {
             // above.
             const args = Object.assign({ force: true },
               NIGHTMINE.nightMineArgs(nightMine.target, built.restY, { count: 1, maxDist: 2 }));
+            publishNightMining();
             const r = S && S.start ? S.start(bot, 'mineLane', args) : { ok: false };
             if (r.ok) { nightMine.active = true; nightMine.taskId = r.taskId; emitNightMine('start', { target: nightMine.target, batchesUsed: nightMine.batchesUsed }); }
           }
@@ -1793,6 +1825,7 @@ const shelterEnter = async () => {
   } finally {
     if (guarded) resumeGuard();
     g.shelter.active = false; g.shelter.kind = null; g.shelter.extraFiller = [];
+    g.shelter.nightMining = null;   // TODO 5m-c: never let a later, unrelated session read stale data
   }
 };
 const shelterExit = (reason) => {
@@ -2151,7 +2184,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 17, boundAt: Date.now(), stale: false };
+REG.survival = { version: 18, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -2162,7 +2195,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 17, home: g.home,
+  installed: true, version: 18, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
