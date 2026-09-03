@@ -857,3 +857,11 @@ Messaged engine-dev about the survival.js lane conflict (5n's branchBreakLOS vs 
 ---
 
 whats the overall status? what can the engine do
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+State change: unannounced combat around 12:28Z dropped HP from 19.3 to 6.8 in ~25s (no mob name logged before it — dangerscan may have missed the initial trigger, or it was a creeper blast). WALL_OFF completed and sealed successfully. Currently stable: HP 6.8, food 15, REFLEX owns the body correctly. Mild heal-deadlock (food stuck at 15 — below the 18 needed for natural regen, but above FOOD rung's 12-trigger, so nothing routes to fix it; not the same shape as `#117`, which was about foodCount>0-but-still-stuck — here foodCount is genuinely 0). Not steering — letting REFLEX hold per the retired zero-defense doctrine.
+
+No sign of the food-kit wall yet — mineLane/chopTrees haven't hit a "half-kitted... food X/Y" refusal this run; hunting has been working well (killed sheep for mutton earlier via the #114 species fix). Will flag immediately if that specific message appears. Steering calls: still just 1 (opening mineLane). No deaths.
+</cross-session-message>
