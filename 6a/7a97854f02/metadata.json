@@ -3,7 +3,7 @@
   "checkpoint_id": "6a7a97854f02",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 7,
+  "checkpoints_count": 8,
   "files_touched": [
     "agenda.js",
     "bench/fixtures/agenda-deepkit.js"
@@ -22,13 +22,20 @@
       "compact_transcript": "/6a/7a97854f02/1/transcript.jsonl",
       "content_hash": "/6a/7a97854f02/1/content_hash.txt",
       "prompt": "/6a/7a97854f02/1/prompt.txt"
+    },
+    {
+      "metadata": "/6a/7a97854f02/2/metadata.json",
+      "transcript": "/6a/7a97854f02/2/full.jsonl",
+      "compact_transcript": "/6a/7a97854f02/2/transcript.jsonl",
+      "content_hash": "/6a/7a97854f02/2/content_hash.txt",
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 12427,
-    "cache_creation_tokens": 1345349,
-    "cache_read_tokens": 412049194,
-    "output_tokens": 577902,
-    "api_call_count": 950
+    "input_tokens": 12791,
+    "cache_creation_tokens": 1674608,
+    "cache_read_tokens": 455935888,
+    "output_tokens": 682862,
+    "api_call_count": 1132
   }
 }

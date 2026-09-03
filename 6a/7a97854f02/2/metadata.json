@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "6a7a97854f02",
+  "session_id": "e70cb6b6-f5e9-410c-b1b0-53abaa4c8f2d",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T11:58:58.459527236Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "agenda.js",
+    "bench/fixtures/agenda-deepkit.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "56f58fd16118",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 364,
+    "cache_creation_tokens": 329259,
+    "cache_read_tokens": 43886694,
+    "output_tokens": 104960,
+    "api_call_count": 182
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T11:58:58.340740565Z",
+    "agent_lines": 67,
+    "agent_removed": 9,
+    "human_added": 148,
+    "human_modified": 10,
+    "human_removed": 0,
+    "total_committed": 225,
+    "total_lines_changed": 236,
+    "agent_percentage": 32.20338983050847,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
