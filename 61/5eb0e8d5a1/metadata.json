@@ -3,7 +3,7 @@
   "checkpoint_id": "615eb0e8d5a1",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 10,
+  "checkpoints_count": 12,
   "files_touched": [
     "bench/fixtures/induced-stress-sequencing.sh"
   ],
@@ -21,13 +21,20 @@
       "compact_transcript": "/61/5eb0e8d5a1/1/transcript.jsonl",
       "content_hash": "/61/5eb0e8d5a1/1/content_hash.txt",
       "prompt": "/61/5eb0e8d5a1/1/prompt.txt"
+    },
+    {
+      "metadata": "/61/5eb0e8d5a1/2/metadata.json",
+      "transcript": "/61/5eb0e8d5a1/2/full.jsonl",
+      "compact_transcript": "/61/5eb0e8d5a1/2/transcript.jsonl",
+      "content_hash": "/61/5eb0e8d5a1/2/content_hash.txt",
+      "prompt": "/61/5eb0e8d5a1/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1939,
-    "cache_creation_tokens": 1079510,
-    "cache_read_tokens": 414695750,
-    "output_tokens": 584410,
-    "api_call_count": 803
+    "input_tokens": 1967,
+    "cache_creation_tokens": 1092950,
+    "cache_read_tokens": 422222371,
+    "output_tokens": 590621,
+    "api_call_count": 817
   }
 }
