@@ -116,3 +116,17 @@ Also landed two more live findings along the way (both in FEEDBACK.md, not my la
 
 Steering calls: 10. Deaths: 1. Currently: night again post-respawn, SHELTER active, mineLane re-armed and waiting for it to clear per the normal pattern. All committed/pushed (008bfde). Will report the next real milestone or if this stalls.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5d done: commit `3c7c3b7` (used the new pathspec-on-commit law — `git commit -m ... -- agenda.js bench/fixtures/agenda-ladder.js FEEDBACK.md`, no bare `git add`/`git commit`, pushed clean, no race this time).
+
+Fix: `A.setProject` (already the file's own "fresh intent" choke point — every driver/decider/promotion call funnels through it) now resets `A.unproductive.PROJECT`/`A.standDown.PROJECT`/`A.standDownCount.PROJECT` AND restarts the direction stall clock (`A.direction.lastProductiveAt = now()`) on every call, not just the promotion path (whose own identical 3-line reset was now redundant — removed, one reset, one place). Deliberately leaves `A.owner` alone — an external setProject can legitimately arrive while another rung owns the body, and forcibly nulling A.owner there would interrupt unrelated in-flight work.
+
+`bench/fixtures/agenda-ladder.js` 52/52 (+6 cases: blocked-before-fix, 4 direct-field assertions via a new `TF` helper, fires-immediately-after). preflight 230/230. Live-verified against the real tick loop (WabbelWaldo, 25599, DECIDER_EXCLUDE=1, stopped after) — induced the exact inherited-standdown shape test-driver hit, confirmed all four fields clear in one /eval round-trip.
+
+Sent engine-dev the `remedy_escalate` record shape as asked (ev name, op values, field list, the stdout-vs-ledger `ev` name mismatch to watch for). Also acked test-driver on the decider-daemon thing (already resolved before their messages landed — told them main's safe, no restart needed).
+
+Ready for whatever's next — nothing queued for me in TODO past 5d as of my last read.
+</cross-session-message>
