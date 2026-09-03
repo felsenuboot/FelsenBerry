@@ -795,3 +795,31 @@ Both recorded, commit `3dcfc8e` (pushed, confirmed in origin/main alongside your
 
 Ready for 5m whenever you want to hand off the design brief — SHELTER/REFLEX boundary noted, will wait for specifics before touching code.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+5n design, before code, per your ask.
+
+**Root cause of the 2/2 deaths**: `branchBreakLOS` has no memory across invocations. Every ~250ms re-trigger (survival's own `onHealth` bypassing lockout while HP keeps falling) runs the SAME corner-step search (phase a) and arrow-shadow build (phase b) fresh, with no signal that they already failed against THIS threat. At sub-1-block range in a confined arena both plausibly find no valid cell every time (`placed` stays 0), the existing ending (`if (placed || health<rushHp) → branchWallOff`) only reaches WALL_OFF's own no-filler bail (an 8-block `ownedGoto` that never finishes before the next re-trigger interrupts it), and the armed counter-attack (phase c) is gated on a sword that doesn't exist in the unarmed scenario. Net: no escalation, just the same failing attempt on a loop while HP craters — exactly the 5c/5g shape.
+
+**Fix — a persistent no-progress counter, same doctrine as 5c's REMEDY tiers:**
+
+```js
+g._breakLosStreak = { threatId: null, fails: 0 };  // new g state, alongside g.shelter etc.
+```
+
+At `branchBreakLOS(t)` entry: if `t.id !== g._breakLosStreak.threatId`, reset `{threatId: t.id, fails: 0}` — a genuinely new encounter (or the first call of this one) gets phases (a)/(b) exactly as today, unchanged, so already-working cases (corner-step succeeding, BREAK_LOS's own clean recoveries elsewhere) are untouched.
+
+**On the SECOND consecutive call against the same still-live, still-close threat** (`fails >= 1`, i.e. phases a/b already had their one honest shot and didn't resolve it) — skip straight to your 3-tier cascade instead of repeating (a)/(b):
+
+1. `fillerItem()` present → `branchWallOff(t)` (unchanged function, already correct when it has materials).
+2. Else, unarmed AND (`liveDist <= 2` [cornered, same threshold the armed path already uses] OR `bot.health < g.cfg.hpPanic` [8, the existing emergency floor]) → **new**: bare-hand counter-attack. No sword requirement, no `rushHp`(12) floor — that floor exists for the ARMED case where declining to fight is a genuinely safe alternative (shield + wait); it is NOT safe here, that's the whole finding. `t.name !== 'creeper'` guard carried over (defense in depth, matches phase c). Bounded ~3000ms attack loop via `bot.pvp.attack`, breaks off early only if the threat dies/despawns or real distance opens up (>meleeReach) — not on falling HP alone, since we already judged fighting the least-bad option to get here.
+3. Else (not cornered, not critical, still no filler) → `branchFleeAway(t)` (existing, unchanged, needs no inventory — #96's own floor).
+
+`fails` increments every call that reaches this escalated branch without resolving the threat (still alive, still close), so a bot that starts punching and doesn't finish the fight in one call keeps re-evaluating fresh next cycle (filler could appear, distance could open, HP could keep falling toward flee-is-safer) rather than being locked into repeating exactly one tactic. Resolved (dead/despawned threat, or real distance) resets the streak to 0.
+
+**Verification**: re-run `bench/fixtures/induced-stress-sequencing.sh` (unarmed, real skeleton, already has the ground-truth death check I added) 3x, require 3/3 PASS with no death, `panic_recovered branch=BREAK_LOS` still logged (the `how` field will show `fist` or `flee` on the escalated path, `corner`/`wall` on the honest-first-try path).
+
+Starting on ack, 25599 only.
+</cross-session-message>
