@@ -63,7 +63,11 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
 // the requested hop (50%), not a fixed absolute 3-block floor.
 // v64 -> v65: TODO 5l(b) (#120) — new KIT_TIERS.excursion_short (no foodItems), and chopTrees'
 // `kit:` becomes a function that picks it over `excursion` on a short/sated trip.
-const ENGINE_VERSION = 65;
+// v65 -> v66: TODO 5o (#122) — KIT_TIERS.deep drops armor/shield/water (no supplier existed
+// anywhere in the agenda ladder; a demand with no supplier is a permanent deadlock, not a
+// safeguard — see KIT_TIERS' own comment). S.kitCheck's req.armor/req.shield/req.water branches
+// are untouched (dead code until #128 lands a real supply chain and re-adds the fields).
+const ENGINE_VERSION = 66;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -176,7 +180,24 @@ const KIT_TIERS = {
   // once at the surface where wood is abundant. Since v38 the tool tier is stone-first, so
   // re-crafts spend cobblestone rather than competing for this.
   underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16, sticks: 16, table: 1 },
-  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 16, table: 1, armor: true, shield: true, water: true },
+  // TODO 5o (#122): armor/shield/water DELETED from here, not left demanding — the kit-supplier
+  // audit (FEEDBACK.md, 2026-09-03, "kit-supplier audit") found `activeFloors()` (agenda.js)
+  // never read k.armor/k.shield/k.water, S.kitCheck's own preflight below demanded all three
+  // for `deep` anyway, and NOTHING in the entire agenda ladder had ever supplied any of them —
+  // not even a withdraw attempt, the way food/torches/filler/sticks/table all have. A bot
+  // resolving to `deep` (mineLane's own kit fn: y<0) stalled on `S.start`'s kit preflight
+  // FOREVER, with no rung anywhere that could ever clear it — a genuine, permanent deadlock,
+  // not a safeguard. The audit's own law: "every kit item must name its supplier rung; a demand
+  // with no supplier is a deadlock." Building real supply chains (craft/withdraw a shield,
+  // acquire+equip armor, bucket+fill water) is real, substantial new work — none of
+  // producer.js's `S.produce()` cases handle any of the three (it is a hand-coded dispatcher
+  // per resource, not a generic recipe crafter; see its own switch) — filed as
+  // felsenuboot/FelsenBerry#128, NOT built here. Demanding what nothing can supply blocks
+  // 100% of deep-tier work today; demanding nothing blocks 0% and ships the REAL remaining
+  // risk (no armor/shield/water at y<0) honestly rather than hiding it behind an unreachable
+  // precondition. `deep` keeps every OTHER underground-tier demand (torches/food/weapon/picks/
+  // filler/sticks/table, food/torches doubled) — none of those changed.
+  deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 16, table: 1 },
   // TODO 5l(b) (#120): a SHORT, CLOSE chopTrees trip made while not meaningfully hungry doesn't
   // need carried food — carried food on `excursion` is insurance against getting stranded away
   // from a food source for a while, and a <=48-block trip at food>=14 is neither of those. Same

@@ -6813,3 +6813,65 @@ commit: 5ec67b0
 github: felsenuboot/FelsenBerry (TODO 5m-b, #120 follow-up) — landed as a real, measured
 improvement, not a full guarantee; felsenuboot/FelsenBerry#127 filed for the remaining
 WALL_OFF corridor-sealing gap (engine-dev's lane, follow-up, non-blocking)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5o (#122): deep-tier orphaned kit demands — resolved by removing them, not building supply chains; #128 filed for the real fix
+
+The kit-supplier audit (previous entry, third ask) found `KIT_TIERS.deep` (skills.js) demanding
+`armor`/`shield`/`water` with NO rung anywhere in the agenda ladder that could ever supply
+them — `activeFloors()` (agenda.js) never even forwarded the fields to RESTOCK, and nothing
+else touched them either, not even a withdraw attempt the way torches/food/filler/sticks/table
+all get. Any bot resolving to `deep` (mineLane's own kit fn: y<0) hit `S.start`'s kit preflight
+and stalled there PERMANENTLY — a genuine deadlock, not a safeguard, matching the audit's own
+law: "every kit item must name its supplier rung; a demand with no supplier is a deadlock."
+
+The audit named two paths: build real supply chains, or narrow `deep`'s demands to what a
+supplier actually exists for. Went with the second, explicitly NOT the first — read
+`producer.js`'s `S.produce()` first to check whether it was cheaper than it looked: it isn't. It
+is a hand-coded per-resource dispatcher (a `switch`-shaped chain of `if (R === 'torch') {...}`
+etc.), not a generic recipe crafter — armor (8 iron ingots, mine+smelt+craft+EQUIP), shield (6
+planks + 1 iron, craftable but needs its own chain), and water (an iron bucket, then a genuinely
+new "find water and right-click to fill" skill with no existing primitive to build on) would each
+need real, separately-designed skill code, the same shape of effort as the existing `torch`
+chain's own coal-or-charcoal fallback. That is real, substantial, multi-session work — not
+something to rush inside a "NOT gating soak #6" queue item. Filed as
+felsenuboot/FelsenBerry#128 with the shape of what each of the three actually needs, rather than
+built here.
+
+**Fix landed**: `KIT_TIERS.deep` (skills.js v65->v66) drops `armor: true, shield: true, water:
+true` — every OTHER deep-tier demand (torches:40, food:8, weapon, picks:2, filler:16, sticks:16,
+table:1) is untouched. `S.kitCheck`'s own `req.armor`/`req.shield`/`req.water` branches are
+LEFT IN PLACE, not deleted — they simply never fire while the fields are absent from
+`KIT_TIERS.deep`, and will activate automatically the moment #128 lands and re-adds them (no
+second edit needed at the demand-checking site itself, only at the tier's own object literal).
+Argued explicitly in the code comment: demanding what nothing can supply blocks 100% of
+deep-tier work today; demanding nothing blocks 0% and ships the real remaining risk (no armor/
+shield/water at y<0) honestly rather than hiding it behind an unreachable precondition — same
+"unverified deferral is a disablement wearing a shortcut's clothing" doctrine this file already
+invokes elsewhere, applied to a demand instead of a supply attempt.
+
+New fixture `bench/fixtures/kit-deep-orphans.js` (added to `bench/preflight.sh`'s own list),
+calling `S.kitCheck` directly against a synthetic bot object (same doctrine as agenda.js's own
+`resolveKit()` shim — deterministic, doesn't depend on whatever a live bot happens to be
+carrying): a bot kitted for every OTHER deep demand with ZERO armor/shield/water held now
+reports `ok:true`, nothing missing (the actual fix, proven at the real gate, not just by reading
+the object literal); a completely bare bot still demands the real remaining seven items
+(torches/food/weapon/picks/filler/sticks/table), proving the fix is scoped and didn't
+accidentally zero out the whole tier; `underground` (never had these fields) is an unaffected
+sanity check. 3/3, live-verified via `/eval` on a fresh `--agenda` bot (SchraubZita, 25599),
+full preflight 308/311 (see the flagged regression below — unrelated to this change).
+
+**Unrelated regression flagged, not fixed** (out of lane): while running the full preflight to
+verify 5o, `survival-cannotheal` dropped from its usual clean pass to 8/11 — three failures, all
+in standdown/`trigger()`/`drill()` mechanics ("standdown stale past standdownMaxMs -> trigger()
+proceeds anyway", two `#100` cases around `V.standdown` post-`drill()`). Timing points at
+engine-dev's `6f80b2b` (enter()-level re-trigger fix, touches `g.standdown`/lockout directly) —
+neither my 5m-b/5m-c work (shelterEnter()/g.shelter only) nor this 5o change (skills.js
+KIT_TIERS, unrelated subsystem) touch that code path. Messaged engine-dev directly with the
+repro rather than investigating further myself.
+
+fix: skills.js v65->v66 (KIT_TIERS.deep), bench/fixtures/kit-deep-orphans.js (new, 3/3),
+bench/preflight.sh (+1 line)
+commit: (this entry's own commit, immediately following)
+github: felsenuboot/FelsenBerry#122 (TODO 5o) — landed, deadlock resolved; #128 filed for the
+real armor/shield/water supply chains as scoped future work
