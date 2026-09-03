@@ -1659,13 +1659,25 @@ fix + #108 FOOD + 5c escalation) is the next attempt. Also on record: the bot ne
 wood-gather froze, TODO 5c), so criterion 4 passed on a vacuously thin trail and criterion 3 passed while starving —
 both are honest PASSes by the instrument's definition and both are called out here so nobody reads 3/4 as "nearly human".
 
-## Run #7 — GrantigGustav, world-race7 — PREP, HOLD for soak #5 verdict + team-lead green light
+## Run #7 — GrantigGustav, world-race7 — LAUNCHED 2026-09-03 12:00:56.716Z
 
-Prepped during soak #5's hour (test-driver, 2026-09-03) — 25600 is the SOAK server right now
-(world-soak5, soak #5 running), off-limits to touch or spawn against until soak #5 ends (~11:31Z per
-team-lead). This is paperwork-only prep: no world swap, no spawn, nothing execute-shaped happens
-until soak #5 concludes and team-lead flips the light. Race book v2 (unchanged in mechanics — see
-below for the two corrections that landed since run #6).
+Green-lit after TODO 5l landed (`7f52d32`: RESTOCK hunts kit food when sated, chopTrees short trips
+need no food) — the exact food-kit wall that stalled run #6's second hour AND soak #5. First run
+carrying `#113`/`#120` live. Launch sequence: `SchnoddSchorsch` (eng-3's soak #5 specimen, survived
+its own spawn-camp per `#116`'s SHELTER widening) and its decider stopped; 25600 SIGTERM'd cleanly,
+`world-soak5` archived untouched, `level-name` → `world-race7`, restarted, "Done (2.085s)"; fresh
+decider daemon started on clean `main` (`504e3ac`, pid 314023, no `SOAK_BOT`); `GrantigGustav`
+spawned (pid 314677, port 3161, `OWNER=test-driver`), `./list.sh` clean before and after.
+
+**Canonical join: T+0 (12:00:56.716Z)**, position (-1.5,102,-3.5), hp/food 20/20, empty inventory.
+Actuals from `/state`, exact match to expected: skills **v65**, agenda **v36**, survival **v13**,
+dangerscan **v6**, plus producer **v9** (bumped from v7, not previously called out). role:null.
+
+Steering call 1: `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at 12:01:18.930Z
+(T+22s), per Race book v2's trigger table.
+
+Prepped during soak #5's hour (test-driver, 2026-09-03) — original prep notes below, kept intact.
+Race book v2 (unchanged in mechanics — see below for the two corrections that landed since run #6).
 
 **Fresh never-used name reserved: `GrantigGustav`** (13 chars, checked clean against both
 `~/minecraft/localserver/usercache.json` and `~/minecraft/localserver-race/usercache.json`, and
@@ -1709,8 +1721,9 @@ start; monitor armed from spawn (actionable-only filter, tuned further this run:
 vitals or a 10-min sustained-low heartbeat rather than every poll, per team-lead's cadence ask during
 run #6).
 
-**STATUS: prep complete, standing by for soak #5's verdict and team-lead's green light. Nothing on
-this list executes until then — 25600 is soak #5's server right now, not touched.**
+**STATUS: LIVE, racing.** Monitor armed (actionable-only filter: milestone first-seen, death/damage,
+hp<8/food<6-with-worsening-or-10min-heartbeat, rung-stuck>90s, `needs_direction` opened, server
+errors), per Race book v2's trigger table and branch plans.
 
 ## SOAK #5 — second HUMAN-BAR attempt: **FAIL (3 of 4)** (team-lead, graded by engine-dev 2026-09-03 11:33Z)
 
