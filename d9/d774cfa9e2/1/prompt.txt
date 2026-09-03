@@ -175,3 +175,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
