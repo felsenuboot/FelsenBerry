@@ -1,0 +1,139 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "842488596830",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:39:26.424911383Z",
+  "branch": "main",
+  "checkpoints_count": 11,
+  "save_step_count": 12,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "d3cf7a6128e5",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 6534,
+    "cache_creation_tokens": 298766,
+    "cache_read_tokens": 19992827,
+    "output_tokens": 65385,
+    "api_call_count": 134
+  },
+  "session_metrics": {
+    "turn_count": 31
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 284,
+      "agent_lines_removed": 2
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 284,
+      "agent_lines_removed": 2
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 35,
+      "user_lines_removed": 0,
+      "agent_lines_added": 284,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "foods.js": 35
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 73,
+      "user_lines_removed": 17,
+      "agent_lines_added": 284,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        "agenda.js": 19,
+        "foods.js": 35,
+        "skills.js": 19
+      },
+      "user_removed_per_file": {
+        "agenda.js": 13,
+        "skills.js": 4
+      }
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 35,
+      "user_lines_removed": 0,
+      "agent_lines_added": 322,
+      "agent_lines_removed": 19,
+      "user_added_per_file": {
+        "foods.js": 35
+      }
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 373,
+      "user_lines_removed": 22,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 29,
+        "decider.js": 8,
+        "foods.js": 35,
+        "infra.js": 265,
+        "server.log": 1,
+        "skills.js": 35
+      },
+      "user_removed_per_file": {
+        "agenda.js": 14,
+        "decider.js": 1,
+        "skills.js": 7
+      }
+    }
+  ]
+}
