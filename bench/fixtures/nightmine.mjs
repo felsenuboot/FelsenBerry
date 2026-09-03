@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 // nightmine.js is plain CommonJS at the repo root (same idiom as foods.js — a real require(),
 // loaded defensively by whichever live payload consumes it; this fixture just needs the module,
 // not the payload-injection mechanism).
-const { shouldNightMine, nightMineTargets, nightMineArgs } = require('../../nightmine.js');
+const { shouldNightMine, nightMineTargets, nightMineArgs, nightMineResealCells } = require('../../nightmine.js');
 
 const out = { cases: [] };
 const T = (label, got, expect) => out.cases.push({ label, got, expect,
@@ -76,6 +76,24 @@ T('a negative restY still just subtracts 1 (the y-floor check in shouldNightMine
   nightMineArgs('coal_ore', 0), { target: 'coal_ore', vein: false, laneY: -1, maxDist: 8, count: 6 });
 T('custom maxDist/count are honoured', nightMineArgs('iron_ore', 40, { maxDist: 4, count: 3 }),
   { target: 'iron_ore', vein: false, laneY: 39, maxDist: 4, count: 3 });
+
+// ---- 10. nightMineResealCells (TODO 5m-b): 4 sides x 2 heights around the chamber, pure
+//    geometry -- the caller (survival.js, bot-aware) decides which of these are actually
+//    missing and only places those; this just enumerates the 8 candidates deterministically. ----
+T('8 candidates: 4 sides x 2 heights, centered on the chamber', nightMineResealCells({ x: 10, y: 60, z: -5 }),
+  [
+    { x: 11, y: 60, z: -5 }, { x: 11, y: 61, z: -5 },
+    { x: 9, y: 60, z: -5 }, { x: 9, y: 61, z: -5 },
+    { x: 10, y: 60, z: -4 }, { x: 10, y: 61, z: -4 },
+    { x: 10, y: 60, z: -6 }, { x: 10, y: 61, z: -6 },
+  ]);
+T('defaults to origin when called with no chamber (never throws)', nightMineResealCells(),
+  [
+    { x: 1, y: 0, z: 0 }, { x: 1, y: 1, z: 0 },
+    { x: -1, y: 0, z: 0 }, { x: -1, y: 1, z: 0 },
+    { x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 1 },
+    { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: -1 },
+  ]);
 
 out.passed = out.cases.filter((c) => c.PASS).length;
 out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${JSON.stringify(c.expect)}, got ${JSON.stringify(c.got)}`);

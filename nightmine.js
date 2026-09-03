@@ -83,4 +83,28 @@ function nightMineArgs(target, restY, opts) {
   return { target, vein: false, laneY: restY - 1, maxDist: o.maxDist, count: o.count };
 }
 
-module.exports = { shouldNightMine, nightMineTargets, nightMineArgs };
+// 5m-b (#120/#121 follow-up): live-caught (FEEDBACK.md, TODO 5m) that a threat interrupting a
+// mid-lane batch can kill the bot -- `branchWallOff` can't reliably seal an open 1-wide mined
+// corridor the way it seals an open-ground pocket, and the interrupt is a race against
+// dangerscan's own onDanger trigger (fires independently every 250ms, survival.js's own poll is
+// no faster) that cannot be reliably won reactively. Fix is PROACTIVE, not reactive: after every
+// batch, the caller walks back to the chamber (the dig-in's original resting position -- never
+// moves, it's a straight-down dig) and reseals it before considering another batch, so the bot
+// is genuinely sealed for the whole BETWEEN-batch window regardless of who notices a threat
+// first. This is the pure geometry half of that: the chamber has exactly one exposed cell-pair
+// per open direction (feet+head, at the lane's own floor height) -- the other 3 sides stay
+// original, undisturbed terrain. Callers should check each cell's own solidity (bot-aware,
+// can't live here) and only place what's actually missing; returning all 8 unconditionally
+// keeps this pure/hermetic and lets the caller's own placeAt-style primitive no-op on whatever
+// is already solid (survival.js's placeAt already does exactly that -- see shelterHut's own
+// identical 8-cell enumeration, reused here as a doctrine, not literally shared code, since this
+// file has zero bot access by design).
+function nightMineResealCells(chamber) {
+  const c = chamber || { x: 0, y: 0, z: 0 };
+  const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const cells = [];
+  for (const [dx, dz] of sides) for (const dy of [0, 1]) cells.push({ x: c.x + dx, y: c.y + dy, z: c.z + dz });
+  return cells;
+}
+
+module.exports = { shouldNightMine, nightMineTargets, nightMineArgs, nightMineResealCells };
