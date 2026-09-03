@@ -1272,7 +1272,7 @@ design, so `#108`'s FOOD rung is exercised as intended).
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
 
-Steering calls: 2 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+Steering calls: 3 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
 08:58:53.698Z (T+25s), clean on first attempt, per Race book v2's trigger table; (2) Food/kit-refusal
 branch, `setProject({skill:'huntAnimals',args:{anyMob:true,radius:32,repeat:true}})` at 09:08:09.749Z
 (T+9m41s) after the identical `food 0/4` kit-gate refusal repeated twice (09:06:05Z, 09:07:19Z, ~74s
@@ -1280,7 +1280,19 @@ apart) with the bot otherwise stationary between them — hunger stayed full (20
 `#108`'s FOOD rung (which gates on `hunger<=12`) never had a reason to fire; this is the kit-assembly
 food-ITEM requirement, a different condition, and per Race book v2's trigger table the manual fallback
 is the documented response ("the moment you see food 0/N, immediately setProject(huntAnimals...)"),
-not a wait-for-engine-routing case. Deaths: 0 so far. Monitor: armed — 15s `/state` poll
+not a wait-for-engine-routing case; (3) barren-search branch, `setProject({skill:'come',args:{x:-64,
+y:100,z:-10}})` at 09:11:04.018Z (T+12m36s) after `huntAnimals` failed identically twice
+(`not_found: no cow within 32 blocks`, 09:09:20Z/09:09:52Z) and opened a `project_stalled` episode
+(`dmtlb15l41`) that the decider itself answered first — `chopTrees`, 36.7s close latency, a clean data
+point for the 4b fix — but `chopTrees` immediately refused `kit_missing` on the SAME food-item
+shortage, so I repositioned per the barren-search branch instead of re-trying the same dead end.
+**Live engine finding surfaced by this sequence, written up in FEEDBACK.md 09:12Z**: `PROJECT`'s rung-
+level `standDown` backoff outlives the specific project it was set for — both my `huntAnimals` and
+`come` redirects sat inert for ~20-30s under a cooldown inherited from the PREVIOUS project's failure
+before actually starting, and `come` was then flagged with its OWN `project_stalled` episode
+(`dmtlb2m212`) for a delay it didn't cause. Not `#97` (frozen-repeat) or `5c` (same-remedy-across-
+positions) — upstream of both, in the ladder's own backoff bookkeeping. Not my lane to fix
+(agenda.js/eng-3); flagged, not patched. Deaths: 0 so far. Monitor: armed — 15s `/state` poll
 (IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans
 (combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
@@ -1304,6 +1316,12 @@ the loaded `decider.js` = `a2a7a43b8f36d91b13d619f5fdc75632793167ee1cc5b11c33fb4
 diff file is committed alongside this entry (force-added past `logs/`'s gitignore) as the record of
 truth in case engine-dev-3's working file changes again before they commit a real WIP hash for it.
 Slip process-honest, accepted by team-lead; run continues.
+
+**RESOLVED 09:12Z**: engine-dev-3 committed TODO 4b as `2fea6d8` (+ `dee563c` TODO/CHANGELOG),
+`git show 2fea6d8:decider.js | sha256sum` = `a2a7a43b...` — byte-for-byte identical to the
+working-tree state the daemon has been running since 09:01:51Z. **Decider = commit `2fea6d8`**,
+clean, no asterisk needed going forward; `logs/run6-decider.diff` stays in the repo as the
+as-it-happened record. No restart performed or needed.
 
 **Comparability caveat, ruled with eng-3 (team-lead, 2026-09-03): decider grace 0s (4b WIP).**
 Because the daemon running this race carries the 4b fix, GammelGerhard — a driven bot, this

@@ -4592,3 +4592,48 @@ bypasses `PER_BOT_MIN_GAP_MS` for a same-eid pending retry only; self-start guar
 would have hit the moment a 5th field existed; adds a `[driven]` tag to the listing).
 `bench/decider-latency-replay.js` (new — 4 cases, 12/12, requires decider.js as a module).
 github: felsenuboot/FelsenBerry (TODO 4b; SOAK #4 direction-gate latency gate for soak #5)
+
+---
+### 2026-09-03 09:12Z — test-driver — run #6 live finding: PROJECT rung's `standDown` outlives the project it was set for, silently swallowing a driver's redirect
+Caught live on GammelGerhard (gear-race run #6, world-race6) while manually steering around a food-item kit deadlock
+(hunger stayed full 20/20 the whole time — `#108`'s FOOD rung, which gates on `hunger<=12`, correctly never fired;
+this is a KIT-ASSEMBLY food-ITEM requirement, a different condition entirely, and nothing routes it automatically
+today except my own Race book v2 manual `huntAnimals` fallback).
+
+Sequence, all timestamps confirmed via `__skills.status`/`AGENDA_EVENT` log lines, not inferred:
+1. `mineLane`(original project) hit `agenda: PROJECT made no progress — standing down 30s so lower rungs can run`
+   after a `not_found` on its own excursion-kit food check. `A.standDown.PROJECT` is now set to `now+30000`.
+2. I set `huntAnimals` (a fresh, legitimate driver redirect) shortly after, inside that 30s window. Confirmed via
+   `standDown`/`standDownCount` read-only `/eval`: `PROJECT` stayed locked until the ORIGINAL 30s window expired —
+   `setProject()` does not clear or reset `A.standDown[PROJECT]`, so the new project just sat staged while `IDLE`
+   (the floor, immune to standDown) kept running its filler `collectDrops` sweep. `rung` reads `IDLE` with
+   `project` already showing the new skill name the whole time — looks, from `/state` alone, exactly like the
+   engine ignoring a driver's redirect, when what actually happened is a leftover cooldown from the PREVIOUS
+   project's failure silently absorbing the new one's first ~20-30s.
+3. Repeated on the SAME bot a few minutes later: the decider dispatched `chopTrees` for a stalled episode (36.7s
+   close latency — a good data point for the 4b fix, logged separately), `chopTrees` immediately refused
+   `kit_missing` (needs food for its own excursion kit — same underlying food-item shortage), and stood
+   `PROJECT` down again (60s this time, `standDownCount.PROJECT` now 2 → escalating per `STAND_DOWN_MS`). My own
+   very next `setProject({skill:'come',...})`, issued after that refusal, walked into the SAME trap: it sat
+   inert under the inherited standdown for ~20s, then — once the standdown itself finally expired and `come`
+   started running normally (confirmed: position moved, `rung` read `PROJECT`) — the direction layer STILL
+   opened a fresh `project_stalled` episode for `come` (`dmtlb2m212`), because the stall detector's window had
+   already been ticking since before `come` ever got a chance to execute. A skill that worked perfectly well got
+   flagged as stalled for a delay entirely caused by its predecessor's leftover cooldown.
+
+**Not the same bug as `#97`'s frozen-repeat (that's about a project re-dispatched from the SAME position
+uselessly) or `5c`'s same-remedy-across-positions escalation (that's about the DECIDER re-picking the same
+remedy) — this is upstream of both: the rung-priority ladder's own backoff bookkeeping is keyed on the RUNG id
+(`PROJECT`), not on which project is currently staged under it, so a `setProject()` call (driver OR decider) has
+no way to signal "this is a fresh attempt, don't count my predecessor's failure against me." A driver reacting
+correctly and fast to a stall (exactly what Race book v2's SLO asks for) can still lose 20-90+ seconds of the
+very race window it's trying to protect, through no fault of its own diagnosis or timing.
+
+**Compounding factor, same incident, worth its own line**: the underlying food-item deadlock (hunger full, so
+`#108` never fires; RESTOCK/chopTrees/mineLane's own excursion-kit gate wants real food items regardless of
+hunger; my own `huntAnimals` fallback found no fauna within 32 blocks twice) has no automatic engine-side
+resolution today outside a driver's manual branch — worth folding into whatever eventually generalizes `#108`'s
+FOOD rung condition beyond pure-starvation. Not filing a github issue myself (agenda.js is eng-3's lane, and I
+have not proposed or verified a fix shape) — flagging both findings here per this file's law rather than editing
+agenda.js myself. Race continued via the manual branch regardless; not a DEAD RACE (each attempt still produced
+a diagnosed, evolving state, not flat nothing).
