@@ -109,7 +109,17 @@ if (UNTIL) {
 let gate;
 {
   const metricsScript = UNTIL ? path.join(scratchDir, 'metrics.mjs') : path.join(ROOT, 'metrics.mjs');
-  if (UNTIL) fs.copyFileSync(path.join(ROOT, 'metrics.mjs'), metricsScript);
+  if (UNTIL) {
+    fs.copyFileSync(path.join(ROOT, 'metrics.mjs'), metricsScript);
+    // metrics.mjs --direction-gate imports bench/lib/latency-breakdown.mjs (task 2, 2026-09-03)
+    // as a real relative ESM import, not an optional extra -- a copy of metrics.mjs with no
+    // bench/lib/ alongside it fails to even start (module resolution error, not a graceful
+    // degradation). Mirror the same relative layout under the scratch dir.
+    fs.mkdirSync(path.join(scratchDir, 'bench', 'lib'), { recursive: true });
+    for (const f of fs.readdirSync(path.join(ROOT, 'bench', 'lib'))) {
+      if (f.endsWith('.mjs')) fs.copyFileSync(path.join(ROOT, 'bench', 'lib', f), path.join(scratchDir, 'bench', 'lib', f));
+    }
+  }
   try {
     execFileSync(process.execPath, [metricsScript, '--direction-gate', LABEL, '--since', SINCE, '--bot', BOT],
       { cwd: UNTIL ? scratchDir : ROOT, stdio: ['ignore', 'ignore', 'inherit'] });

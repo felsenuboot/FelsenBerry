@@ -25,6 +25,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { aggregateLatencyBreakdown } from './bench/lib/latency-breakdown.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const LOGS = path.join(DIR, 'logs');
@@ -718,6 +719,38 @@ if (dgate && typeof dgate === 'string') {
   const decByHour = decisions.length ? (Math.max(...decisions.map((d) => d.t)) - Math.min(...decisions.map((d) => d.t))) / 3600000 : 0;
   const llmPerHr = decByHour > 0 ? llmCalls.length / decByHour : 0;
 
+  // ---- latency breakdown (soak #4 task 2, 2026-09-03, engine-dev/QA lane) ----
+  // The single open->close `latency_ms` graded above is exactly why soak #4's attribution
+  // (driver-grace bug vs Andy slowness) had to be done by hand, reading AGENDA_EVENT lines
+  // against decisions.jsonl. Joins each CLOSED episode's direction open/close ledger records
+  // to every decisions.jsonl record sharing its eid (there can be more than one -- a same-eid
+  // llm-miss retry, or a skipped_frozen_repeat/skipped_cap attempt before the winning one) and
+  // splits the total into buckets a future soak's p50/p90 can be attributed against directly:
+  //   - timeToFirstAttemptMs: open -> the FIRST decisions.jsonl record for this eid, of ANY
+  //     src including skips. Captures driver-grace + poll-interval + per-bot-gap waits BEFORE
+  //     the decider ever looked at this episode -- exactly soak #4's own p50 bug's shape.
+  //   - deciderComputeMs: sum of every attempt's own `latency_ms` (0 for a rule hit, the real
+  //     Ollama call duration for an llm attempt) -- pure decision-making time, already in the
+  //     existing schema, no new field needed.
+  //   - interAttemptGapMs: wall-clock time between attempts NOT accounted for by any attempt's
+  //     own recorded busy time (compute + dispatch) -- the rate-gate retry wait soak #4's own
+  //     p90 was actually made of (`PER_BOT_MIN_GAP_MS` before 4b's fix). Computed directly from
+  //     consecutive attempt timestamps; no new field needed.
+  //   - dispatchMs / standDownCarryoverMs: FORWARD-LOOKING, not yet emitted anywhere -- see the
+  //     coordination message to engine-dev-3 (2026-09-03): `dispatch_ms` would need decider.js
+  //     to time its own dirDispatch call separately (today that duration is invisible, folded
+  //     into interAttemptGapMs above); `standDownCarryoverMs` would need agenda.js's
+  //     `open`-event dirEmit to report whether the episode's own rung inherited an active
+  //     standDown from a PREVIOUS project (TODO 5d / test-driver's run-#6 finding: a 128665ms
+  //     "latency" that was standdown carryover, not decider slowness). Both report `null` (NOT
+  //     0 -- a missing field is not a verified zero, this file's own doctrine) until those
+  //     fields exist; `unattributedMs` folds whatever isn't covered by the other buckets, so
+  //     the breakdown is always honest about what it can't yet explain rather than silently
+  //     absorbing it into one bucket that happens to still be computable.
+  // Join/split logic lives in bench/lib/latency-breakdown.mjs (shared with bench/fixtures/
+  // latency-breakdown.mjs's hermetic test) rather than inlined here.
+  const latencyBreakdown = aggregateLatencyBreakdown(opens, closes, decisions);
+
   // #52 tripwire attribution (§6 Phase 3, §2.9): every decider dispatch must be identifiable
   // in interventions.recent by body match, reconciled against closedBy:'decider' counts.
   // interventions.recent is a bounded ring (runner.js INTERVENTIONS_MAX) so this checks the
@@ -750,12 +783,19 @@ if (dgate && typeof dgate === 'string') {
     // phase-4-relevant context, reported alongside regardless of pass/fail -- not gated on,
     // since Phase 4's own criteria are a longer soak and a SCOREBOARD entry, not a threshold
     undirected_time_fraction_by_bot: undirectedFractionByBot,
+    // latency breakdown (task 2, 2026-09-03): informational, NOT gated on -- the existing
+    // latency_p50_ms/p90_ms above remain the graded numbers; this just attributes them.
+    latency_breakdown: latencyBreakdown,
   };
   const out = path.join(DIR, 'bench', 'gates', `direction-${dgate}.json`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, JSON.stringify(report, null, 2));
   console.log(`\n── direction gate ${dgate}: ${report.pass ? 'PASS' : 'FAIL'} ──`);
   for (const r of reasons) console.log(`  - ${r}`);
+  const bs = latencyBreakdown.aggregate;
+  const fmt = (b) => b.n ? `p50 ${Math.round(b.p50_ms / 1000)}s/p90 ${Math.round(b.p90_ms / 1000)}s (n=${b.n})` : 'n=0';
+  console.log(`  latency breakdown (informational, not gated): first-attempt ${fmt(bs.timeToFirstAttempt)} | decider-compute ${fmt(bs.deciderCompute)} | inter-attempt-gap ${fmt(bs.interAttemptGap)} | unattributed ${fmt(bs.unattributed)}`);
+  console.log(`    dispatch ${fmt(bs.dispatch)}${bs.dispatch.n ? '' : ' (pending decider.js dispatch_ms field)'} | standdown-carryover ${fmt(bs.standDownCarryover)}${bs.standDownCarryover.n ? '' : ' (pending agenda.js standDown field)'}`);
   console.log(`  written -> ${path.relative(DIR, out)}`);
 }
 

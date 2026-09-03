@@ -1,0 +1,195 @@
+{
+  "label": "soak4-breakdown",
+  "at": "2026-09-03T09:34:26.490Z",
+  "pass": false,
+  "reasons": [
+    "latency p50 76s -- must be <=60s",
+    "latency p90 215s -- must be <120s"
+  ],
+  "opened": 10,
+  "closed": 10,
+  "unclosed": 0,
+  "latency_p50_ms": 76456,
+  "latency_p90_ms": 215415,
+  "llm_calls": 8,
+  "llm_calls_per_hr": 9.4,
+  "skipped_cap": 0,
+  "closedBy_decider": 6,
+  "decider_interventions_matched": 6,
+  "undirected_time_fraction_by_bot": {
+    "MampfManfred": {
+      "opened": 10,
+      "fraction": 0.3071787727066128
+    }
+  },
+  "latency_breakdown": {
+    "perEpisode": [
+      {
+        "eid": "dmtl87qib1",
+        "why": "unproductive_idle",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 77095,
+        "timeToFirstAttemptMs": 77095,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtl89ep12",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 84973,
+        "timeToFirstAttemptMs": 84973,
+        "deciderComputeMs": 5796,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtl8dxc13",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 68614,
+        "timeToFirstAttemptMs": 68612,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 2
+      },
+      {
+        "eid": "dmtl8hd6b4",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 68207,
+        "timeToFirstAttemptMs": 68206,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtl8ljls5",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 73395,
+        "timeToFirstAttemptMs": 73394,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtl8vqp06",
+        "why": "project_stalled",
+        "closedBy": "decider_exhausted",
+        "attempts": 2,
+        "totalLatencyMs": 220913,
+        "timeToFirstAttemptMs": 84399,
+        "deciderComputeMs": 9089,
+        "dispatchMs": null,
+        "interAttemptGapMs": 130187,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtl98a9m7",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 78922,
+        "timeToFirstAttemptMs": 78923,
+        "deciderComputeMs": 5632,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtl9iahj8",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 72029,
+        "timeToFirstAttemptMs": 72029,
+        "deciderComputeMs": 5237,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtl9qd3r9",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 75817,
+        "timeToFirstAttemptMs": 75817,
+        "deciderComputeMs": 5305,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtl9yfoo10",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 2,
+        "totalLatencyMs": 215415,
+        "timeToFirstAttemptMs": 79463,
+        "deciderComputeMs": 6249,
+        "dispatchMs": null,
+        "interAttemptGapMs": 130717,
+        "standDownCarryoverMs": null,
+        "unattributedMs": 0
+      }
+    ],
+    "aggregate": {
+      "timeToFirstAttempt": {
+        "n": 10,
+        "p50_ms": 76456,
+        "p90_ms": 84399
+      },
+      "deciderCompute": {
+        "n": 10,
+        "p50_ms": 5271,
+        "p90_ms": 6249
+      },
+      "dispatch": {
+        "n": 0,
+        "p50_ms": null,
+        "p90_ms": null
+      },
+      "interAttemptGap": {
+        "n": 10,
+        "p50_ms": 0,
+        "p90_ms": 130187
+      },
+      "standDownCarryover": {
+        "n": 0,
+        "p50_ms": null,
+        "p90_ms": null
+      },
+      "unattributed": {
+        "n": 10,
+        "p50_ms": 0,
+        "p90_ms": 1
+      }
+    },
+    "pendingFields": {
+      "dispatch_ms": "decider.js does not yet time its dirDispatch call separately (proposed to engine-dev-3, 2026-09-03) -- folded into interAttemptGap until it lands",
+      "standDown": "agenda.js's open-event dirEmit does not yet report inherited standDown state (proposed to engine-dev-3, 2026-09-03, ties to TODO 5d) -- carryover is invisible (reads as unattributed or interAttemptGap) until it lands"
+    }
+  }
+}
