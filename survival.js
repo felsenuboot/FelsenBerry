@@ -1,4 +1,23 @@
-// survival v14 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v15 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v15 (#120 follow-up, TODO 5m, 2026-09-03): soak #5's stall attribution (1f6df70) showed
+// SHELTER owning 27.7 of 60 minutes with nothing happening inside it but a sleep/eat poll — a
+// human who digs in at dusk MINES until dawn, they don't stand in a dirt hole. shelterEnter()'s
+// wait loop now dispatches nightmine.js's mineLane batches (pure decision logic, landed
+// separately in d15f71d — coal_ore -> iron_ore -> stone ordered attempts, 12-batch cap, y-floor
+// 0 against laneY=restY-1, freeSlots<=2 stop, pickaxe-held checked once at entry) whenever
+// built.kind==='digin' && built.sealed, using the loop's OWN existing poll cadence as the
+// concurrency (no separate timer): every iteration, after the SAME exit checks the loop already
+// ran (exitRequested/threatsNow/dawn/starving/health<=0), if no batch is currently in flight it
+// asks shouldNightMine() fresh and dispatches the next one; if an exit condition fires while a
+// batch IS in flight, `__skills.stop()` cancels it immediately (mineLane checks cancellation
+// every dig — sub-second) before falling into the existing exit sequence, unchanged. Poll
+// tightened 500ms->300ms so a threat interrupts a batch within ~1s rather than up to 500ms late.
+// laneY is nightmine.js's own restY-1, untouched here — the seal is never reopened upward, that
+// invariant lives in the args, not in this wiring. Hut variant gets no branch at all — this only
+// fires for a sealed dig-in. Two-surface `night_mine` ledger event (start/batch_done/stopped)
+// via `__metrics.emit` directly (public API, telemetry.js:175) so soak #6's grader can tell
+// "SHELTER-owned but mining" apart from "SHELTER idle" without a new telemetry.js wrapper.
 //
 // v14 (#121, TODO 5n, 2026-09-03): branchBreakLOS had no memory across invocations, so an
 // unarmed bot facing a skeleton that closed to melee range re-ran the identical corner-step/
@@ -209,7 +228,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 14,
+  enabled: true, version: 15,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -219,6 +238,12 @@ const g = {
   // calls (not just a threat-id change) so a despawned threat's id being REUSED by mineflayer
   // (rare but real) can never inherit a stale streak. See branchBreakLOS's own comment.
   breakLosStreak: { threatId: null, fails: 0, lastAt: 0, triedFist: false },
+  // #121/5r: generic, enter()-level no-progress streak -- keyed on dangerscan's raw top
+  // threat id, independent of which branch handles it. Belt-and-suspenders alongside the
+  // actionableThreats() gating fix above: that fix closes the SPECIFIC standdown-deadlock
+  // shape the live specimen hit, this catches any OTHER shape where the same threat id
+  // keeps costing panic cycles with zero damage taken either way.
+  panicStreak: { threatId: null, count: 0, lastAt: 0, lastHp: null },
   cfg: {
     lockoutMs: 10000,     // re-entry lockout after a completed recovery
     hpPanic: 8,           // backstop trigger when dangerscan is absent
@@ -249,6 +274,20 @@ const FOODS = new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton
   'enchanted_golden_apple', 'carrot', 'beetroot', 'melon_slice', 'sweet_berries', 'glow_berries',
   'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp']);
 
+// TODO 5m: nightmine.js is explicitly NOT an injected payload (see its own header) — it's a
+// plain CommonJS module meant to be `require()`d by whichever payload consumes it, same idiom
+// as agenda.js/skills.js already load foods.js. That's a different case from the FOODS/filler
+// duplication just above (which avoids cross-requiring ANOTHER injected payload) — nightmine.js
+// has no such payload identity to collide with. Defensive: a missing/corrupt file degrades to
+// "night-mining unavailable" (shouldNightMine always refuses), never a crash.
+const NIGHTMINE = (() => {
+  try {
+    return process.mainModule.require(nodePath.join(nodePath.dirname(process.mainModule.filename), 'nightmine.js'));
+  } catch (e) {
+    return { shouldNightMine: () => ({ go: false, reason: 'nightmine_unavailable' }), nightMineTargets: () => [], nightMineArgs: () => ({}) };
+  }
+})();
+
 const pushLog = (lvl, msg) => {
   try {
     const S = globalThis.__skills;
@@ -256,6 +295,18 @@ const pushLog = (lvl, msg) => {
     S._seq = (S._seq || 0) + 1;
     S.log.push({ seq: S._seq, lvl, msg: String(msg).slice(0, 200) });
     if (S.log.length > 400) S.log.splice(0, S.log.length - 400);
+  } catch (e) {}
+};
+// TODO 5m: two-surface `night_mine` ledger event, same doctrine as #121/5n's M.panic call
+// (console line elsewhere via pushLog at each call site + the ledger here) — via the existing
+// public `__metrics.emit` (telemetry.js:175), not a new named wrapper, so this stays entirely
+// inside survival.js's own lane (telemetry.js/metrics = engine-dev's file, see TODO §3).
+const emitNightMine = (op, extra) => {
+  try {
+    const m = globalThis.__metrics;
+    if (!m || !m.emit) return;
+    const p = bot.entity.position;
+    m.emit('night_mine', Object.assign({ op, pos: [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)] }, extra || {}));
   } catch (e) {}
 };
 const say = (msg) => { try { bot.chat(msg); } catch (e) {} };
@@ -428,6 +479,29 @@ const threatsNow = () => {
   if (d && Array.isArray(d.threats)) return d.threats;
   return [];
 };
+// #121/5r (2026-09-03, live-caught by test-driver's run #7 racer, GrantigGustav): a threat
+// dangerscan still lists is not the same claim as a threat doing anything to us right now.
+// Live specimen: a creeper at 13-16 blocks, los:false, ranged:false (dangerscan's own
+// per-threat fields) sat in threatsNow() continuously -- not because IT was driving panic
+// (its score alone, 0.98, was nowhere near dangerscan's own panic threshold of 5; the real
+// trigger was the bot's OWN hp sitting below hpPanic(8), a separate condition dangerscan
+// ORs in) but its mere PRESENCE in the raw list permanently blocked every `threatsNow()
+// .length===0` "is danger genuinely over" check in this file (the #92 heal-deadlock escape
+// inside branchWallOff's own wait loop, and standdown's arm/re-clear checks below) from ever
+// reading true -- so WALL_OFF could never diagnose cannot-heal and stand down, food never
+// crossed regenFood, hp never recovered, and dangerscan's own hp<8 term kept re-forcing
+// panic on the exact same unreachable creeper forever (18 fires, 6.5+ minutes, hp pinned
+// at ~6.77 the whole time). A creeper 13-16 blocks away with no line of sight cannot reach or
+// see the bot before the next scan cycle re-evaluates anyway -- treating it as still-live
+// for "can I stand down" purposes was the actual bug, not the WALL_OFF loop itself.
+// `los===true` always passes (a visible threat, however far, can still be closing or
+// about to loose a shot); `d<=ACTIONABLE_MAX_D` covers the fully-hidden-but-close case
+// (matches the ~melee-reach-plus-a-few-steps distance something could cross before the
+// next cycle). threatsNow() itself is untouched -- pick()'s own creeper(d<=8)/ranged(&&los)
+// dispatch gates are already tighter than this and unaffected; only the "is it genuinely
+// over" call sites below switch to this filtered view.
+const ACTIONABLE_MAX_D = 12;
+const actionableThreats = () => threatsNow().filter((x) => x.los === true || x.d <= ACTIONABLE_MAX_D);
 const entOf = (t) => (t && t.id != null ? bot.entities[t.id] : null);
 
 // #115 (run #6 death #1, 2026-09-03, test-driver): threatsNow() is dangerscan's own list
@@ -987,7 +1061,11 @@ const branchWallOff = async (t) => {
     // (dangerscan's own live list, not just "wasn't hit this exact tick") and HP has stopped
     // falling, stop waiting on a condition that can never become true from inside a sealed
     // box — this is the exit branchWallOff never had, root cause of #92's 26-cycle stall.
-    if (threatsNow().length === 0 && bot.health >= lastHp && cannotHeal()) { cannotHealHit = true; break; }
+    // #121/5r: `actionableThreats()`, not the raw list -- a far, unseen creeper dangerscan
+    // still reports (los:false, d>12) sat in threatsNow() forever and permanently blocked
+    // this exact escape valve from ever firing, live-caught turning #92's fix into a NEW
+    // 6.5+ minute stall on a threat that was never actually preventing anything.
+    if (actionableThreats().length === 0 && bot.health >= lastHp && cannotHeal()) { cannotHealHit = true; break; }
     // #65: this used to wait passively for up to 60s on the assumption a "sealed" coffin
     // stops incoming damage entirely, checking only once per 1000ms. Live-traced a bot
     // holding stable for 33s then dropping 5.5 -> 0.8 HP in ~4s during this exact wait —
@@ -1054,7 +1132,9 @@ const branchWallOff = async (t) => {
   return {
     branch: 'WALL_OFF', sealed: open === 0, placed, openFaces: open, bailed,
     hp: bot.health, food: bot.food, exit: dug,
-    cannotHeal: stillCannotHeal, threatClear: threatsNow().length === 0, sweep,
+    // #121/5r: actionable-only here too, same reasoning as the wait-loop escape just above --
+    // keeps this return field consistent with what actually gated it internally.
+    cannotHeal: stillCannotHeal, threatClear: actionableThreats().length === 0, sweep,
     // #115: >1 means rescanMelee() caught at least one threat beyond the one this branch was
     // originally called with — the multi-threat gap actually firing, visible to a fixture/log
     // reader without needing to grep chat lines.
@@ -1110,6 +1190,33 @@ const branchFightBack = async (t) => {
 // (maximize distance from a live entity via GoalInvert/GoalFollow, real pathfinding
 // handles obstacles automatically) rather than reimplementing dead-reckoning — #54's own
 // lesson (trust a proven navigation primitive over a bespoke one) applies here too.
+// #121/5r: literal "walk off" escalation for enter()'s generic panicStreak (see g.panicStreak's
+// own comment) -- when the SAME threat id has cost N consecutive panic cycles with zero damage
+// taken either way, physically move away from its last known position instead of running
+// another identical cycle. Deliberately simple, no filler/tool required (same floor-tier
+// requirement as FLEE_AWAY): its only job is to get far enough that dangerscan's own next scan
+// drops the threat from threatsNow()/actionableThreats() entirely, which is what actually lets
+// standdown/cannotHeal do their job (see actionableThreats()'s own comment above -- the live
+// specimen was never really a "fight or flee" problem, it was "dangerscan still sees something
+// nothing we do about it changes anything for", and walking off is the direct fix for that).
+const branchWalkOff = async (t) => {
+  say('Not making progress against ' + (t ? t.name : 'that') + ' — walking clear of it.');
+  const ent = entOf(t);
+  const from = ent && ent.position ? ent.position
+    : (t && Array.isArray(t.pos) ? new Vec3(t.pos[0], t.pos[1], t.pos[2]) : null);
+  let moved = 'no_target';
+  try {
+    if (from) {
+      const here = bot.entity.position;
+      const d = dist(here, from);
+      const away = d > 0.5 ? here.minus(from).scaled(1 / d) : new Vec3(1, 0, 0);
+      const target = here.plus(away.scaled(24));
+      moved = await ownedGoto(new goals.GoalNear(Math.floor(target.x), Math.floor(target.y), Math.floor(target.z), 3), 8000);
+    }
+  } catch (e) { moved = 'err:' + e.message; }
+  return { branch: 'WALK_OFF', escalated: true, from: from ? [from.x, from.y, from.z] : null, moved };
+};
+
 const branchFleeAway = async (t) => {
   say('! Nothing left to fight or wall off with - running for it.');
   const ent = entOf(t);
@@ -1386,16 +1493,91 @@ const shelterEnter = async () => {
     pushLog('warn', `shelter_enter (${built.kind}) sealed=${built.sealed} lit=${built.lit}`);
     const t0 = Date.now();
     let lastEat = 0;
+    // TODO 5m: night-mining, sealed-digin-only. hasPickaxe/targets are read ONCE here (matching
+    // nightmine.js's own doc — hasPickaxe has nothing to re-derive mid-session; targets is a
+    // pure static list) — everything else nightMine tracks is re-derived fresh every check.
+    const hasPickaxe = bot.inventory.items().some((i) => /pickaxe$/.test(i.name));
+    const targets = NIGHTMINE.nightMineTargets();
+    const nightMine = { active: false, taskId: null, target: null, targetIdx: 0, batchesUsed: 0 };
+    const stopNightMine = (why) => {
+      if (!nightMine.active) return;
+      try { if (globalThis.__skills && globalThis.__skills.stop) globalThis.__skills.stop('shelter:nightmine:' + why); } catch (e) {}
+      pushLog('warn', `night_mine stopped (${why})`);
+      emitNightMine('stopped', { target: nightMine.target, reason: why, batchesUsed: nightMine.batchesUsed });
+      nightMine.active = false;
+    };
     while (Date.now() - t0 < g.cfg.shelterMaxWaitMs) {
-      if (g.shelter.exitRequested) { exitReason = g.shelter.exitReason || 'external'; break; }
-      if (threatsNow().length > 0) { exitReason = 'threat'; break; }  // hand back to REFLEX/POSTURE
-      if (shelterDawn()) { exitReason = 'dawn'; break; }
-      if (shelterStarving()) { exitReason = 'hunger'; break; }
+      if (g.shelter.exitRequested) { exitReason = g.shelter.exitReason || 'external'; stopNightMine(exitReason); break; }
+      if (threatsNow().length > 0) { exitReason = 'threat'; stopNightMine(exitReason); break; }  // hand back to REFLEX/POSTURE
+      if (shelterDawn()) { exitReason = 'dawn'; stopNightMine(exitReason); break; }
+      if (shelterStarving()) { exitReason = 'hunger'; stopNightMine(exitReason); break; }
       if (Date.now() - lastEat > 1000) { lastEat = Date.now(); if (bot.food <= 17 && hasFoodItem()) await eatUp(); }
-      if (bot.health <= 0) { exitReason = 'dead'; break; }
-      await sleep(500);
+      if (bot.health <= 0) { exitReason = 'dead'; stopNightMine(exitReason); break; }
+      // TODO 5m: dispatch/advance a mineLane batch — sealed dig-in only, never the hut variant.
+      // The loop's own 300ms cadence above IS the concurrency: a batch runs fire-and-forget via
+      // __skills.start, and every iteration re-checks the SAME exit conditions regardless of
+      // whether a batch is in flight, immediate-stopping it via stopNightMine() the moment one
+      // fires (never a separate timer). laneY (nightMineArgs, inside NIGHTMINE) is always
+      // built.restY-1 — one below the resting feet at the seal — so this can never touch the
+      // cap above it; the seal is never reopened upward.
+      if (built.kind === 'digin' && built.sealed) {
+        const S = globalThis.__skills;
+        if (nightMine.active) {
+          const t = S && S.currentTask;
+          if (t && t.id === nightMine.taskId && !t.running) {
+            const notFound = t.error && t.error.code === 'not_found';
+            if (notFound && nightMine.targetIdx < targets.length - 1) {
+              // fast, cheap scan-miss — try the next target in the SAME batch (nightmine.js's
+              // own doctrine: coal -> iron -> stone, moving on only on a not_found refusal).
+              nightMine.targetIdx++;
+              nightMine.target = targets[nightMine.targetIdx];
+              // force:true — see the ACK'd note on the dispatch below; same reasoning applies
+              // to every retry within a batch.
+              const args = Object.assign({ force: true }, NIGHTMINE.nightMineArgs(nightMine.target, built.restY));
+              const r = S.start(bot, 'mineLane', args);
+              if (r.ok) { nightMine.taskId = r.taskId; emitNightMine('start', { target: nightMine.target, batchesUsed: nightMine.batchesUsed }); }
+              else nightMine.active = false;
+            } else {
+              const blocks = Object.values(t.collected || {}).reduce((a, v) => a + v, 0);
+              nightMine.batchesUsed++;
+              emitNightMine('batch_done', { target: nightMine.target, blocks, batchesUsed: nightMine.batchesUsed });
+              nightMine.active = false;
+            }
+          }
+          // else: still running (or, defensively, some other task now owns S.currentTask) —
+          // leave it, poll again next tick.
+        }
+        if (!nightMine.active && targets.length) {
+          const decision = NIGHTMINE.shouldNightMine({
+            builtKind: built.kind, builtSealed: built.sealed, hasPickaxe,
+            currentY: bot.entity.position.y, freeSlots: bot.inventory.emptySlotCount(),
+            batchesUsed: nightMine.batchesUsed,
+          });
+          if (decision.go) {
+            nightMine.targetIdx = 0;
+            nightMine.target = targets[0];
+            // force:true — mineLane's own KIT_TIERS.underground demands 16 torches/4 food/
+            // weapon/2 spare picks/16 filler/16 sticks/1 table, a full excursion loadout no
+            // bot that just emergency-dug a shelter at dusk is likely to be carrying (if it
+            // were, it probably would not have needed to dig in at all). Refusing to even try
+            // "half-kitted" is the RIGHT default for a driver-issued excursion, but this is not
+            // one: hasPickaxe is already confirmed at entry, mineLane's own torch/tool handling
+            // inside the task degrades to best-effort warnings rather than throwing on missing
+            // torches/table/etc. (autoTorch/ensureTool, read before adding this), and the whole
+            // lane sits meters from an already-sealed, already-safe chamber with the SAME
+            // exit-condition poll cancelling it within ~1s of any real threat. Gating this on
+            // the full excursion kit would make night-mining fire approximately never — an
+            // unverified deferral wearing a disablement's clothing (TODO §3's own doctrine) —
+            // rather than the actual thing 5m asks for.
+            const args = Object.assign({ force: true }, NIGHTMINE.nightMineArgs(nightMine.target, built.restY));
+            const r = S && S.start ? S.start(bot, 'mineLane', args) : { ok: false };
+            if (r.ok) { nightMine.active = true; nightMine.taskId = r.taskId; emitNightMine('start', { target: nightMine.target, batchesUsed: nightMine.batchesUsed }); }
+          }
+        }
+      }
+      await sleep(300);
     }
-    if (Date.now() - t0 >= g.cfg.shelterMaxWaitMs) exitReason = 'max_wait';
+    if (Date.now() - t0 >= g.cfg.shelterMaxWaitMs) { exitReason = 'max_wait'; stopNightMine(exitReason); }
     await shelterExitBuild(built);
     pushLog('warn', `shelter_exit (${exitReason})`);
     return { ...built, exitReason };
@@ -1493,7 +1675,11 @@ const enter = async (why, pickOverride) => {
   // forces a fresh re-check periodically regardless, so this can never go silent forever.
   if (g.standdown && !pickOverride) {
     const stale = Date.now() - g.standdown.since > g.cfg.standdownMaxMs;
-    if (stale || bot.health < g.standdown.hp || threatsNow().length > 0) g.standdown = null;
+    // #121/5r: actionable, not raw -- a threat dangerscan still lists but can neither see
+    // nor reach us with (los:false, d>12) must not by itself bust a standdown that correctly
+    // diagnosed cannot-heal; it isn't a "genuine new development", it's the same nothing that
+    // was already true when standdown armed.
+    if (stale || bot.health < g.standdown.hp || actionableThreats().length > 0) g.standdown = null;
     else return;
   }
   g.active = true; g.fires++; g.startedAt = Date.now();
@@ -1559,7 +1745,12 @@ const enter = async (why, pickOverride) => {
     // No change needed to standdown's own clear/re-arm logic (enter()'s entry gate) -- it
     // already re-checks health-dropped/threat-reappeared fresh on every call regardless of
     // which branch originally armed it.
-    const dangerSettled = out && out.branch !== 'ENV' && threatsNow().length === 0
+    // #121/5r: actionable, not raw threatsNow() -- see actionableThreats()'s own comment.
+    // A far, unseen creeper dangerscan still lists blocked THIS exact check from ever
+    // reading true, live-caught: standdown never armed, cannotHeal() was true the entire
+    // time (food stuck at 16, no food item held), and dangerscan's own hp<8 term kept
+    // re-forcing panic on the same distant creeper -- 18 fires, 6.5+ minutes, no self-exit.
+    const dangerSettled = out && out.branch !== 'ENV' && actionableThreats().length === 0
       && !(out.branch === 'FLEE_AWAY' && out.cornered);
     if (dangerSettled && cannotHeal()) {
       g.standdown = { since: Date.now(), hp: bot.health };
@@ -1684,7 +1875,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 14, boundAt: Date.now(), stale: false };
+REG.survival = { version: 15, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -1695,7 +1886,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 14, home: g.home,
+  installed: true, version: 15, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
