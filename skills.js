@@ -61,7 +61,9 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
 // field (see its comment).
 // v63 -> v64: TODO 7a (#74) — relocateToWork's success check is now verifier-backed against
 // the requested hop (50%), not a fixed absolute 3-block floor.
-const ENGINE_VERSION = 64;
+// v64 -> v65: TODO 5l(b) (#120) — new KIT_TIERS.excursion_short (no foodItems), and chopTrees'
+// `kit:` becomes a function that picks it over `excursion` on a short/sated trip.
+const ENGINE_VERSION = 65;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -175,6 +177,13 @@ const KIT_TIERS = {
   // re-crafts spend cobblestone rather than competing for this.
   underground: { torches: 16, foodItems: 4, weapon: true, picks: 2, filler: 16, sticks: 16, table: 1 },
   deep: { torches: 40, foodItems: 8, weapon: true, picks: 2, filler: 16, sticks: 16, table: 1, armor: true, shield: true, water: true },
+  // TODO 5l(b) (#120): a SHORT, CLOSE chopTrees trip made while not meaningfully hungry doesn't
+  // need carried food — carried food on `excursion` is insurance against getting stranded away
+  // from a food source for a while, and a <=48-block trip at food>=14 is neither of those. Same
+  // torches+weapon safety margin as `excursion` (night mobs and self-defense don't care how far
+  // the trip is) — food is the only thing dropped, same shape as `hunt` dropping it for its own
+  // (different) reason. See chopTrees' own `kit:` function for the exact thresholds/argument.
+  excursion_short: { torches: 8, weapon: true },
 };
 const TOOL_LOW_PCT = 20; // preflight durability gate (status warns at 15% mid-task)
 // findBlocks' maxDistance is a 3D SPHERE, so an unconstrained scan happily selects ore
@@ -3435,7 +3444,27 @@ S.define('collectDrops', {
 
 // ---------- chopTrees ----------
 S.define('chopTrees', {
-  kit: 'excursion',
+  // TODO 5l(b) (#120): soak #5 sat a sated (food 20/20), foodless bot in front of trees within
+  // easy reach and it refused all hour on "food 0/2" — carried food for a short walk to a
+  // nearby tree when you are not hungry is not a real safety need, it is the departure gate
+  // asking for insurance nobody would buy for a 5-minute trip. Drop to `excursion_short` (no
+  // foodItems) only when BOTH: not meaningfully hungry (food>=14 -- more conservative than
+  // EAT's own re-arm point of food<=17, so even if hunger drops during the trip EAT engages
+  // well before the bot could be stranded hungry) AND the trip is short (maxDist<=48, half of
+  // this skill's own default/cap of 64 -- a clean "closer than this skill's normal range"
+  // definition of "short"). `args.maxDist` (the search radius, clamped the same way `fn` below
+  // clamps it) is the only distance signal available at kit-check time, since kit is resolved
+  // BEFORE the actual tree is found. Any other trip (far, or the bot IS hungry) keeps the full
+  // `excursion` demand, food included -- this is deliberately narrow to chopTrees only; a long
+  // trip (mineLane's underground/deep) keeps its food demand by definition, untouched here.
+  kit: (a, bot) => {
+    try {
+      const dist = Math.min((a && a.maxDist) || 64, 64);
+      const food = bot && typeof bot.food === 'number' ? bot.food : null;
+      if (food !== null && food >= 14 && dist <= 48) return 'excursion_short';
+    } catch (_) {}
+    return 'excursion';
+  },
   tool: 'axe',
   description: 'Fell whole trees (flood-filled connected logs, bottom-up, plus the leaf canopy — no floating half-trees), collect all drops, replant saplings when held.',
   params: { types: "'any' or array of species (oak, spruce, birch, jungle, acacia, dark_oak, cherry, pale_oak, mangrove)", count: 'trees to fell (default 1)', maxDist: 'search radius (default 64)', replant: 'bool (default true)' },

@@ -310,6 +310,33 @@ try {
   TF('IDLE barren classifier: relocateToWork honestly reports relocated:true (past the new threshold) -> classified worked',
     A._idleWorkOutcome('relocateToWork', { relocated: true, dist: 40, hop: 64 }, null) === 'worked');
 
+  // ---- TODO 5l(b) (#120): chopTrees drops its food demand on a short, sated trip ----
+  // A._projectKit(s) resolves the project's own kit function (chopTrees' `kit:` in skills.js)
+  // through resolveKit's position+vitals shim — this exercises that resolution path directly
+  // (not the full A.step ladder), same "test the primitive, not just the rung that consumes
+  // it" split as 7a's relocate-verify case just above. `s.injected`+`s.pos` must both be set
+  // for the shim (not the real bot) to be used, matching resolveKit's own contract check.
+  const KIT = (label, args, vitals, wantFoodItems) => {
+    A.project = { skill: 'chopTrees', args };
+    let k = null, err = null;
+    try {
+      k = A.projectKit(Object.assign({ injected: true, pos: { x: 0, y: 60, z: 0 } }, vitals));
+    } catch (e) { err = String(e.message || e); }
+    const got = k ? (k.foodItems || 0) : null;
+    out.cases.push({ label, expect: wantFoodItems, got, err, PASS: !err && got === wantFoodItems });
+  };
+  KIT('sated (food 20) + close (maxDist 32) -> excursion_short, food demand dropped',
+    { maxDist: 32 }, { food: 20, hp: 20 }, 0);
+  KIT('exactly at both thresholds (food 14, maxDist 48) -> still dropped',
+    { maxDist: 48 }, { food: 14, hp: 20 }, 0);
+  KIT('one hunger point under the threshold (food 13) though close -> demand stands',
+    { maxDist: 32 }, { food: 13, hp: 20 }, 2);
+  KIT('sated but one block past the distance cap (maxDist 49) -> demand stands',
+    { maxDist: 49 }, { food: 20, hp: 20 }, 2);
+  KIT('sated + no explicit maxDist (defaults to chopTrees\' own 64, over the cap) -> demand stands',
+    {}, { food: 20, hp: 20 }, 2);
+  A.project = savedProject;
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.rung}`);
   return out;

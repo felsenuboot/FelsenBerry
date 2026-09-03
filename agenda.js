@@ -122,7 +122,11 @@ const A = {
   // drift (FEEDBACK.md's own commit messages claimed v31-v34 all along; /state was still
   // reporting v30). Bumped now to match reality before pre-registering the soak window.
   // v34 -> v35: TODO 7e — RELOCATABLE gains 'huntAnimals'.
-  version: 35, enabled: true,
+  // v35 -> v36: TODO 5l (#120) — (a) RESTOCK hunts for kit food regardless of hunger when
+  // nothing else can supply it (own counter, A._restockHuntFails); (b) resolveKit's shim
+  // contract widens from position-only to position+vitals (food, health), Proxy-enforced, so
+  // chopTrees can drop its food demand on a short/sated trip (see skills.js chopTrees kit fn).
+  version: 36, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -581,22 +585,37 @@ const activeFloors = (s) => {
 };
 // The kit requirement for the project's skill, or null.
 //
-// A dynamic kit spec is a function of (args, bot) and the ones we have read exactly one
-// thing off that bot: `position.y` (mineLane asks "am I below zero" to pick underground vs
-// deep). Handed the real bot during a DRY RUN, that reads the live world and makes the
-// replay non-deterministic — the tier, and therefore the pick requirement, would depend on
-// where the bot happens to be standing rather than on the snapshot under test. So when the
-// snapshot is injected, pass a position-only shim built from it.
+// A dynamic kit spec is a function of (args, bot). Handed the real bot during a DRY RUN, a
+// read reaches the live world and makes the replay non-deterministic — the tier, and
+// therefore the pick requirement, would depend on live state rather than the snapshot under
+// test. So when the snapshot is injected, pass a shim built from it, not the real bot.
 // CONTRACT, and it binds anyone adding a kit function: kit(args, bot) may read POSITION
-// only. Reading anything else off that bot silently breaks deterministic replay.
+// (bot.entity.position) and VITALS (bot.food, bot.health) only — both are already carried
+// by every snapshot (s.pos, s.food, s.hp), so threading them through keeps replay
+// deterministic by construction. TODO 5l(b) (#120) widened this from position-only to admit
+// chopTrees' hunger-aware food-demand relaxation; nothing else is in scope. The shim below is
+// a Proxy that THROWS on any other property read, specifically so this can't silently widen
+// again the way the position-only rule quietly would have without enforcement — a kit
+// function that wants a fourth thing off the bot must get a reviewed contract change, not a
+// silent read that happens to work in production and lies in every fixture.
 // Shared by projectKit/roleWorkKit below: resolve a skill's kit tier for a given (skill, args),
-// honouring the position-only-shim contract above.
+// honouring the position+vitals shim contract above.
+const KIT_SHIM_ALLOW = new Set(['entity', 'food', 'health']);
 const resolveKit = (s, skillName, args) => {
   const S = globalThis.__skills;
   if (!S || !S.kitTiers || !S.registry) return null;
   const spec = S.registry[skillName];
   if (!spec || !spec.kit) return null;
-  const src = (s && s.injected && s.pos) ? { entity: { position: s.pos } } : bot;
+  let src = bot;
+  if (s && s.injected && s.pos) {
+    const shim = { entity: { position: s.pos }, food: s.food, health: s.hp };
+    src = new Proxy(shim, {
+      get(t, p) {
+        if (KIT_SHIM_ALLOW.has(p) || typeof p === 'symbol') return t[p];
+        throw new Error(`resolveKit: kit(args, bot) read '${String(p)}' off bot — contract is position (entity.position) + vitals (food, health) only`);
+      },
+    });
+  }
   const tier = typeof spec.kit === 'function' ? spec.kit(args || {}, src) : spec.kit;
   return tier ? (S.kitTiers()[tier] || null) : null;
 };
@@ -1290,11 +1309,39 @@ const RUNGS = [
           // fall-through to the withdraw that just failed.
           return 'refused';
         }
-        // STEP 3 — STAND DOWN. Everything still short is either unproduceable (food: no farm
-        // or cook path is wired to this rung yet) or in produce cooldown. Re-running the
-        // withdraw that just came back empty would be the churn this rung already fixed once,
-        // so report no progress and let the backoff give the lower rungs the body. The TTL
-        // above brings the withdraw probe back on its own.
+        // STEP 2.5 — HUNT for kit food (TODO 5l, #120): bread/food is not in PRODUCE_ORDER —
+        // nothing turns raw materials into food the way torches/sticks/tables get produced,
+        // so on a depot-less world this rung's own STEP 2 could never close a food-kit
+        // shortfall by any path. Soak #5's own failure: hunger 20/20 (FOOD, prio 6.5, gates
+        // on hunger and never fired) but kit food 0/2 — chopTrees refused "food 0/2" for the
+        // rest of the hour, decider dispatched the identical remedy 7x, frozen-repeat
+        // correctly refused each one, and NOTHING owned the actual gap: a kit ITEM demand
+        // that has nothing to do with being hungry. Hunting is the only real supply this
+        // rung can reach for it — same widening-radius-on-repeated-fails shape FOOD's own
+        // emergency path already uses (`A._foodHuntFails`), a SEPARATE counter here
+        // (`A._restockHuntFails`) so a kit-provisioning hunt and a starvation hunt never
+        // share or corrupt each other's backoff — REGARDLESS of hunger, which is the whole
+        // point (a sated bot still needs the ITEM). Gives up honestly (falls through to the
+        // same STEP 3 stand-down below, not a silent forever-retry) after 3 widened attempts
+        // with genuinely nothing found — a bot that truly has no reachable fauna cannot
+        // conjure a food-kit item, and pretending otherwise would just be a slower version of
+        // the exact stall this fix exists to close.
+        if (depotShort.bread && needs.bread) {
+          const hfails = A._restockHuntFails || 0;
+          if (hfails < 3) {
+            const radius = Math.min(32 + hfails * 16, 64);
+            const rh = runSkill('huntAnimals', { species: ['cow', 'pig', 'sheep', 'chicken', 'rabbit'], count: 1, radius, force: true }, 'RESTOCK/hunt');
+            if (rh.ok) return 'started';
+            if (rh._transient) return 'busy';
+            // refused outright (e.g. huntAnimals unavailable) -- fall through to STEP 3
+          }
+        }
+
+        // STEP 3 — STAND DOWN. Everything still short is either unproduceable, in produce
+        // cooldown, or (food specifically) genuinely un-huntable after 3 widened attempts.
+        // Re-running the withdraw that just came back empty would be the churn this rung
+        // already fixed once, so report no progress and let the backoff give the lower rungs
+        // the body. The TTL above brings the withdraw probe back on its own.
         const stuck = Object.keys(depotShort).filter((n) => needs[n]).join(', ');
         if (stuck) { note(`still short ${stuck} and nothing left to try — standing down`); return 'refused'; }
       }
@@ -1736,10 +1783,22 @@ const tick = () => {
       // food-acquisition drive: track hunt outcome for FOOD's own widening-radius/fallback
       // logic (A._foodHuntFails). A real kill is real progress — same doctrine as produce's
       // partial-batch case above, judged by outcome, not by "did the task complete".
+      // TODO 5l (#120): TWO different rungs can now dispatch huntAnimals for two DIFFERENT
+      // reasons (FOOD: genuinely starving; RESTOCK: a kit ITEM shortfall, independent of
+      // hunger) — route by `A.activeTaskRung` (set by runSkill from the `why` tag each call
+      // already passes) so a kit-provisioning hunt's outcome updates ITS OWN counter
+      // (`A._restockHuntFails`), never FOOD's, and vice versa. Sharing one counter between
+      // two independently-paced widening searches would let one rung's failures silently
+      // reset or inflate the other's backoff.
       if (raw && raw.name === 'huntAnimals') {
         const killed = (raw.result && raw.result.killed) || 0;
-        if (killed > 0) { A._foodHuntFails = 0; markProductive(s, 'hunt'); }
-        else A._foodHuntFails = (A._foodHuntFails || 0) + 1;
+        if (A.activeTaskRung === 'RESTOCK') {
+          if (killed > 0) { A._restockHuntFails = 0; markProductive(s, 'hunt'); }
+          else A._restockHuntFails = (A._restockHuntFails || 0) + 1;
+        } else {
+          if (killed > 0) { A._foodHuntFails = 0; markProductive(s, 'hunt'); }
+          else A._foodHuntFails = (A._foodHuntFails || 0) + 1;
+        }
       }
     } catch (e) {}
 

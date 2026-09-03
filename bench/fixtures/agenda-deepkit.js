@@ -14,7 +14,7 @@ const R = A.rung('RESTOCK');
 const realStart = S.start;
 const out = { version: A.version, fire: [], acts: [] };
 A.busy = true;
-const saved = { p: A.project, o: A.owner, sd: A.standDown, sh: A._restockShort, at: A._restockShortAt };
+const saved = { p: A.project, o: A.owner, sd: A.standDown, sh: A._restockShort, at: A._restockShortAt, hf: A._restockHuntFails };
 let calls = [];
 S.start = (b, n, a) => { calls.push(n + ':' + JSON.stringify(a)); return { ok: true, taskId: 'stub' }; };
 
@@ -67,6 +67,34 @@ return (async () => {
       'produce:{"resource":"torch","count":24}');
     A._produceCooldown = {};
 
+    // TODO 5l (#120): food is not in PRODUCE_ORDER (nothing crafts it from raw materials the
+    // way torches/sticks/tables get produced) — the ONLY food-kit fallback left is hunting,
+    // regardless of hunger (soak #5: hunger 20/20, kit food 0/2, chopTrees refused the whole
+    // hour). `food:2` alone in the short-list, nothing else — the produce loop finds nothing
+    // to pick, so this must fall to the NEW hunt branch, not straight to stand-down.
+    A._restockShort = { bread: 2 }; A._restockShortAt = Date.now(); A._restockHuntFails = 0;
+    await ACT('depot out on food ONLY, sated (food:20) -> hunts anyway, not straight to stand-down',
+      { counts: { stick: 4, crafting_table: 1 }, food: 20, foodCount: 8 },
+      'huntAnimals:{"species":["cow","pig","sheep","chicken","rabbit"],"count":1,"radius":32,"force":true}');
+    // widening radius on repeated fails, same shape as FOOD's own emergency path
+    A._restockHuntFails = 1;
+    await ACT('2nd widened attempt (radius 48)', { counts: { stick: 4, crafting_table: 1 }, food: 20, foodCount: 8 },
+      'huntAnimals:{"species":["cow","pig","sheep","chicken","rabbit"],"count":1,"radius":48,"force":true}');
+    // exhausted widened attempts -> honest stand-down, not a silent forever-retry
+    A._restockHuntFails = 3;
+    await ACT('3 widened attempts exhausted -> stands down honestly, does not hunt a 4th time',
+      { counts: { stick: 4, crafting_table: 1 }, food: 20, foodCount: 8 }, '');
+    A._restockHuntFails = 0;
+
+    // a food-kit hunt and a starvation-driven FOOD-rung hunt must never share a counter or a
+    // rung tag — dispatched under 'RESTOCK/hunt' specifically, distinct from FOOD's own plain
+    // 'FOOD' tag, so the harvest block's outcome grading can route to the right counter.
+    calls = []; A.activeTaskId = null; A.activeTaskRung = null;
+    await R.act(Object.assign({}, base, { now: Date.now(), counts: { stick: 4, crafting_table: 1 }, food: 20, foodCount: 8 }));
+    out.acts.push({ label: 'kit-food hunt is tagged RESTOCK (not FOOD), for independent counter routing',
+      PASS: A.activeTaskRung === 'RESTOCK' });
+    A._restockShort = null; A._restockShortAt = 0; A._restockHuntFails = 0;
+
     out.firePassed = out.fire.filter((c) => c.PASS).length;
     out.actPassed = out.acts.filter((c) => c.PASS).length;
     out.failures = [...out.fire, ...out.acts].filter((c) => !c.PASS).map((c) => c.label);
@@ -74,6 +102,6 @@ return (async () => {
   } finally {
     S.start = realStart; A.project = saved.p; A.owner = saved.o; A.standDown = saved.sd;
     A._restockShort = saved.sh; A._restockShortAt = saved.at; A._produceCooldown = {};
-    A.activeTaskId = null; A.busy = false;
+    A._restockHuntFails = saved.hf; A.activeTaskId = null; A.busy = false;
   }
 })();

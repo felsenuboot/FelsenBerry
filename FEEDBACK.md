@@ -5989,3 +5989,74 @@ fix: n/a — both fixes were already landed (skills.js `openContainerAuto`, `dep
 `offered` field + the ASSERTS table's `r.offered`/`r.totalMoved` read). This entry is the live
 verification only.
 github: felsenuboot/FelsenBerry#10, #85 — telling issue-manager to close both, per standing rule
+### 2026-09-03 engine-dev-3 — #120 (TODO 5l) "no rung owns kit food when not hungry" — two-part fix
+type: bug fix (RESTOCK's own food-supply gap) + design change (chopTrees' kit demand becomes
+hunger/distance-aware), both accepted by lead in advance per the "report design before code"
+instruction for part (b)
+status: both landed, fixtures 287/287 (agenda-ladder 79/79 incl. 5 new KIT cases, agenda-deepkit
+13/13 incl. 4 new hunt-fallback cases), both live-verified against a throwaway bot (MoppelMorris,
+OWNER=engine-dev-3, DECIDER_EXCLUDE=1, 25599) — SchnoddSchorsch (soak #5 specimen, 25600) never
+touched, per standing instruction
+
+**Root cause (soak #5's own failure).** Bread/food has no PRODUCE_ORDER path — nothing turns
+raw materials into food the way torches/sticks/tables do (producer.js's own literal contents
+confirm this) — so on a depot-less world RESTOCK's STEP 2 (produce) could never close a food-kit
+shortfall by any path, and FOOD (prio 6.5) only fires when hungry. A sated (food 20/20), foodless
+bot with an active chopTrees project had NOTHING owning "kit food when not hungry": chopTrees
+refused all hour ("half-kitted: food 0/2"), the decider dispatched the identical remedy 7x, and
+frozen-repeat correctly refused each one — correct behavior everywhere it looked, and still a
+dead stall, because the actual gap (a kit ITEM demand independent of hunger) belonged to no rung.
+
+**Part (a): RESTOCK hunts for kit food, regardless of hunger.** New STEP 2.5 inside RESTOCK's
+act(), between the produce-fallback loop and STEP 3 stand-down: when `depotShort.bread &&
+needs.bread`, hunt (species cow/pig/sheep/chicken/rabbit, same widening-radius shape FOOD's own
+emergency path already uses: 32/48/64 over 3 attempts) using its OWN counter
+(`A._restockHuntFails`), kept deliberately separate from FOOD's `A._foodHuntFails` so a
+kit-provisioning hunt and a starvation hunt can never corrupt each other's backoff. Exhausted
+after 3 widened attempts with genuinely nothing found -> falls through to the same STEP 3
+stand-down, an honest "still short X" refusal, not a silent forever-retry. The harvest-block
+huntAnimals grading now routes by `A.activeTaskRung` (set by `runSkill`'s own `why` tag) so each
+rung's outcome updates only its own counter. Live-verified end to end pre-part-(b): watched a
+sated, foodless bot with an active project correctly sequence torches first (PRODUCE_ORDER
+priority, unchanged), then fall to hunting once nothing else producible remained short —
+"Hunting 1x cow/pig/sheep/chicken/rabbit" -> real kills ("Haul: ... 1 porkchop", later a raw
+chicken) -> continued hunting toward the buffered target -> a genuine widening-fail ("no
+cow/pig/sheep/chicken/rabbit within 32 blocks") before SHELTER correctly preempted at night.
+
+**Part (b): chopTrees drops its own food demand on a short, sated trip.** RESTOCK giving up or
+succeeding never touches chopTrees' OWN internal preflight gate (skills.js `S.start`'s kit
+check) — that gate is what actually printed "half-kitted: food 0/2" in soak #5's log, so fixing
+only RESTOCK's supply side (part a) would not by itself have stopped the refusal on a truly
+foodless, un-huntable world. `chopTrees`' `kit:` field changes from a static `'excursion'`
+string to a function: when `food>=14` (more conservative than EAT's own re-arm point of
+food<=17 — even if hunger drops mid-trip, EAT engages well before the bot could be stranded)
+AND `maxDist<=48` (half of chopTrees' own default/cap of 64, "closer than this skill's normal
+range") it returns a new tier, `excursion_short` (`{torches:8, weapon:true}`, food dropped) —
+any other trip (far, or genuinely hungry) keeps the full `excursion` demand. Scoped to chopTrees
+only, exactly as agreed: mineLane's underground/deep tiers are untouched, a long trip keeps its
+food demand by definition.
+
+This required widening `resolveKit`'s own dry-run-shim contract, which previously read
+"kit(args,bot) may read POSITION only" — chopTrees' new kit fn needs `bot.food` too. Per the
+lead's explicit call: the shim now carries position AND vitals (`entity.position`, `food`,
+`health` — all three already present in every snapshot: `s.pos`/`s.food`/`s.hp`, so replay
+determinism holds by construction, nothing new is invented for the dry run) and is now a Proxy
+that THROWS on any other property read, so a kit function reaching for a fourth thing off the
+bot fails loudly in fixtures/CI rather than silently reading live state and quietly re-widening
+the contract the way the old position-only rule (an unenforced comment) had no way to catch.
+
+Live-verified both directions against a sated (food 20/20), foodless MoppelMorris (torches+sword
++axe given so only the food gate was under test): `maxDist:32` -> chopTrees actually SET OFF
+("Off to chop 2 trees...") and failed only on a genuine "no tree within 32 blocks" (a barren test
+spot, not a kit refusal) — no "half-kitted" gate anywhere in the log. `maxDist:64` (over the cap)
+-> RESTOCK immediately asked for food again ("Topping up: 3 bread") and, depot-less, fell to
+part (a)'s own hunt fallback ("Hunting 1x cow/pig/sheep/chicken/rabbit...") — the demand-stands
+side confirmed live too, and the two fixes composing correctly on the same bot in the same run.
+fix: `skills.js` (new `KIT_TIERS.excursion_short`, `chopTrees`'s `kit:` field is now a function,
+ENGINE_VERSION 64->65). `agenda.js` (RESTOCK STEP 2.5 hunt fallback + `A._restockHuntFails`,
+harvest-block grading routes by `A.activeTaskRung`, `resolveKit`'s shim widened to
+position+vitals behind a throwing Proxy, `A.version` 35->36).
+`bench/fixtures/agenda-deepkit.js` (+4 cases, hunt-fallback + independent-counter-routing).
+`bench/fixtures/agenda-ladder.js` (+5 cases, the sated+close/hungry/far kit-demand matrix).
+github: felsenuboot/FelsenBerry#120 (TODO 5l) — both parts landed, orphaned-kit-supplier audit
+still to come per the same TODO's third ask
