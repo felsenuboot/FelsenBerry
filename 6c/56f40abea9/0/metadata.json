@@ -1,0 +1,89 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "6c56f40abea9",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:33:18.523283767Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "save_step_count": 4,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "d60b256bfe1f",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 5643,
+    "cache_creation_tokens": 280605,
+    "cache_read_tokens": 13959211,
+    "output_tokens": 56455,
+    "api_call_count": 104
+  },
+  "session_metrics": {
+    "turn_count": 16
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1131,
+      "agent_lines_removed": 88
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 1659,
+      "user_lines_removed": 94,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 34,
+        "bench/fixtures/agenda-ladder.js": 26,
+        "bench/fixtures/trail-vacuous.mjs": 99,
+        "bench/fixtures/vitals-floor.mjs": 98,
+        "bench/gates/direction-soak4-audit-truncated.json": 25,
+        "bench/gates/direction-soak4-audit.json": 25,
+        "bench/gates/direction-soak4-breakdown.json": 195,
+        "bench/gates/direction-soak4-c3floor.json": 25,
+        "bench/gates/humanbar-soak4-audit-truncated.json": 30,
+        "bench/gates/humanbar-soak4-audit.json": 30,
+        "bench/gates/humanbar-soak4-breakdown.json": 30,
+        "bench/gates/humanbar-soak4-c3floor.json": 30,
+        "bench/gates/humanbar4-soak4-audit-truncated.json": 58,
+        "bench/gates/humanbar4-soak4-audit.json": 52,
+        "bench/gates/humanbar4-soak4-breakdown.json": 64,
+        "bench/gates/humanbar4-soak4-c3floor.json": 64,
+        "bench/gates/trail-soak4-audit-truncated.json": 37,
+        "bench/gates/trail-soak4-audit.json": 37,
+        "bench/gates/trail-soak4-breakdown.json": 37,
+        "bench/gates/trail-soak4-c3floor.json": 37,
+        "bench/humanbar4.mjs": 51,
+        "bench/lib/latency-breakdown.mjs": 102,
+        "bench/lib/vitals-floor.mjs": 56,
+        "bench/trail.mjs": 111,
+        "infra.js": 265,
+        "metrics.mjs": 40,
+        "server.log": 1
+      },
+      "user_removed_per_file": {
+        "agenda.js": 6,
+        "bench/humanbar4.mjs": 15,
+        "bench/trail.mjs": 73
+      }
+    }
+  ]
+}
