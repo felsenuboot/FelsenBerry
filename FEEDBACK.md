@@ -4637,3 +4637,11 @@ FOOD rung condition beyond pure-starvation. Not filing a github issue myself (ag
 have not proposed or verified a fix shape) — flagging both findings here per this file's law rather than editing
 agenda.js myself. Race continued via the manual branch regardless; not a DEAD RACE (each attempt still produced
 a diagnosed, evolving state, not flat nothing).
+
+**Corroborating evidence, added 09:14Z**: `dmtlb2m212` (the `come` episode from step 3 above) was finally closed
+by the decider at 128665ms latency — `AGENDA_EVENT ... "closedBy":"decider","latency_ms":128665`. That number is
+NOT a 4b regression or a fresh direction-gate miss; it is exactly this bug's signature — the episode's clock
+started ticking while `come` was still inert under the inherited `PROJECT` standdown, so the reported latency
+measures the standdown carryover, not decision time. Flagging in case anyone reads soak #5 or a future race's
+latency numbers and wonders why one episode spikes for no LLM-side reason — check for a rung standdown inherited
+from the prior project before assuming a fresh regression.
