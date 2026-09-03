@@ -61,6 +61,12 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    episode on respawn but nothing says "it is night and I have nothing: dig in FIRST". Design: on respawn at night (or hostile within
    16 blocks), SHELTER runs before any project/kit work, with dirt-dig fallback when there is no filler; also a spawn-camp counter
    (N deaths within M s of respawn → dig-in + wait-for-dawn regardless). Fixture in agenda-ladder; live on 25599 with RCON-set night.
+5h. **EAT/EAT_CRITICAL owner-latch deadlock at foodCount 0** (eng-3, agenda.js, HIGH; engine-dev live find on 872aa07, FEEDBACK ef0fe53):
+   EAT (prio 4) / EAT_CRITICAL (prio 2) fire on food≤N && foodCount>0 and clear on food≥19; once latched, choose() never re-checks the
+   owner's own fire() — after eating the LAST item without reaching 19, fire()=false, clear()=false, and FOOD (6.5) cannot preempt →
+   stuck (65s+ observed, no self-recovery; first instance lucky-rescued by SHELTER after 35s HP drain). Ordinary continuation of the
+   #108 scenario. Fix: choose() re-evaluates safeFire(owner,s) each tick (general), plus clear() exits when foodCount===0; fixture
+   in agenda-ladder.js; live on 25599. (#108 FOOD rung itself live-verified role-less on 872aa07: hunt+eat in one sequence — PASS.)
 6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
