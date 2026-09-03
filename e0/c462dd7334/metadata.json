@@ -3,7 +3,7 @@
   "checkpoint_id": "e0c462dd7334",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
+  "checkpoints_count": 6,
   "files_touched": [
     "agenda.js",
     "bench/fixtures/agenda-idlework.js"
@@ -15,13 +15,20 @@
       "compact_transcript": "/e0/c462dd7334/0/transcript.jsonl",
       "content_hash": "/e0/c462dd7334/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/e0/c462dd7334/1/metadata.json",
+      "transcript": "/e0/c462dd7334/1/full.jsonl",
+      "compact_transcript": "/e0/c462dd7334/1/transcript.jsonl",
+      "content_hash": "/e0/c462dd7334/1/content_hash.txt",
+      "prompt": "/e0/c462dd7334/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 902,
-    "cache_creation_tokens": 655230,
-    "cache_read_tokens": 192609210,
-    "output_tokens": 346686,
-    "api_call_count": 451
+    "input_tokens": 11052,
+    "cache_creation_tokens": 1131552,
+    "cache_read_tokens": 266343010,
+    "output_tokens": 452143,
+    "api_call_count": 747
   }
 }
