@@ -1272,7 +1272,7 @@ design, so `#108`'s FOOD rung is exercised as intended).
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
 
-Steering calls: 3 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+Steering calls: 4 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
 08:58:53.698Z (T+25s), clean on first attempt, per Race book v2's trigger table; (2) Food/kit-refusal
 branch, `setProject({skill:'huntAnimals',args:{anyMob:true,radius:32,repeat:true}})` at 09:08:09.749Z
 (T+9m41s) after the identical `food 0/4` kit-gate refusal repeated twice (09:06:05Z, 09:07:19Z, ~74s
@@ -1292,7 +1292,20 @@ level `standDown` backoff outlives the specific project it was set for — both 
 before actually starting, and `come` was then flagged with its OWN `project_stalled` episode
 (`dmtlb2m212`) for a delay it didn't cause. Not `#97` (frozen-repeat) or `5c` (same-remedy-across-
 positions) — upstream of both, in the ladder's own backoff bookkeeping. Not my lane to fix
-(agenda.js/eng-3); flagged, not patched. Deaths: 0 so far. Monitor: armed — 15s `/state` poll
+(agenda.js/eng-3); flagged, not patched.
+
+**Night passage (no driver action, recorded for the record):** SHELTER (new this run, agenda v30)
+engaged correctly and unprompted at dusk (~09:12Z), "Boxing myself in for the night", hp/food held
+at 20/20 the whole night — first live confirmation of this rung in the race program, no driver
+action needed or taken (Race book v2's zero-defense branch stays retired). Chop/hunt attempts
+correctly froze-and-reopened via `#97`'s frozen_repeat dedup while boxed in (engine-correct, not a
+stall). At dawn (`bot.time.isDay` confirmed true via read-only `/eval`, ~09:20:16Z) SHELTER stood
+down cleanly but the pre-existing food-item deadlock remained, so (4) `setProject({skill:
+'huntAnimals',args:{anyMob:true,radius:48,repeat:true}})` at 09:20:46.742Z (T+22m18s), widening the
+search radius 32→48 rather than re-trying the identical failed search, per the barren-search
+branch's spirit — hit the SAME `standDown[PROJECT]` carryover bug on this attempt too (confirmed
+via read-only `/eval`: locked until 09:21:59Z), left to clear on its own rather than compounding it
+with a further redirect. Deaths: 0 so far. Monitor: armed — 15s `/state` poll
 (IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans
 (combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
