@@ -4,7 +4,7 @@
 all four on ONE observed hour of a driverless bot):**
 1. playcheck verdict **PLAYING** (real distance, productive actions, low no-op fraction);
 2. **--direction-gate PASS** (self-directed: episodes open AND close, zero rot, decider under cap);
-3. survives real night threats **without driver help**;
+3. survives real night threats **without driver help**, and **without sustained critical vitals** — never hp ≤6 or food 0 for more than 10 continuous minutes (refinement adopted 2026-09-03 after soak #4 passed this criterion while pinned at hp10/food0 for ~26 min; applies from soak #5 on — soak #4's pre-registered grade stands as graded);
 4. leaves a **human-looking trail** — no half-felled trees, no stranded drops, no naked
    scars (world spot-check at its work sites).
 A bot that clears all four for an hour is, by this project's own definition, behaving
