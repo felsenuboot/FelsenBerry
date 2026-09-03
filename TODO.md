@@ -94,7 +94,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    e. ~~#67 role-default work no-ops at base~~ DONE (02aa516 — every role's work already classifies barren correctly; the gap was RELOCATABLE missing huntAnimals, so a barren hunter detected it every cycle and could never act; live-verified with --role hunter; agenda-idlework 42/42). Flagged, unfixed: runner.js arg parser eats `--role` as `--agenda`'s value when `--agenda` comes first — use `--role X --agenda`.
    f. ~~#69 telemetry ledger gaps~~ DONE (fa9da49+8dce1c4 — M.chest and the 500ms pos sampler were already emitting; no grader read them. playcheck now reports real chest totals and a position-trace stationary% alongside the verdict-feeding task-coverage number (soak #5: 90.4% real vs 85.2% task-inferred); chat-content classification stays open by design). Also 1f6df70: criterion-1 stall attribution (episodeCauses + rungOwnership from agenda `note` events).
    Lanes relabelled: engine-dev-2 retired → eng-3 29 open, engine-dev 13, movement (R2/R3 ladder, UNOWNED) 6, unassigned 19 (#6/#8 = phase-2 cooperation).
-   Run #7 (GrantigGustav, world-race7) launches after soak #5's verdict + lead go. #103 done; #104 low.
+   **RUN #7 LIVE: GrantigGustav 3161 on 25600/world-race7, join 2026-09-03T12:00:56.716Z → cap 13:30:56Z**, stack skills 65 / agenda 36 / survival 13 / dangerscan 6 / producer 9, decider pid 314023 on 504e3ac; first run carrying #113/#120 (the food-kit wall). #103 done; #104 low.
 
 ## 2. Standing (unchanged)
 - Cavecrew reconnect + AFTER-playcheck of #70-75 (blocked on their server; monitor on resume).
