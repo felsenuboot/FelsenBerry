@@ -5955,3 +5955,37 @@ fix: `bench/lib/ledger-gaps.mjs` (new — `summarizeChestEvents`, `computePositi
 GAPS section to stop describing gaps 1+2 as unfixed). `bench/fixtures/ledger-gaps.mjs` (new,
 15/15, hermetic).
 github: felsenuboot/FelsenBerry#69 (gaps 1+2 closed at the reader; gap 3 stays open, tracked)
+### 2026-09-03 engine-dev — #10 and #85 live-verified against real containers on 25599 (both PASS)
+type: verification (read-only against skills.js's existing fixes — neither issue's fix was
+touched, both landed weeks ago per the lead; server was down until this session, so neither had
+ever been live-fired)
+status: both PASS, RCON-verified against a real furnace/chest, throwaway bot (KammerKarla,
+OWNER=engine-dev, DECIDER_EXCLUDE=1, no --agenda, spread-placed ~841 blocks from the nearest
+other lane's bot, stopped and world-cleaned after)
+
+**#10 (openContainer throws on furnaces) — PASS.** Confirmed the ORIGINAL bug is still real in
+raw mineflayer first (not something upstream silently fixed): `bot.openContainer(furnaceBlock)`
+->
+`{ok:false, error:"containerToOpen is neither a block nor an entity"}`. Then
+`__skills.openContainerAuto(bot, furnaceBlock)` -> `{ok:true, info:{blockName:"furnace",
+winTitle:{...container.furnace...}}}`, no throw, window opened and closed cleanly. Also
+confirmed no regression on the chest-family path: `openContainerAuto(bot, chestBlock)` ->
+`{ok:true, info:{blockName:"chest", slotsWithContainer:27}}`.
+
+**#85 (depositToChest ASSERTS never graded anything) — PASS, both the happy path AND the
+failure path.** A real 20-cobblestone deposit into an empty chest: bot log `[...] <chat>
+<KammerKarla> DEPOT +20 cobblestone`; task result `{moved:{cobblestone:20}, totalMoved:20,
+offered:20, chestFull:false}`; `__skills.assertTask(task)` -> `{rule:'depositToChest.moved',
+fail:false, want:20, got:20, yield:1}` — a real, non-null, CORRECT verdict (pre-fix this would
+have been `null` forever, per #85's own root-cause: `want` read a field, `offered`, that no
+commit had ever set). Then filled the same chest completely (27 slots, RCON `item replace
+block ... with minecraft:dirt 64` x27) and tried depositing 10 more cobblestone: bot log
+`[...] <chat> <KammerKarla> Chest is full — deposited 0 items, the rest stays with me.`; task
+result `{moved:{}, totalMoved:0, offered:10, chestFull:true}`; `assertTask` ->
+`{rule:'depositToChest.moved', fail:true, want:10, got:0, yield:0}` — a genuine
+zero-moved-with-something-offered failure, now correctly flagged `fail:true` instead of
+silently returning `null` and disappearing from assertion coverage entirely.
+fix: n/a — both fixes were already landed (skills.js `openContainerAuto`, `depositToChest`'s
+`offered` field + the ASSERTS table's `r.offered`/`r.totalMoved` read). This entry is the live
+verification only.
+github: felsenuboot/FelsenBerry#10, #85 — telling issue-manager to close both, per standing rule
