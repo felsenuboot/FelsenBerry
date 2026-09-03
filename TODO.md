@@ -69,6 +69,12 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    to huntAnimals regardless of hunger, widening radius + backoff, honest shortfall when no fauna; (b) chopTrees/short surface excursions
    drop the food demand when hunger ≥14 and the target is within ~48 blocks (argue thresholds in FEEDBACK); fixtures in agenda-ladder,
    live on 25599. Then SOAK #6 on 25600/world-soak6 (fresh), preflight on a THROWAWAY, join timestamp after preflight.
+5m. **Night productivity inside SHELTER** (eng-3, after 5l, GATES soak #6 with 5l): engine-dev's stall attribution (1f6df70) shows
+   SHELTER owned 27.7 of soak #5's 60 minutes and IDLE 22 — only 8.2 minutes were a project rung. A human who digs in at dusk MINES
+   until dawn; they do not stand in a dirt hole. Once sealed (dig-in variant), SHELTER should hand the body to a safe underground
+   project — mineLane/safeDescend straight down from inside the shelter, torching, never breaking the seal upward — and re-check
+   dawn/threat exits each cycle. Not a criterion-1 calibration change: the bar is "playing", and sheltered idling is not playing.
+   Fixture in agenda-ladder (sealed + night → underground project dispatched; dawn → exit); live on 25599 with RCON night.
 5j. ~~Cook/smelt skill~~ DONE unwired (#118, a7df20b — produce({resource:'cooked_meat'}) cooks all held raw meat incl. chicken; open-container inventory-count bug fixed (furnace output slot counted as inventory before takeOutput); preflight 264/264, producer-cook 2/2). NOT wired into FOOD: auto-eat's watcher eats raw on pickup, and EAT (4) outranks FOOD (6.5) the tick foodCount>0 — priority inversion proven in a new agenda-ladder case. Follow-ups: cooking-in-progress flag gating EAT (design); furnace auto-craft needs a table within 4 blocks and never places one (inherited from smeltCharcoal).
 5k. ~~wall-off-multithreat fixture deterministic~~ DONE (#119, a177a4a — three real harness bugs: NoAI:0b real-combat RNG
    killed the bot outright 3x independent of starting HP, switched to NoAI:1b (dangerscan scores by type/name, unaffected,
