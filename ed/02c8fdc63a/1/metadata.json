@@ -1,0 +1,84 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "ed02c8fdc63a",
+  "session_id": "84e92e28-accf-4788-8150-54b0242cfc06",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T10:02:33.758400455Z",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "save_step_count": 6,
+  "files_touched": [
+    "FEEDBACK.md",
+    "agenda.js",
+    "bench/fixtures/agenda-ladder.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "8a98a4132229",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 754,
+    "cache_creation_tokens": 398599,
+    "cache_read_tokens": 101001205,
+    "output_tokens": 163440,
+    "api_call_count": 377
+  },
+  "session_metrics": {
+    "turn_count": 23
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T10:02:33.588337541Z",
+    "agent_lines": 312,
+    "agent_removed": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 312,
+    "total_lines_changed": 316,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 659,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 659,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 659,
+      "agent_lines_removed": 8
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 49,
+      "user_lines_removed": 53,
+      "agent_lines_added": 659,
+      "agent_lines_removed": 8,
+      "user_added_per_file": {
+        "bench/fixtures/wall-off-multithreat.sh": 49
+      },
+      "user_removed_per_file": {
+        "bench/fixtures/wall-off-multithreat.sh": 53
+      }
+    }
+  ]
+}
