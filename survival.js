@@ -1,4 +1,20 @@
-// survival v16 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v17 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v17 (#120 follow-up, TODO 5m-b, 2026-09-03): live-caught, TWICE, that a threat interrupting a
+// night-mining batch (TODO 5m, v15) can kill the bot: `branchWallOff` couldn't seal the open
+// 1-wide mined corridor (4 and 6 open faces both trials) because night-mining had walked the
+// bot away from the sealed chamber by the time the threat arrived. Investigated the obvious
+// reactive fix (retreat-and-plug the instant a threat is seen) and found it structurally
+// unwinnable: dangerscan's own onDanger fires independently every 250ms, no slower than
+// shelterEnter()'s own poll, and both live deaths show it firing FIRST. Fix is PROACTIVE
+// instead: `shelterEnter()`'s digin branch now walks back to the chamber and reseals the lane
+// mouth (`nightMineResealCells`, nightmine.js — 8 candidate cells, `placeAt` no-ops on whatever
+// is already solid so only the actually-open ones cost a placement) after EVERY batch, before
+// considering another one — the bot is genuinely sealed for the whole between-batch window with
+// no race to win. Batch footprint also shrunk (count 6->1, maxDist 8->2) as defense in depth,
+// shrinking the residual mid-batch exposure this doesn't fully close. Costs real mining
+// efficiency (constant reseal + re-dig every batch) — accepted trade, safety over throughput
+// here (lead's own framing: night-mining that gets the bot killed is worse than SHELTER idling).
 //
 // v16 (#121, TODO 5n-b, 2026-09-03): branchFleeAway used to chase pure raw distance
 // (GoalInvert/GoalFollow) with zero line-of-sight awareness -- a ranged mob with a clear shot
@@ -249,7 +265,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 16,
+  enabled: true, version: 17,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -1605,6 +1621,10 @@ const shelterEnter = async () => {
   try { if (globalThis.__skills && globalThis.__skills.stop) globalThis.__skills.stop('shelter'); } catch (e) {}
   try { bot.pathfinder.setGoal(null); } catch (e) {}
   let built = null, exitReason = 'unknown';
+  // TODO 5m-b: captured BEFORE shelterBuild() ever moves the bot — shelterDigIn only digs
+  // straight down (see its own comment), so the x/z the bot is standing on right now are the
+  // chamber's x/z for the rest of this session, however many batches run afterward.
+  const preBuildXZ = bot.entity.position.floored();
   try {
     built = await shelterBuild();
     g.shelter.kind = built.kind;
@@ -1625,9 +1645,52 @@ const shelterEnter = async () => {
       emitNightMine('stopped', { target: nightMine.target, reason: why, batchesUsed: nightMine.batchesUsed });
       nightMine.active = false;
     };
+    // TODO 5m-b (live-caught: FEEDBACK.md, both trials died to a threat mid-lane, WALL_OFF
+    // could not seal the open corridor): reactive retreat-and-plug loses a race it cannot win
+    // (dangerscan's own onDanger fires independently every 250ms, no slower than this loop's
+    // own poll, and both live deaths show it firing first). Fix is PROACTIVE instead: after
+    // EVERY batch, walk back to the chamber and reseal the lane mouth before considering
+    // another one, so the bot is genuinely sealed for the whole between-batch window
+    // regardless of who notices a threat first — no race to win. `chamber` is null for the
+    // hut variant (this whole block is digin-only, see the `built.kind === 'digin'` gate
+    // below, but computed unconditionally here since it's cheap and harmless either way).
+    const chamber = built.kind === 'digin' ? new Vec3(preBuildXZ.x, built.restY, preBuildXZ.z) : null;
+    // `alreadyThreatened`: the BETWEEN-BATCH caller starts with no known threat, so one
+    // appearing DURING the walk back is new information worth bailing for (better to hand off
+    // to REFLEX/POSTURE promptly than spend another second or two placing blocks the encounter
+    // may not leave time for). The REACTIVE caller (threatsNow() branch in the loop below) is
+    // already retreating BECAUSE of a live threat it knows about — re-finding the same threat
+    // after the goto is not new information there, and bailing on it would make this whole
+    // reactive path a permanent no-op.
+    const resealChamber = async (alreadyThreatened) => {
+      if (!chamber) return 0;
+      try { await ownedGoto(new goals.GoalNear(chamber.x, chamber.y, chamber.z, 1), 6000); } catch (e) {}
+      if (!alreadyThreatened && threatsNow().length > 0) return 0;
+      let placed = 0;
+      for (const c of NIGHTMINE.nightMineResealCells(chamber)) {
+        const r = await placeAt(new Vec3(c.x, c.y, c.z));
+        if (r === 'placed') placed++;
+      }
+      return placed;
+    };
     while (Date.now() - t0 < g.cfg.shelterMaxWaitMs) {
       if (g.shelter.exitRequested) { exitReason = g.shelter.exitReason || 'external'; stopNightMine(exitReason); break; }
-      if (threatsNow().length > 0) { exitReason = 'threat'; stopNightMine(exitReason); break; }  // hand back to REFLEX/POSTURE
+      if (threatsNow().length > 0) {
+        exitReason = 'threat'; stopNightMine(exitReason);
+        // TODO 5m-b (live-caught, second trial): this loop's own threatsNow() check does not
+        // always lose the race to dangerscan's independent onDanger trigger -- sometimes THIS
+        // check fires first, `g.active` (REFLEX's own panic-run flag) is still false, and the
+        // bot would otherwise just stand exposed in the open lane for however long it takes
+        // onDanger's own 250ms scan to notice and engage. In that window, unlike the "REFLEX
+        // already has it" case (shelterExitBuild is skipped further down for exactly that
+        // reason), there is nothing to fight -- so retreat into the chamber and reseal RIGHT
+        // NOW, the same helper the between-batch defense already uses, giving REFLEX/WALL_OFF
+        // (whenever it does trigger) a sealed pocket to work with instead of an open corridor.
+        // Skipped entirely once REFLEX has already claimed the body (g.active true) -- backing
+        // off there, not contesting pathfinder/dig control, is still the right call.
+        if (!g.active) await resealChamber(true);
+        break;
+      }  // hand back to REFLEX/POSTURE
       if (shelterDawn()) { exitReason = 'dawn'; stopNightMine(exitReason); break; }
       if (shelterStarving()) { exitReason = 'hunger'; stopNightMine(exitReason); break; }
       if (Date.now() - lastEat > 1000) { lastEat = Date.now(); if (bot.food <= 17 && hasFoodItem()) await eatUp(); }
@@ -1652,7 +1715,11 @@ const shelterEnter = async () => {
               nightMine.target = targets[nightMine.targetIdx];
               // force:true — see the ACK'd note on the dispatch below; same reasoning applies
               // to every retry within a batch.
-              const args = Object.assign({ force: true }, NIGHTMINE.nightMineArgs(nightMine.target, built.restY));
+              // TODO 5m-b: count/maxDist shrunk from nightmine.js's own 6/8 defaults to 1/2 —
+              // a smaller per-batch footprint means less time and distance exposed mid-lane
+              // before the next reseal, on top of the proactive between-batch defense below.
+              const args = Object.assign({ force: true },
+                NIGHTMINE.nightMineArgs(nightMine.target, built.restY, { count: 1, maxDist: 2 }));
               const r = S.start(bot, 'mineLane', args);
               if (r.ok) { nightMine.taskId = r.taskId; emitNightMine('start', { target: nightMine.target, batchesUsed: nightMine.batchesUsed }); }
               else nightMine.active = false;
@@ -1661,6 +1728,14 @@ const shelterEnter = async () => {
               nightMine.batchesUsed++;
               emitNightMine('batch_done', { target: nightMine.target, blocks, batchesUsed: nightMine.batchesUsed });
               nightMine.active = false;
+              // TODO 5m-b: the proactive reseal — walk back to the chamber and plug whatever
+              // the last batch opened, BEFORE another batch (if any) gets to dig back out. This
+              // is what makes the between-batch window genuinely safe regardless of who notices
+              // a threat first, rather than racing a reactive plug against dangerscan's own
+              // independent 250ms trigger (see this file's own TODO 5m entry above — that race
+              // is not reliably winnable, confirmed by both live deaths).
+              const placed = await resealChamber();
+              emitNightMine('reseal', { placed, batchesUsed: nightMine.batchesUsed });
             }
           }
           // else: still running (or, defensively, some other task now owns S.currentTask) —
@@ -1688,7 +1763,10 @@ const shelterEnter = async () => {
             // the full excursion kit would make night-mining fire approximately never — an
             // unverified deferral wearing a disablement's clothing (TODO §3's own doctrine) —
             // rather than the actual thing 5m asks for.
-            const args = Object.assign({ force: true }, NIGHTMINE.nightMineArgs(nightMine.target, built.restY));
+            // TODO 5m-b: count/maxDist shrunk 6/8 -> 1/2, same reasoning as the retry branch
+            // above.
+            const args = Object.assign({ force: true },
+              NIGHTMINE.nightMineArgs(nightMine.target, built.restY, { count: 1, maxDist: 2 }));
             const r = S && S.start ? S.start(bot, 'mineLane', args) : { ok: false };
             if (r.ok) { nightMine.active = true; nightMine.taskId = r.taskId; emitNightMine('start', { target: nightMine.target, batchesUsed: nightMine.batchesUsed }); }
           }
@@ -1697,7 +1775,19 @@ const shelterEnter = async () => {
       await sleep(300);
     }
     if (Date.now() - t0 >= g.cfg.shelterMaxWaitMs) { exitReason = 'max_wait'; stopNightMine(exitReason); }
-    await shelterExitBuild(built);
+    // TODO 5m-b (live-caught, third trial): on a THREAT exit specifically, shelterExitBuild's
+    // own cap-dig-and-pillar-up actively FIGHTS whatever REFLEX/branchWallOff is concurrently
+    // doing to the very same bot -- onDanger's independent trigger already has `enter()`
+    // calling its own `__skills.stop('panic')`/pathfinder/dig control the instant it fires (see
+    // this file's own TODO 5m-b entry above), and shelterExitBuild's dig+goto right on top of
+    // that produced "shelter exit dig failed: Digging aborted" and a WALL_OFF that still
+    // couldn't fully seal (2 open faces, down from 4-6 pre-reseal, but still a death). Every
+    // OTHER exit reason (dawn/hunger/exitRequested/max_wait/dead) has no concurrent REFLEX fight
+    // to contest, so exitBuild stays exactly as it always was for those. On 'threat' the bot
+    // should touch nothing further and let REFLEX/WALL_OFF work with whatever the chamber
+    // already looks like from the last reseal, uncontested.
+    if (exitReason !== 'threat') await shelterExitBuild(built);
+    else pushLog('warn', 'shelter exit build skipped (threat) — leaving REFLEX/WALL_OFF uncontested');
     pushLog('warn', `shelter_exit (${exitReason})`);
     return { ...built, exitReason };
   } finally {
@@ -2061,7 +2151,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 16, boundAt: Date.now(), stale: false };
+REG.survival = { version: 17, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -2072,7 +2162,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 16, home: g.home,
+  installed: true, version: 17, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
