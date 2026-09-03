@@ -51,11 +51,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    rules.json entry. Starvation ended runs #1/#2 too.
 5c. ~~Same-remedy-repeats-across-positions escalation~~ DONE (#110; landed inside 16604e7 by a shared-index commit race — content is eng-3's: A.remedy class counters wood_gather/depot_reach, REMEDY rung prio 4.8, tier 1 = relocateToWork hops 64, tier 2 = directed 128-block findBlock + come; ledger event `remedy_escalate`; agenda-ladder 46/46, preflight 224/224; live-verified tiers on 25599). Corrected diagnosis: the (-21,108) wedges were RESTOCK failing to REACH THE DEPOT (route), the (-45,114) site was clean wood-search failure — both now classes of the same mechanism. Grader for `remedy_escalate` = engine-dev (soak #5).
 5d. ~~PROJECT standDown backoff keyed on rung, not project~~ DONE (#112, 3c7c3b7 — A.setProject resets PROJECT unproductive/standDown/standDownCount + restarts the stall clock on every call; A.owner untouched; agenda-ladder 52/52, preflight 230/230, live-verified). Grader side (engine-dev) still owed: latency breakdown attributes standdown carryover.
-5e. **skills.js FOODS allowlist missed #108 + huntAnimals species widening** (eng-3, from run #6 live, test-driver FEEDBACK ~09:31Z,
-   BEFORE #112 — it is small and it gates stone→iron on food): (a, #113) skills.js's excursion-kit FOODS allowlist never got #108's raw-meat
-   additions (only agenda.js's copy did) → a hunted porkchop cannot satisfy mineLane/chopTrees' food-kit gate; make ONE shared FOODS
-   source. (b, #114) huntAnimals{anyMob:true} never widens species past ['cow'] → explicit species list (cow, pig, sheep, chicken last).
-   (c) note: no cook/smelt skill in the registry — file as follow-up, don't build now. Fixtures + preflight; verify on 25599 only.
+5e. ~~skills.js FOODS allowlist missed #108 + huntAnimals species widening~~ DONE (#113/#114, 872aa07 — shared foods.js (union of both copies), huntAnimals anyMob defaults to cow/pig/sheep/chicken; fixture 12/12, preflight 242/242, live kit gate 0/2→2/2). Cook/smelt skill = FEEDBACK follow-up, unbuilt.
 5f. **Multi-threat gap: untracked spider kills the bot while WALL_OFF builds against the creeper it saw** (#115, engine-dev, survival/dangerscan
    lane; run #6 death #1 09:30:17–21Z, test-driver f50f6b7): -10 HP co-timed with "Creeper at 2.8 blocks", then three -2 bite drops with
    NO dangerscan mention of a spider. Threat tracking must hold N threats (nearest-first) and WALL_OFF must not run mid-build with an
