@@ -78,7 +78,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    soak #6:** induced-stress-sequencing.sh not yet 3/3 — no deaths, but FLEE_AWAY (pre-existing) retreats in the open on raw distance
    and takes near-unopposed damage (hpMin 1.3 / 0.5 vs ≥6 wanted). 5n-b (#124): FLEE_AWAY gets LOS-biased retreat (design first). Armed path
    diff-unchanged, live kill trace not yet re-watched.
-5q. **EAT/REFLEX rung thrash** (eng-3, agenda, after 5p): EAT_CRITICAL↔REFLEX↔EAT alternating per tick once BREAK_LOS survives long enough
+5q. **EAT/REFLEX rung thrash** (#125, eng-3, agenda, after 5p): EAT_CRITICAL↔REFLEX↔EAT alternating per tick once BREAK_LOS survives long enough
    for hunger cycling (engine-dev 5n trace). Hysteresis between EAT and REFLEX ownership; fixture in agenda-ladder.
 5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
    (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
