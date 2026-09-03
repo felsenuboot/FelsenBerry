@@ -1203,20 +1203,24 @@ predates two closures): (1) R2-wedge fix gate — **MOOT, not a gate**. R2 was E
 level up, already covered by `#95` + `#97`-item-3, both field-confirmed. Nothing to wait for here.
 (2) `#101` craftToolChain fix — **LANDED and lead-ACCEPTED** (`cd30f4c`, fixture 10/10 at the real
 pillar geometry, preflight 203/203). Live confirmation already in hand, no further engine-dev
-sign-off needed. (3) soak #4 verdict non-catastrophic or explicitly waived — PENDING, soak #4 not yet
-concluded. (4) world-race6 swap/regen — NOT DONE YET (do at launch); (5) fresh name reserved
+sign-off needed. (3) soak #4 verdict non-catastrophic or explicitly waived — **the only remaining
+gate as of 2026-09-03** (the food-acquisition gate that briefly stood alongside it, see below, is
+now closed), PENDING, soak #4 not yet concluded. (4) world-race6 swap/regen — NOT DONE YET (do at
+launch); (5) fresh name reserved
 (`GammelGerhard`), `OWNER=test-driver PURPOSE=...` ready to set, `./list.sh` discipline and
 `gearrace.mjs` as recorder of record — ready to execute at green light.
 
 **2026-09-03 gate added (team-lead)**: soak #4 surfaced that a role-less bot has NO food-acquisition
 path — `rules.json` has no food rule, hunter routing doesn't apply to `role:null`, and the decider
 doesn't supply one either — the bot went starvation-pinned at T+30 (food 0, HP 10), the same killer
-class that ended runs #1 and #2. **Run #6 now gates on TWO things: soak #4's verdict AND eng-3's
-food-acquisition drive (a FOOD rung + `rules.json` entry, issue TBD) actually landing.** Not
-optional, not the same as the soak-verdict gate — both must clear. My race book v2 manual food
-branch (`setProject(huntAnimals{anyMob:true,radius:32,repeat:true})`, `harvestGrass{repeat:true}`
-fallback, see "Known-failure branch plans" above) stays armed regardless, as my override if the new
-drive underperforms live — it does not substitute for the drive landing before launch.
+class that ended runs #1 and #2. Run #6 briefly gated on TWO things (soak #4's verdict AND the
+food-acquisition drive landing) — **the food-drive half is now CLOSED: `#108` landed (agenda ~v30)**,
+a FOOD rung firing on `foodCount==0 && hunger<=12` regardless of role/project, hunts with widening
+radius, falls back to harvest, live-verified against a real cow with food actually counted. **Run #6
+now waits on soak #4's verdict ONLY (~08:55Z).** My race book v2 manual food branch
+(`setProject(huntAnimals{anyMob:true,radius:32,repeat:true})`, `harvestGrass{repeat:true}` fallback,
+see "Known-failure branch plans" above) stays armed regardless, as my override if `#108` underperforms
+live — record actual agenda version at spawn, don't assume v30 exactly.
 
 Also carrying forward per team-lead: if eng-3 lands `#102` (chopTrees fell-complete) before soak #4
 concludes, the run #6 stack will include it — record actual versions read from `/state` at spawn as
@@ -1224,9 +1228,10 @@ always, don't assume the wind-down numbers below still hold.
 
 **2026-09-03 update (team-lead)**: soak #4 went live 07:49:42Z on 25599, verdict expected ~08:55Z;
 run #6's green light follows that verdict (or an explicit waiver). Expected stack for run #6 is now
-the full move-set: skills **v62** (gear-progression drive, fell-complete), agenda **v27** (SHELTER
-rung), survival **v11**, dangerscan **v6** — supersedes the v60/v10/v25/v5 wind-down numbers above.
-Still TBD-at-spawn per the standing rule (read `/state` fresh, don't assume).
+the full move-set: skills **v62+** (gear-progression drive, fell-complete), agenda **~v30**
+(SHELTER rung + **FOOD rung** `#108` + sword/axe upgrades), survival **v11**, dangerscan **v6** —
+supersedes the v60/v10/v25/v5 wind-down numbers above and the earlier v62/v27 estimate. Still
+TBD-at-spawn per the standing rule (read `/state` fresh, don't assume).
 
 Launch is prepped to be instant on green light:
 - **World bring-up** (`~/minecraft/localserver-race`, absolute path — ghq move means no more
@@ -1239,16 +1244,17 @@ Launch is prepped to be instant on green light:
   than run two look-alike `*Manfred`s across two ports/servers at once — `GammelGerhard`
   (3161/25600) has no phonetic overlap with `MampfManfred`.
 - **Spawn line**: `OWNER=test-driver PURPOSE="gear-race run #6, world-race6, Race book v2, full
-  move-set (skills v62/agenda v27 SHELTER/survival v11/dangerscan v6)" MC_HOST=127.0.0.1
+  move-set (skills v62+/agenda ~v30 SHELTER+FOOD/survival v11/dangerscan v6)" MC_HOST=127.0.0.1
   MC_PORT=25600 ./spawn.sh GammelGerhard 3161 --agenda` (role-less racer, no `DECIDER_EXCLUDE` — this
-  bot is meant to be seen by the decider's shared budget like any real racer).
+  bot is meant to be seen by the decider's shared budget like any real racer, and per `#108` its
+  food-acquisition now works role-less by design so this matters more than ever).
 - `./list.sh` before and after, `/state` read immediately post-spawn to lock in actual versions,
   `gearrace.mjs` as recorder of record from the start.
 
 Engine versions at run start: **TBD at spawn** (`/state` read immediately after spawn is the
 source of truth — do not assume any stack numbers still hold without checking; expected per
-team-lead 2026-09-03: skills v62, agenda v27 (SHELTER rung), survival v11, dangerscan v6, possibly
-`#102` folded in if landed by then).
+team-lead 2026-09-03: skills v62+, agenda ~v30 (SHELTER rung + FOOD rung `#108` + sword/axe
+upgrades), survival v11, dangerscan v6, possibly `#102` folded in if landed by then).
 
 | Tier | Time from join | Notes |
 |---|---|---|
