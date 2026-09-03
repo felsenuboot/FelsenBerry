@@ -51,9 +51,20 @@ const RCON_HOST = flag('rcon-host', '127.0.0.1');
 const RCON_PORT = flag('rcon-port', '25598');
 const RCON_PASS = flag('rcon-pass', 'fellocal123');
 if (!BOT || !INSPECTOR_PORT) {
-  console.error('usage: node bench/trail.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port <port> [--max-sites N] [--json]');
+  console.error('usage: node bench/trail.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port <port> [--max-sites N] [--exclude-zones "x,z,r;x,z,r"] [--json]');
   process.exit(2);
 }
+
+// --exclude-zones "x,z,r;x,z,r;..." -- for a KNOWN contamination source sharing the same
+// server (a different bot's own dig/shelter activity near the graded bot's own work sites,
+// which would otherwise get misattributed to the graded bot's trail). Horizontal (x,z) only,
+// radius in blocks -- matches how the contamination itself was described (soak #4,
+// 2026-09-03: a stray #103 test bot dying/respawning ~20 blocks from the soak bot's spawn).
+const EXCLUDE_ZONES = (flag('exclude-zones', '') || '').split(';').filter(Boolean).map((z) => {
+  const [x, zc, r] = z.split(',').map(Number);
+  return { x, z: zc, r };
+});
+const inExcludedZone = (pos) => EXCLUDE_ZONES.some((z) => Math.hypot(pos[0] - z.x, pos[2] - z.z) <= z.r);
 
 // same relative/absolute window parsing convention as playcheck.mjs
 function parseSince(s) {
@@ -233,7 +244,14 @@ const recs = loadLedger();
 if (!recs.length) { console.error(`trail: no ledger records for ${BOT} in this window`); process.exit(1); }
 await stopSurvival();
 
-const { chopSites: rawChop, digSites: rawDig, torchSurfacePlaced, surfaceTaskCount } = extractSites(recs);
+const { chopSites: allChop, digSites: allDig, torchSurfacePlaced, surfaceTaskCount } = extractSites(recs);
+const excludedChop = allChop.filter((s) => inExcludedZone(s.pos));
+const excludedDig = allDig.filter((s) => inExcludedZone(s.pos));
+const rawChop = allChop.filter((s) => !inExcludedZone(s.pos));
+const rawDig = allDig.filter((s) => !inExcludedZone(s.pos));
+if (EXCLUDE_ZONES.length) {
+  console.error(`trail: ${EXCLUDE_ZONES.length} exclusion zone(s) active — dropped ${excludedChop.length} chop + ${excludedDig.length} dig site(s) as contaminated (known other-bot activity), not counted toward this bot's verdict`);
+}
 const chopClusters = cluster(rawChop, 6).sort((a, b) => (b.stranded || 0) - (a.stranded || 0));
 const digClusters = cluster(rawDig, 6).sort((a, b) => (b.digs || 0) - (a.digs || 0));
 
@@ -298,6 +316,7 @@ const out = {
   at: new Date().toISOString(), verdict, reasons,
   findings, ledgerStrandedTotal, torchRate,
   sitesSeen: { chopClusters: chopClusters.length, digClusters: digClusters.length },
+  excludeZones: EXCLUDE_ZONES.length ? { zones: EXCLUDE_ZONES, excludedChopSites: excludedChop.length, excludedDigSites: excludedDig.length } : null,
 };
 fs.mkdirSync(path.join(ROOT, 'bench', 'gates'), { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'bench', 'gates', `trail-${LABEL}.json`), JSON.stringify(out, null, 2));

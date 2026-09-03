@@ -45,7 +45,7 @@ const UNTIL = flag('until'); // optional — omit for "until now", same as human
 const INSPECTOR_PORT = flag('inspector-port');
 const LABEL = flag('label', BOT || 'humanbar4');
 if (!BOT || !SINCE || !INSPECTOR_PORT) {
-  console.error('usage: node bench/humanbar4.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port <port> [--label <label>]');
+  console.error('usage: node bench/humanbar4.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port <port> [--label <label>] [--exclude-zones "x,z,r;x,z,r"]');
   process.exit(2);
 }
 const sinceMs = Date.parse(SINCE);
@@ -60,6 +60,8 @@ const untilMs = UNTIL ? Date.parse(UNTIL) : Date.now();
 // and don't decay with wall-clock time the way a world-state inspection does.
 const trailArgs = [path.join(ROOT, 'bench', 'trail.mjs'), '--bot', BOT, '--since', SINCE, '--inspector-port', INSPECTOR_PORT, '--label', LABEL];
 if (UNTIL) trailArgs.push('--until', UNTIL);
+const EXCLUDE_ZONES = flag('exclude-zones'); // pass-through for a known contamination source sharing the server (see trail.mjs's own flag)
+if (EXCLUDE_ZONES) trailArgs.push('--exclude-zones', EXCLUDE_ZONES);
 try { execFileSync(process.execPath, trailArgs, { stdio: ['ignore', 'ignore', 'inherit'] }); }
 catch (e) { /* non-zero on a genuine FAIL/no-data — expected, read the gate file below */ }
 const trailGatePath = path.join(ROOT, 'bench', 'gates', `trail-${LABEL}.json`);

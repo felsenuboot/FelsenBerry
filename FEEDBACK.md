@@ -4239,3 +4239,28 @@ fix: `dangerscan.js` (`lightInfo()` composite + `rawLight` field — v6), `skill
 (`ctx.autoTorch` — raw-light early-trigger removed, v62). `bench/fixtures/light-composite.sh`
 (read_composite calls the real `__danger.scan()`, case 4 promoted to a hard gate).
 github: felsenuboot/FelsenBerry#106 (closing)
+
+### 2026-09-03 engine-dev — trail.mjs/humanbar4.mjs gain `--exclude-zones`, mid-soak-#4, for a
+known real contamination source (team-lead's flag: a stray #103 test bot near MampfManfred)
+type: fix (instrument-only, prep for the live soak #4 grade)
+status: built and dry-run verified (no live inspector needed — filter logic runs before any
+world-touching step); ready for the actual grading run once eng-3 sends Respawn103's positions
+what: mid-soak-#4, team-lead flagged that a stray, non-spawn.sh #103 test bot (`Respawn103`,
+eng-3's) had been dying/respawning/shelter-digging ~20 blocks from `MampfManfred`'s own spawn
+area since ~07:53Z, sharing the same server — a real risk of `trail.mjs` misattributing
+Respawn103's own floating logs/holes/drops to the SOAK bot's trail verdict, since both bots'
+work sites could sit close enough on the same map to overlap.
+
+**Fix**: `--exclude-zones "x,z,r;x,z,r"` on both `trail.mjs` and `humanbar4.mjs` (pass-through) —
+filters chop/dig sites out of the graded bot's OWN site list (from its OWN ledger; a different
+bot's activity never appears there directly, but a shared physical location could still get
+misread) before clustering/inspection ever runs, reports how many sites were dropped as
+contaminated, and records the zones + dropped counts in the written gate file rather than
+silently adjusting the number. Dry-run verified against real ledger data (FurzFriedrich, a
+synthetic exclusion zone around a real site): correctly dropped 11 individual chop records (1
+cluster) and reduced `ledgerStrandedTotal` from 93 to 90 (the excluded site's own stranded count
+subtracted, not double-counted or silently kept). Chose horizontal (x,z)-only + radius,
+matching exactly how the contamination itself was described (a bot "~20 blocks" from another).
+fix: `bench/trail.mjs`, `bench/humanbar4.mjs` (`--exclude-zones` flag, pass-through).
+github: n/a — instrument prep, not a tracked bug; ready once Respawn103's real coordinates
+arrive from eng-3, ahead of the actual soak #4 grading run.
