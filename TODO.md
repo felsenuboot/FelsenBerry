@@ -66,25 +66,13 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    `food 0/2` while hunger was 20/20 — FOOD rung never fires when sated, RESTOCK can't produce food, frozen-repeat dedup correctly refuses
    the re-dispatch → nothing fetches KIT food. SCOREBOARD "SOAK #5". Specimen SchnoddSchorsch left running on 25600.
 5l. ~~Kit-food acquisition while sated~~ DONE (#120, 7f52d32 — (a) RESTOCK step 2.5 hunts kit food regardless of hunger (own counter); (b) kit functions may read position+vitals behind a Proxy that throws on anything else; chopTrees kit → `excursion_short` (no food) when food ≥14 and maxDist ≤48; mineLane untouched; agenda v36, skills v65, preflight 287/287, both parts live-verified composing on one sated foodless bot). Kit-supplier audit table pending before soak #6.
-5m. **Night productivity inside SHELTER** (eng-3, after 5l, GATES soak #6 with 5l): engine-dev's stall attribution (1f6df70) shows
-   SHELTER owned 27.7 of soak #5's 60 minutes and IDLE 22 — only 8.2 minutes were a project rung. A human who digs in at dusk MINES
-   until dawn; they do not stand in a dirt hole. Once sealed (dig-in variant), SHELTER should hand the body to a safe underground
-   project — mineLane/safeDescend straight down from inside the shelter, torching, never breaking the seal upward — and re-check
-   dawn/threat exits each cycle. Not a criterion-1 calibration change: the bar is "playing", and sheltered idling is not playing.
-   Fixture in agenda-ladder (sealed + night → underground project dispatched; dawn → exit); live on 25599 with RCON night.
-5n. **BREAK_LOS no-progress loop** (#121, engine-dev) — CORE LANDED 365fdad (survival v14): per-threat streak (10s expiry) → same-call
-   escalation WALL_OFF-if-filler → one bare-hand attempt when cornered ≤1.5 / hp<4 and reachable → FLEE_AWAY; fist outcome ledgered.
-   Three more live bugs fixed en route (9s of unopposed damage before escalation; sticky "desperate" re-picking fists 5×). **Still gates
-   soak #6:** induced-stress-sequencing.sh not yet 3/3 — no deaths, but FLEE_AWAY (pre-existing) retreats in the open on raw distance
-   and takes near-unopposed damage (hpMin 1.3 / 0.5 vs ≥6 wanted). 5n-b (#124): FLEE_AWAY gets LOS-biased retreat (design first). Armed path
-   diff-unchanged, live kill trace not yet re-watched.
-5q. **EAT/REFLEX rung thrash** (#125, eng-3, agenda, after 5p): EAT_CRITICAL↔REFLEX↔EAT alternating per tick once BREAK_LOS survives long enough
-   for hunger cycling (engine-dev 5n trace). Hysteresis between EAT and REFLEX ownership; fixture in agenda-ladder.
-5r. ~~Panic re-entry loop on a non-proximate creeper~~ DONE (#126, 35a6f76 — root cause: dangerscan's hp<8 term re-forced panic while a never-actionable creeper in the raw threat list blocked every `threatsNow().length===0` "danger over" gate, so standdown never armed; fix A `actionableThreats()` (los || d≤12) at the four gate sites; fix B generic panicStreak → branchWalkOff (24 blocks off after 3 zero-damage cycles); live-verified by hot re-injection on the specimen — one cycle then standdown armed; genuine re-triggers still break through). NOTE: eng-3's 5m shelterEnter wiring landed INSIDE this commit by the pathspec-commit gotcha above — unverified live; eng-3 verifies + writes 5m's FEEDBACK. Fixture landed cbc04a3 (bench/fixtures/panic-gate.mjs 21/21, hand-sync port) — and it caught that fix B was scaffolding-only in 35a6f76; wired in cbc04a3. Fix A live+hermetic; fix B hermetic only (its live trigger never occurred).
-5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
-   (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
-   can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
-   only what a supplier exists for. Law from the audit: every kit item must name its supplier rung; a demand with no supplier is a deadlock.
+5m. ~~Night productivity inside SHELTER~~ LANDED (survival v15 wiring inside 35a6f76 + nightmine.js d15f71d, FEEDBACK 0f9855f): sealed dig-in
+   dispatches mineLane batches (coal→iron→stone, 12-batch cap hit live, 40+ blocks, night_mine ledger events, threat interrupt ~200 ms).
+   Deviation accepted: dispatch uses force:true (underground kit demands a loadout an emergency-dug bot never has). **5m-b (eng-3, GATES
+   soak #6): the bot died twice on threat-interrupt** — night mining walked it 8 blocks down an open lane away from the chamber and WALL_OFF
+   could not seal a 4/6-open corridor. Fix: on interrupt, retreat INTO the chamber (≤8 blocks) and plug the lane mouth with one block of
+   the cobblestone it just mined, BEFORE yielding to REFLEX; or mine with the lane mouth plugged behind it each batch. Fixture: threat
+   mid-batch → bot ends inside a re-sealed chamber, alive.
 5j. ~~Cook/smelt skill~~ DONE unwired (#118, a7df20b — produce({resource:'cooked_meat'}) cooks all held raw meat incl. chicken; open-container inventory-count bug fixed (furnace output slot counted as inventory before takeOutput); preflight 264/264, producer-cook 2/2). NOT wired into FOOD: auto-eat's watcher eats raw on pickup, and EAT (4) outranks FOOD (6.5) the tick foodCount>0 — priority inversion proven in a new agenda-ladder case. Follow-ups: cooking-in-progress flag gating EAT (design); furnace auto-craft needs a table within 4 blocks and never places one (inherited from smeltCharcoal).
 5k. ~~wall-off-multithreat fixture deterministic~~ DONE (#119, a177a4a — three real harness bugs: NoAI:0b real-combat RNG
    killed the bot outright 3x independent of starting HP, switched to NoAI:1b (dangerscan scores by type/name, unaffected,
