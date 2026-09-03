@@ -56,7 +56,10 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 62;
+// v62 -> v63: TODO 5e (shared foods.js allowlist, huntAnimals anyMob species widening) landed
+// without bumping this — caught during soak #5 prep, same drift as agenda.js's own version
+// field (see its comment).
+const ENGINE_VERSION = 63;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 

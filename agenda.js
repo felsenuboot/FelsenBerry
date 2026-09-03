@@ -116,7 +116,12 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 30, enabled: true,
+  // v30 -> v34: TODO 4b's decider-side changes don't touch this file; 5c (REMEDY escalation),
+  // 5d (setProject standDown/stall-clock reset), 5g (spawn-camp handling), 5h (EAT/EAT_CRITICAL
+  // dead-end release) each landed without bumping this literal field — soak #5 prep caught the
+  // drift (FEEDBACK.md's own commit messages claimed v31-v34 all along; /state was still
+  // reporting v30). Bumped now to match reality before pre-registering the soak window.
+  version: 34, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
