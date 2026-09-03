@@ -17,7 +17,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    ./list.sh first, always. `./bench/preflight.sh <port>` = regression (203/203 expected at 0dbde11+).
 5. Decider daemon: `[SOAK_BOT=<name>] setsid nohup node decider.js > logs/decider.log 2>&1 &`
    (state persists in decider-state.json/decisions.jsonl; liveness = state-file mtime, NOT log silence).
-6. **Keep the PC awake for unattended runs** (the machine went idle 2026-09-03 ~00:00 and froze everything):
+6. **Keep the PC awake for unattended runs** (hypridle's 30-min listener ran `systemctl suspend` at 23:54 on 2026-09-02; the PC slept 9h until 09:06 — a block-mode logind sleep inhibitor refuses that call):
    `setsid nohup systemd-inhibit --what=idle:sleep:handle-lid-switch --who=FelsenBerry --why="overnight bot operation" --mode=block sleep infinity &`
    (hypridle honors logind inhibitors by default; verify with `systemd-inhibit --list`). Kill it at wind-down.
 7. Teammates (Agent tool WITH name, ONE at a time + verify members; Sonnet): engine-dev-3
