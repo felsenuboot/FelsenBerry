@@ -1,0 +1,128 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "6a7a97854f02",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T11:58:57.811835186Z",
+  "branch": "main",
+  "checkpoints_count": 6,
+  "save_step_count": 7,
+  "files_touched": [
+    "agenda.js",
+    "bench/fixtures/agenda-deepkit.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "fdcf880fb51e",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 11189,
+    "cache_creation_tokens": 506232,
+    "cache_read_tokens": 88079770,
+    "output_tokens": 121316,
+    "api_call_count": 331
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01NhY1heffRJgusfa8B3ii2b",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "update-config"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d5e3ecb5c8bd",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 976,
+        "end": 977,
+        "entry_ids": [
+          "3af9ed8b-f505-4f9c-bcbb-f6ab9144130f"
+        ],
+        "tool_use_id": "toolu_01NhY1heffRJgusfa8B3ii2b"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01NhY1heffRJgusfa8B3ii2b"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: update-config",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 146
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T11:58:57.578041075Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 216,
+    "human_modified": 19,
+    "human_removed": 0,
+    "total_committed": 216,
+    "total_lines_changed": 237,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 343,
+      "agent_lines_removed": 9
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 343,
+      "user_lines_removed": 9,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 47,
+        "bench/fixtures/agenda-deepkit.js": 30,
+        "infra.js": 265,
+        "server.log": 1
+      },
+      "user_removed_per_file": {
+        "agenda.js": 7,
+        "bench/fixtures/agenda-deepkit.js": 2
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 343,
+      "agent_lines_removed": 9
+    }
+  ]
+}
