@@ -1272,7 +1272,7 @@ design, so `#108`'s FOOD rung is exercised as intended).
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
 
-Steering calls: 4 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+Steering calls: 5 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
 08:58:53.698Z (T+25s), clean on first attempt, per Race book v2's trigger table; (2) Food/kit-refusal
 branch, `setProject({skill:'huntAnimals',args:{anyMob:true,radius:32,repeat:true}})` at 09:08:09.749Z
 (T+9m41s) after the identical `food 0/4` kit-gate refusal repeated twice (09:06:05Z, 09:07:19Z, ~74s
@@ -1305,7 +1305,11 @@ down cleanly but the pre-existing food-item deadlock remained, so (4) `setProjec
 search radius 32→48 rather than re-trying the identical failed search, per the barren-search
 branch's spirit — hit the SAME `standDown[PROJECT]` carryover bug on this attempt too (confirmed
 via read-only `/eval`: locked until 09:21:59Z), left to clear on its own rather than compounding it
-with a further redirect. Deaths: 0 so far. Monitor: armed — 15s `/state` poll
+with a further redirect; standdown cleared, hunt ran at 09:22:01Z, still `no cow within 48 blocks`
+— this seed's spawn is confirmed fauna-poor again (matches run #2's finding on the same seed); (5)
+`setProject({skill:'come',args:{x:-55,y:115,z:-17}})` at 09:22:24.501Z (T+23m56s), reusing run #2's
+own successful fauna-relocation coordinate on this same seed rather than guessing a fresh one.
+Deaths: 0 so far. Monitor: armed — 15s `/state` poll
 (IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans
 (combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
