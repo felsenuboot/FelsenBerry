@@ -14,6 +14,8 @@ Milestones, curated. Everything else: `git log`. Engine payload versions live in
 - **#106 fixed** (c3149b3): raw block light is permanently 0 underground even beside a torch, so it is never truth — surface
   now reads isDay·skyLight, underground scans tracked torch positions; ctx.autoTorch's raw-light early trigger removed.
   LIGHT-rung torch-spam hypothesis disconfirmed by 435 ledger firings.
+- **#103** death/respawn opens a needs_direction episode immediately (a re-injection race that could silently lose
+  the episode was found and fixed; 3 consecutive live passes).
 - **Instruments**: `bench/trail.mjs` (criterion-4 human-trail inspector: floating logs, stranded drops, naked shafts,
   torch density — live-verified both directions) and `bench/humanbar4.mjs` (all four human-bar criteria, one verdict;
   soak-3 retro: FAIL on criterion 2 alone).
