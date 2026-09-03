@@ -62,14 +62,46 @@ const t0 = 1_800_000_000_000;
   T('standDown outlives the episode -> carryover capped at the episode\'s own 10s span, not the full 1000s', r.standDownCarryoverMs, 10 * S);
 }
 
-// ---- 5. no attempts at all (episode closed some other way, e.g. self_recovered) ----
+// ---- 5. no attempts at all, closed some OTHER way than self_recovered (e.g. decider_exhausted)
+// -- the generic unattributed case, NOT the named selfRecoveredStallMs shape ----
 {
   const open = { eid: 'e5', t: t0 };
-  const close = { eid: 'e5', t: t0 + 3 * S, why: 'unproductive_idle', closedBy: 'self_recovered', latency_ms: 3 * S };
+  const close = { eid: 'e5', t: t0 + 3 * S, why: 'unproductive_idle', closedBy: 'decider_exhausted', latency_ms: 3 * S };
   const r = computeEpisodeBreakdown(open, close, []);
-  T('self_recovered, no decisions.jsonl attempts -> first-attempt/compute/dispatch/gap all null',
+  T('decider_exhausted, no attempts recorded here -> first-attempt/compute/dispatch/gap all null',
     [r.timeToFirstAttemptMs, r.deciderComputeMs, r.dispatchMs, r.interAttemptGapMs], [null, null, null, 0]);
-  T('self_recovered: the whole 3s is unattributed (nothing here explains a self-recovery\'s timing)', r.unattributedMs, 3 * S);
+  T('decider_exhausted: not the self_recovered shape -> selfRecoveredStallMs stays null', r.selfRecoveredStallMs, null);
+  T('decider_exhausted: the whole 3s stays generically unattributed', r.unattributedMs, 3 * S);
+}
+
+// ---- 5b. #117's own real shape: self_recovered, zero decider attempts, a long stall -- this
+// IS the ladder-stuck-not-decider case task 3 found (dmtlcay1e1, 146113ms) ----
+{
+  const open = { eid: 'e5b', t: t0 };
+  const close = { eid: 'e5b', t: t0 + 146.113 * S, why: 'unproductive_idle', closedBy: 'self_recovered', latency_ms: 146113 };
+  const r = computeEpisodeBreakdown(open, close, []);
+  T('#117 shape: self_recovered + zero attempts -> the whole stall is named selfRecoveredStallMs', r.selfRecoveredStallMs, 146113);
+  T('#117 shape: re-homed OUT of the generic bucket -> unattributedMs reads 0, not 146113', r.unattributedMs, 0);
+}
+
+// ---- 5c. self_recovered with an inherited standDown too (5d's old failure mode STACKED with
+// #117's) -- standDownCarryover is subtracted first, only the true remainder is named ----
+{
+  const open = { eid: 'e5c', t: t0, standDown: { rung: 'PROJECT', until: t0 + 20 * S } };
+  const close = { eid: 'e5c', t: t0 + 50 * S, why: 'unproductive_idle', closedBy: 'self_recovered', latency_ms: 50 * S };
+  const r = computeEpisodeBreakdown(open, close, []);
+  T('standDown carryover is subtracted first (20s)', r.standDownCarryoverMs, 20 * S);
+  T('only the remainder (30s) is named selfRecoveredStallMs, not the full 50s', r.selfRecoveredStallMs, 30 * S);
+  T('unattributedMs still reads 0 -- both known buckets together explain the whole 50s', r.unattributedMs, 0);
+}
+
+// ---- 5d. self_recovered but the decider DID make at least one attempt -- not a ladder dead
+// end (the decider was involved), so it must NOT be mistaken for #117's shape ----
+{
+  const open = { eid: 'e5d', t: t0 };
+  const close = { eid: 'e5d', t: t0 + 40 * S, why: 'unproductive_idle', closedBy: 'self_recovered', latency_ms: 40 * S };
+  const r = computeEpisodeBreakdown(open, close, [{ t: t0 + 5 * S, latency_ms: 1 * S }]);
+  T('self_recovered WITH a decider attempt -> not the ladder-dead-end shape, selfRecoveredStallMs stays null', r.selfRecoveredStallMs, null);
 }
 
 // ---- 6. aggregateLatencyBreakdown: joins by eid, skips an episode with no matching open,
@@ -88,7 +120,7 @@ const t0 = 1_800_000_000_000;
   const agg = aggregateLatencyBreakdown(opens, closes, decisions);
   T('orphan close with no matching open is skipped, not crashed on', agg.perEpisode.length, 2);
   T('timeToFirstAttempt p50 across the two episodes (4s, 20s) is their median', agg.aggregate.timeToFirstAttempt.p50_ms, 12 * S);
-  T('pendingFields documents both forward-looking fields by name', Object.keys(agg.pendingFields).sort(), ['dispatch_ms', 'standDown']);
+  T('pendingFields documents both dispatch_ms/standDown by name (their null-before-this-commit caveat)', Object.keys(agg.pendingFields).sort(), ['dispatch_ms', 'standDown']);
 }
 
 out.passed = out.cases.filter((c) => c.PASS).length;

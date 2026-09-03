@@ -796,6 +796,7 @@ if (dgate && typeof dgate === 'string') {
   const fmt = (b) => b.n ? `p50 ${Math.round(b.p50_ms / 1000)}s/p90 ${Math.round(b.p90_ms / 1000)}s (n=${b.n})` : 'n=0';
   console.log(`  latency breakdown (informational, not gated): first-attempt ${fmt(bs.timeToFirstAttempt)} | decider-compute ${fmt(bs.deciderCompute)} | inter-attempt-gap ${fmt(bs.interAttemptGap)} | unattributed ${fmt(bs.unattributed)}`);
   console.log(`    dispatch ${fmt(bs.dispatch)}${bs.dispatch.n ? '' : ' (pending decider.js dispatch_ms field)'} | standdown-carryover ${fmt(bs.standDownCarryover)}${bs.standDownCarryover.n ? '' : ' (pending agenda.js standDown field)'}`);
+  console.log(`    self-recovered-stall (#117 ladder-dead-end shape, not decider) ${fmt(bs.selfRecoveredStall)}`);
   console.log(`  written -> ${path.relative(DIR, out)}`);
 }
 

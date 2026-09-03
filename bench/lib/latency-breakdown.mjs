@@ -19,16 +19,34 @@
 //     own recorded busy time (compute + dispatch) — the rate-gate retry wait soak #4's own p90
 //     was actually made of (PER_BOT_MIN_GAP_MS, before TODO 4b's fix). Computed directly from
 //     consecutive attempt timestamps; no new field needed.
-//   - dispatchMs / standDownCarryoverMs: FORWARD-LOOKING, not yet emitted anywhere — see the
-//     coordination message to engine-dev-3 (2026-09-03, task 2). `dispatchMs` needs decider.js
-//     to time its own dirDispatch call separately (today folded into interAttemptGapMs);
-//     `standDownCarryoverMs` needs agenda.js's open-event dirEmit to report an inherited
-//     standDown (TODO 5d / test-driver's run-#6 finding: a 128665ms "latency" that was
-//     standdown carryover, not decider slowness). Both report `null` — not 0, a missing field
-//     is not a verified zero, this codebase's own doctrine — until those fields exist.
-//   - unattributedMs: whatever the other buckets don't cover, so the breakdown is always
-//     honest about what it can't yet explain rather than silently absorbing it into a bucket
-//     that happens to still be computable.
+//   - dispatchMs / standDownCarryoverMs: landed 2026-09-03 (decider.js commit 872aa07 times its
+//     own dirDispatch call; agenda.js's open-event dirEmit reports an inherited standDown,
+//     TODO 5d / test-driver's run-#6 finding: a 128665ms "latency" that was standdown
+//     carryover, not decider slowness) — both were coordinated with engine-dev-3 before this
+//     file relied on either. Still report `null` — not 0 — on any record/episode from BEFORE
+//     that commit, or on a `src` that never reaches the dispatch step (dedup/rate-gate/
+//     frozen_repeat/driver-grace skips): a missing field is not a verified zero, this
+//     codebase's own doctrine, and it also means 5d's own fix (A.setProject resets the
+//     standdown the moment a fresh redirect lands) should make standDownCarryoverMs mostly
+//     read null/0 going forward — a non-null value now specifically flags 5d's OLD failure
+//     mode recurring, not a permanent feature of every open (per eng-3's own note).
+//   - selfRecoveredStallMs: an episode that closes `closedBy:'self_recovered'` with ZERO
+//     decisions.jsonl attempts was never touched by the decider at all — the agenda LADDER
+//     recovered on its own (markProductive()). That is not automatically "fine": task 3's own
+//     live find (#117, FEEDBACK.md "EAT/EAT_CRITICAL can permanently deadlock...") is exactly
+//     this shape — a rung latches on a dead end (fire() false, clear() also false) and NOTHING
+//     resolves it until an unrelated event (there: SHELTER's nightfall trigger) knocks it
+//     loose, at which point the stuck rung finally releases and whatever was actually needed
+//     (there: FOOD) runs and closes the episode self_recovered — 146113ms after it opened, not
+//     because of decider slowness (the decider was never involved) or a PROJECT standdown
+//     (different rung entirely), but because the LADDER itself was wedged. Computed as
+//     whatever standDownCarryoverMs doesn't already explain on a no-attempts self_recovered
+//     close — re-homed OUT of unattributedMs (which reads 0 for that episode) rather than left
+//     generic, so a future soak's grader can name this specific, previously-diagnosed failure
+//     mode instead of re-discovering it by hand every time it recurs.
+//   - unattributedMs: whatever NONE of the above buckets cover, so the breakdown is always
+//     honest about what it genuinely can't yet explain rather than silently absorbing it into
+//     a bucket that happens to still be computable.
 //
 // Pure functions, no fs/network — bench/fixtures/latency-breakdown.mjs tests this hermetically
 // with synthetic open/close/decisions records; metrics.mjs imports the same code for real runs.
@@ -56,10 +74,17 @@ export function computeEpisodeBreakdown(open, close, attempts) {
     ? Math.max(0, Math.min(open.standDown.until, close.t) - open.t) : null;
   const accountedMs = [timeToFirstAttemptMs, deciderComputeMs, dispatchMs, interAttemptGapMs, standDownCarryoverMs]
     .filter(Number.isFinite).reduce((a, b) => a + b, 0);
+  const leftoverMs = Number.isFinite(close.latency_ms) ? Math.max(0, close.latency_ms - accountedMs) : null;
+  // self_recovered + zero decider attempts = the decider never touched this episode; the
+  // ladder recovered on its own. Whatever standDownCarryover doesn't already explain gets
+  // named selfRecoveredStallMs instead of falling into the generic unattributed bucket -- see
+  // this file's own header comment for why (#117's EAT/EAT_CRITICAL dead-end, task 3).
+  const isSelfRecoveredDeadEnd = close.closedBy === 'self_recovered' && sorted.length === 0 && leftoverMs != null;
+  const selfRecoveredStallMs = isSelfRecoveredDeadEnd ? Math.round(leftoverMs) : null;
   return {
     eid: close.eid, why: close.why, closedBy: close.closedBy, attempts: sorted.length, totalLatencyMs: close.latency_ms,
-    timeToFirstAttemptMs, deciderComputeMs, dispatchMs, interAttemptGapMs, standDownCarryoverMs,
-    unattributedMs: Number.isFinite(close.latency_ms) ? Math.round(Math.max(0, close.latency_ms - accountedMs)) : null,
+    timeToFirstAttemptMs, deciderComputeMs, dispatchMs, interAttemptGapMs, standDownCarryoverMs, selfRecoveredStallMs,
+    unattributedMs: leftoverMs == null ? null : Math.round(isSelfRecoveredDeadEnd ? 0 : leftoverMs),
   };
 }
 
@@ -92,11 +117,12 @@ export function aggregateLatencyBreakdown(opens, closes, decisions) {
       dispatch: bucketStats(perEpisode, 'dispatchMs'),
       interAttemptGap: bucketStats(perEpisode, 'interAttemptGapMs'),
       standDownCarryover: bucketStats(perEpisode, 'standDownCarryoverMs'),
+      selfRecoveredStall: bucketStats(perEpisode, 'selfRecoveredStallMs'),
       unattributed: bucketStats(perEpisode, 'unattributedMs'),
     },
     pendingFields: {
-      dispatch_ms: 'decider.js does not yet time its dirDispatch call separately (proposed to engine-dev-3, 2026-09-03) -- folded into interAttemptGap until it lands',
-      standDown: 'agenda.js\'s open-event dirEmit does not yet report inherited standDown state (proposed to engine-dev-3, 2026-09-03, ties to TODO 5d) -- carryover is invisible (reads as unattributed or interAttemptGap) until it lands',
+      dispatch_ms: 'landed 2026-09-03 (decider.js commit 872aa07) -- null on records from before that commit, or on a src that never reaches the dispatch step (dedup/rate-gate/frozen_repeat/driver-grace skips)',
+      standDown: 'landed 2026-09-03 (agenda.js commit 872aa07) -- null on episodes opened before that commit, or (increasingly, post-5d) whenever nothing was actually inherited',
     },
   };
 }
