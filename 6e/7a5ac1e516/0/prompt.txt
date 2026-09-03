@@ -368,3 +368,19 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>[12:02:28] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5g (items 1-3+5, agenda-only) done: commit `89ab46b`, pushed clean on top of the team's other work.
+
+Built exactly the revised shape from our design exchange: bot._deathTimes + bot._spawnCamp (bot-level, survives re-injection), sense() gains spawnCamped/justRespawned/hostileNear/isDay with the release math (window/dawn+stable/10-min hard cap) factored into a pure spawnCampCheck() exposed as A._spawnCampCheck for synthetic-timestamp fixture testing, SHELTER's fire() widened (spawnCamped blanket + justRespawned-and-night-or-hostile), suppression centralized in safeFire() via SPAWN_CAMP_SUPPRESSED (TOOL/RESTOCK/FOOD/LIGHT/PROJECT/ESCAPE — REFLEX/POSTURE/EAT_CRITICAL/SHELTER/DEPOSIT/EAT/REMEDY untouched), IDLE gets its own inline hold. setProject during suppression isn't lost (episode still closes, project just waits its turn). spawn_camp ledger event (open/close/reason) for soak #5.
+
+Two real bugs found live while building, both fixed: (1) bot.on('death',...) re-registers on every re-injection with nothing removing the old listener — a counting handler isn't idempotent like the pre-existing _respawnedNeedsDirection one, so 3 real deaths read as 6 until I added a bot._deathHandlersInstalled guard (fixed for both handlers). (2) tracking the open-span on A instead of bot produced two spurious spawn_camp "open" events for one real streak — same re-injection-wipes-state class as (1), moved to bot._spawnCamp.
+
+Live-verified via RCON kills at night on a throwaway bot — SHELTER fired within 1 tick of every respawn, single clean spawn_camp open event after 3 kills post-fix. bench/fixtures/agenda-ladder.js 67/67 (+15 cases), preflight 257/257.
+
+Own mistake, already flagged directly to engine-dev: my RCON `kill`-based live test respawned at world spawn every time (not the isolated coords I teleported to pre-death — kill doesn't preserve position through respawn), landing ~11 blocks from their live ZombieFutter (#115) test for a couple minutes. Stopped the moment I noticed, told them to check their data from that window.
+
+Item 4 (survival.js dirt-dig fallback) — sent engine-dev the exact proposed diff for ack, including a geometric question about the cap-placement offset I couldn't confidently resolve without their context on the primitive. Not applied here per your ruling; landing 1-3+5 without it.
+</cross-session-message>
