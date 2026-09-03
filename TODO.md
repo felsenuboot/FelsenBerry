@@ -80,12 +80,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    diff-unchanged, live kill trace not yet re-watched.
 5q. **EAT/REFLEX rung thrash** (#125, eng-3, agenda, after 5p): EAT_CRITICAL↔REFLEX↔EAT alternating per tick once BREAK_LOS survives long enough
    for hunger cycling (engine-dev 5n trace). Hysteresis between EAT and REFLEX ownership; fixture in agenda-ladder.
-5r. **Panic re-entry loop on a non-proximate creeper** (#126, engine-dev, survival/dangerscan, HIGH, GATES soak #6 — run #7 12:34–12:39Z:
-   creeper at 13–16 blocks, `los:false, ranged:false`, survival cycles panic_enter → WALL_OFF → panic_recovered → re-enter every 10–50 s,
-   HP/food/position flat 4+ min, no direction episode opens (state:cooldown) so the decider never sees it). A threat with no LOS and
-   no ranged capability at >12 blocks must not enter panic; and N panic re-entries on the same threat id with no damage taken must
-   escalate (walk away / kill it) not loop. Ledger it. Live specimen: GrantigGustav on 25600 after run #7's conclusion.
-5p. ~~Heal-deadlock band~~ DONE (#123, de81bd1 — agenda v37: FOOD also fires on hp≤10 && food<18 && foodCount==0 && calm && !hostileNear; +10 ladder cases; live-fired at hp 7.3/food 17; preflight 301/301). [Line was dropped by lead's 78ccd1b slice edit — restored.]
+5r. ~~Panic re-entry loop on a non-proximate creeper~~ DONE (#126, 35a6f76 — root cause: dangerscan's hp<8 term re-forced panic while a never-actionable creeper in the raw threat list blocked every `threatsNow().length===0` "danger over" gate, so standdown never armed; fix A `actionableThreats()` (los || d≤12) at the four gate sites; fix B generic panicStreak → branchWalkOff (24 blocks off after 3 zero-damage cycles); live-verified by hot re-injection on the specimen — one cycle then standdown armed; genuine re-triggers still break through). NOTE: eng-3's 5m shelterEnter wiring landed INSIDE this commit by the pathspec-commit gotcha above — unverified live; eng-3 verifies + writes 5m's FEEDBACK. Pure-function fixture for actionableThreats/panicStreak still owed.
 5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
    (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
    can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
@@ -127,7 +122,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
   promissory notes (two honored tonight); ensureTool is NOT test-inert by default (opts.depot:false
   in fixtures); a TODO comment is not a tracker item.
 
-- **Shared-index commit law** (2026-09-03, learned by a race): everyone commits on ONE working tree, so `git add X && git commit` commits whatever anyone else has staged. Commit with a pathspec on the commit itself: `git commit -m ... -- <files>` (or `git commit <files>`), never a bare `git commit`.
+- **Shared-index commit law** (2026-09-03, learned by a race, refined by a second one): everyone commits on ONE working tree, so `git add X && git commit` commits whatever anyone else has staged. Commit with a pathspec on the commit itself: `git commit -m ... -- <files>`, never a bare `git commit`. **Refinement (35a6f76):** `git commit -- <file>` commits the WORKING-TREE version of that file, not the index — it cannot split two authors' hunks in one file. If two people have hunks in the same file, the committer stages only their hunks (`git apply --cached` / `git add -p`), verifies `git diff --cached` shows exactly those and `git status` shows nothing else staged, then commits with NO pathspec. Better: never have two authors in one file — the second waits for the first's commit.
 
 - **Push discipline**: every commit auto-pushes via .git/hooks/post-commit (installed 2026-09-02 after 113 commits sat unpushed for a day). If a clone lacks the hook, `git push` after every commit is law; check .git/push.log if GitHub looks stale.
 
