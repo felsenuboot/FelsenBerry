@@ -4264,3 +4264,83 @@ matching exactly how the contamination itself was described (a bot "~20 blocks" 
 fix: `bench/trail.mjs`, `bench/humanbar4.mjs` (`--exclude-zones` flag, pass-through).
 github: n/a — instrument prep, not a tracked bug; ready once Respawn103's real coordinates
 arrive from eng-3, ahead of the actual soak #4 grading run.
+
+### 2026-09-03 engine-dev-3 — #103 built and verified (agenda v28): death/respawn opens a
+needs_direction episode immediately; two real bugs found live, both in MY OWN wiring, not the
+underlying trigger idea
+type: fix + fixture + live verification
+status: built, live-verified (3 consecutive fixture passes: death opens it, a project closes
+it, a plain reconnect does not spuriously fire it), `bench/preflight.sh` 210/210 (clean, fresh
+bot — unrelated to the 203 dry-run cases, direction-episode detection has no dry-run hook, see
+below), soak #4's own bot (MampfManfred) never touched during any of this — a separate
+throwaway QA bot (Respawn103, DECIDER_EXCLUDE=1) carried all the testing
+what: built the fix direction the issue itself proposed — a death is a provable, directly-
+observable `needs_direction` moment, not something `unproductive_idle`'s 120s window should
+have to infer. The wiring turned out genuinely tricky, for a reason the issue's own proposal
+didn't anticipate: runner.js's `bot.on('spawn', ...)` handler re-runs `applyPayloadStack` on
+EVERY spawn "including death-respawn" (its own comment) — which re-injects agenda.js ITSELF,
+fresh, replacing the whole module's state (a brand-new `A`, `direction.episode:null`) in the
+same breath a naive `bot.on('death', ...)` listener inside agenda.js would fire. Opening the
+episode directly from a death handler would be destroyed by that same re-injection before the
+decider could ever see it — so the signal has to survive AGENDA'S OWN wipe, not just the
+respawn.
+
+**Fix**: `bot.on('death', ...)` (registered once, at agenda.js's own module top level) sets a
+flag directly on the `bot` OBJECT, not on `A` — the one piece of state that survives a
+same-session re-injection (re-injection re-runs this file against the SAME bot object; only an
+actual reconnect creates a fresh one, per runner.js's own comment, which is exactly why this
+correctly never fires for a plain reconnect/kick, only a real death). `directionCheck` reads
+`bot._respawnedNeedsDirection` directly, every tick, opening a `'respawned'` episode and
+clearing the flag the moment it does.
+
+**Bug 1, live-caught while writing the FIRST version**: the first draft read the bot-level flag
+ONCE, synchronously, at module-init time, into a local closure variable — reasoning that
+module-init IS spawn time, so that should be early enough. A reconnect immediately followed by
+a real death (this session's own test sequence, not a contrived scenario) fired TWO 'spawn'
+events close enough together (~100ms) to re-inject agenda.js TWICE in a row. The first
+re-injection correctly read and consumed the flag into its own local variable — but the SECOND
+re-injection built an entirely fresh module instance that never saw that local state, re-read
+the bot flag (already cleared by the first injection), and the episode was silently lost.
+Fixed by dropping the local-variable snapshot entirely and reading `bot._respawnedNeedsDirection`
+live inside `directionCheck` on every tick instead — whichever injection's tick() loop is the
+one actually still running (old ones stop their own timer on idempotent replace, and in
+practice never get a chance to tick at all across a ~100ms double-injection gap, since the
+tick interval is 2000ms) sees and consumes the real, current flag, immune to how many
+re-injections happened in between.
+
+**Bug 2, in the FIXTURE, not the code**: `bench/fixtures/respawn-episode.sh`'s first draft
+compared `A.direction.opened`/`.closed` counts before vs. after a kill to prove an episode
+newly opened. False-failed every single run, even though the diagnostic printed alongside the
+failure showed `why:'respawned'` correctly present — because `opened`/`closed` are PER-
+INJECTION counters, not a lifetime total: they live on `A`, and `A` gets fully replaced (reset
+to 0) by the very re-injection the death itself triggers. Comparing a pre-kill count against a
+post-kill count is comparing two different `A` instances' independent counters, which is
+meaningless. Fixed by asserting on the `why` STRING directly instead, which is the actual
+claim under test.
+
+**Also added**: a `respawned` entry in `decider.js`'s `SITUATIONS` table (the LLM prompt's
+human-readable situation text) — small and optional (the existing fallback to the raw `why`
+string is not wrong, just a plainer prompt), included since the rest of the episode-answering
+path is meant to treat this "exactly like any other open episode" per the issue's own framing.
+Did not add `rules.json` entries for zero-token dispatch — out of scope for the trigger fix
+itself, and better tuned from real soak data than guessed at now.
+
+**No dry-run fixture case added to `bench/fixtures/agenda-ladder.js`, deliberately**: checked
+first — `A.step()` (the mandatory dry-run replay hook) calls `choose(s)` only, never
+`directionCheck`. Direction-episode detection has always been a live-tick-only concern in this
+file (none of the existing `project_done`/`project_blocked`/`unproductive_idle` edges have a
+dry-run case either), so a new live fixture (`respawn-episode.sh`) is the right and only
+regression coverage here, not a gap in the existing suite.
+
+**World-state note for whoever grades soak #4's trail**: Respawn103 (the disposable QA bot
+this used, now stopped and cleaned up) died/respawned and briefly dug a SHELTER hole several
+times near its own spawn point during this testing — roughly the (-9..18, 84..94, -7..8)
+neighborhood (multiple nearby coordinates, not one precise site — see this session's own log
+for the full list). Distinct from and unrelated to soak #4's own bot (MampfManfred, which was
+never touched by any of this and had already moved well away from that area to chop trees
+elsewhere by the time this testing ran). Flagging for the `bench/trail.mjs --exclude-zones`
+prep mentioned in the entry above, in case that neighborhood needs adding alongside
+Respawn103's own coordinates already expected there.
+fix: `agenda.js` (`bot.on('death', ...)`, `directionCheck`'s respawn check — v28), `decider.js`
+(`SITUATIONS.respawned`). `bench/fixtures/respawn-episode.sh` (new, 3 consecutive live passes).
+github: felsenuboot/FelsenBerry#103 (closing)

@@ -116,7 +116,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 27, enabled: true,
+  version: 28, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -146,6 +146,32 @@ const A = {
   nextProject: null,             // 1-deep queue: {skill,args,tool,restockFloor,repeat,stagedAt}
 };
 globalThis.__agenda = A;
+
+// #103: death/respawn should open a needs_direction episode immediately, not wait out
+// unproductive_idle's 120s window. Genuinely tricky wiring, not a bare event-to-openEpisode
+// call: runner.js's OWN 'spawn' handler re-runs applyPayloadStack on every spawn "including
+// death-respawn" (its own comment) — which re-injects agenda.js ITSELF, fresh, wiping this
+// entire module's state (a brand new `A`, `direction.episode:null`) in the SAME breath a
+// 'death' listener would fire. Opening the episode directly from a 'death' handler would be
+// destroyed by that same-tick re-injection before the decider/driver could ever see it.
+// So 'death' only sets a flag on the BOT object, not on `A` — the one piece of state that
+// SURVIVES a same-session re-injection (re-injection re-runs this file against the SAME bot
+// object; only an actual reconnect creates a fresh one, per runner.js's own comment, which is
+// exactly why this correctly never fires for a plain reconnect/kick, only a real death).
+//
+// Deliberately NOT snapshotted into a local variable at module-init time — live-caught
+// testing this: a fresh reconnect immediately followed by a real death can fire TWO 'spawn'
+// events close enough together that applyPayloadStack re-injects this whole file TWICE in a
+// row, a few hundred ms apart. The first re-injection would correctly read and consume the
+// flag into a local one-shot var, but the SECOND re-injection creates an entirely new module
+// instance (a fresh `A`, a fresh closure) that knows nothing about the first one's local
+// state — it would silently re-read `bot._respawnedNeedsDirection` (already false by then)
+// and lose the episode. directionCheck instead reads the BOT-level flag directly, every
+// tick, and clears it only at the moment it actually opens the episode — whichever
+// injection's tick() loop is the one still running (old ones stop their own timer on
+// idempotent replace) sees and consumes the real, current flag, immune to how many times
+// re-injection happened in between.
+bot.on('death', () => { bot._respawnedNeedsDirection = true; });
 
 const now = () => Date.now();
 const note = (msg) => {
@@ -570,6 +596,14 @@ const markProductive = (s, src) => {
 // consumer read A.direction/A.project directly, same as everything else in this file).
 // Exposed as A._directionCheck for fixtures, same discipline as A._idleWorkOutcome.
 const directionCheck = (s) => {
+  // #103: the respawn flag lives on `bot`, not on `A` (see its own comment at module init,
+  // above — a double-injection race can otherwise lose it). Checked first — a bot that JUST
+  // died is provably projectless and idle, not probably, so this doesn't wait on the
+  // composite-level edges below to eventually infer the same thing.
+  if (bot._respawnedNeedsDirection) {
+    bot._respawnedNeedsDirection = false;
+    openEpisode('respawned', {}, s);
+  }
   // composite level — catches EVERY current/future mutation site of p.blocked / completedOnce
   // / A.blocked (including a driver's own /eval writes) without a per-site call at each one.
   const p = A.project;

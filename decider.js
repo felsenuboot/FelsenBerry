@@ -266,6 +266,7 @@ const SITUATIONS = {
   project_stalled: 'has a project that stopped making progress',
   no_path: 'is stuck -- no path found to its goal',
   no_tool: 'lacks a tool it needs',
+  respawned: 'just died and respawned, and has no project',   // #103
 };
 // A bare closed-menu instruction ("reply with exactly one of these five") did NOT reliably hold
 // Andy-4-micro to the menu in smoke testing -- it answers from its own ~30-command fine-tuned
