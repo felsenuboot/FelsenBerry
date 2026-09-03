@@ -80,6 +80,11 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    diff-unchanged, live kill trace not yet re-watched.
 5q. **EAT/REFLEX rung thrash** (#125, eng-3, agenda, after 5p): EAT_CRITICAL↔REFLEX↔EAT alternating per tick once BREAK_LOS survives long enough
    for hunger cycling (engine-dev 5n trace). Hysteresis between EAT and REFLEX ownership; fixture in agenda-ladder.
+5r. **Panic re-entry loop on a non-proximate creeper** (engine-dev, survival/dangerscan, HIGH, GATES soak #6 — run #7 12:34–12:39Z:
+   creeper at 13–16 blocks, `los:false, ranged:false`, survival cycles panic_enter → WALL_OFF → panic_recovered → re-enter every 10–50 s,
+   HP/food/position flat 4+ min, no direction episode opens (state:cooldown) so the decider never sees it). A threat with no LOS and
+   no ranged capability at >12 blocks must not enter panic; and N panic re-entries on the same threat id with no damage taken must
+   escalate (walk away / kill it) not loop. Ledger it. Live specimen: GrantigGustav on 25600 after run #7's conclusion.
 5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
    (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
    can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
