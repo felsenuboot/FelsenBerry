@@ -6735,3 +6735,81 @@ commit: 757bd0c, 6f80b2b
 github: felsenuboot/FelsenBerry#121 (TODO 5n/5n-b) and #124 — both closed; BREAK_LOS,
 FLEE_AWAY, and the generic enter()-level re-trigger gap are all live-verified against real
 mobs now
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5m-b (#120 follow-up): reseal-between-batches landed, threat-exit/REFLEX conflict fixed; honest result: real improvement, not a 3/3 guarantee
+
+Both 5m death trials (previous entry) showed the SAME mechanism: night-mining walked the bot
+away from the sealed chamber, a threat interrupted mid-lane, and `branchWallOff` couldn't seal
+the open 1-wide corridor (4-6 open faces both times). Investigated the lead's first candidate
+(reactive retreat-and-plug the instant a threat is seen) and found it structurally unwinnable as
+the PRIMARY defense: dangerscan's own `onDanger` fires independently every 250ms — no slower
+than `shelterEnter()`'s own poll — and both original deaths show it landing FIRST. Went with the
+lead's alternative instead, hardened: PROACTIVE, not reactive.
+
+**Landed (survival.js v16->v17, commit 5ec67b0):**
+- After EVERY batch, `shelterEnter()` walks back to the chamber (the dig-in's original resting
+  x/z/restY, captured before `shelterBuild()` ever moves the bot — a straight-down dig never
+  changes x/z) and reseals the lane mouth via `nightMineResealCells()` (nightmine.js, already
+  landed as pure geometry with 5m-b's own prep commit, bec4df6) — 8 candidate cells, `placeAt`
+  no-ops on whatever's already solid so only the actually-open ones cost a placement. This is
+  the bot genuinely sealed for the whole BETWEEN-batch window, with no race to win.
+- Batch footprint shrunk from nightmine.js's own 6/8 (count/maxDist) defaults down to 1/2, as
+  defense in depth for the residual MID-batch exposure the reseal alone doesn't close.
+- A reactive fallback ALSO retreats+reseals immediately when THIS loop's own `threatsNow()`
+  check wins the race (observed live — it does, sometimes) — gated on `!g.active` (REFLEX's own
+  panic-run flag) so it never fights an in-flight WALL_OFF for pathfinder/dig control.
+- **Second bug found en route, live-caught mid-verification**: `shelterExitBuild`'s own cap-dig
+  was firing unconditionally on EVERY exit reason including 'threat' — actively contesting
+  REFLEX/WALL_OFF for pathfinder and dig control on the SAME bot at the SAME moment
+  (`shelter exit dig failed: Digging aborted` in the skills log). Now skipped specifically when
+  `exitReason==='threat'`; every other exit reason (dawn/hunger/exitRequested/max_wait/dead) is
+  unaffected — none of those have a concurrent REFLEX fight to avoid.
+
+**Honest verification: 4 live trials, real combat, all 4 still ended in death** (RCON-summoned
+`NoAI:0b` zombie mid-batch, each trial run after the PRECEDING fix landed, so each is testing
+the CURRENT best version at the time):
+1. First cut (proactive reseal only, no exit-conflict fix yet): REFLEX won the race,
+   `shelterExitBuild`'s cap-dig fought WALL_OFF for control, `wall_off: 2 face(s) still open`
+   — death. (Improvement already visible here vs the ORIGINAL 4-6 faces: the reseal was helping
+   even before the exit-conflict fix, though the concurrent dig fight likely still hurt it.)
+2. After the exit-conflict fix (skip shelterExitBuild on 'threat'): this time MY OWN
+   `threatsNow()` check won the race (`g.active` was false) — but the reactive-reseal-on-detect
+   branch didn't exist yet at this point in the session, so the bot just stood exposed in the
+   open lane for ~4 real seconds until REFLEX's own trigger finally engaged — death.
+3. After adding the reactive reseal: REFLEX won the race again, correctly backed off (no fight,
+   confirmed via the skills log — no "Digging aborted" this time) — WALL_OFF still only achieved
+   2 open faces — death.
+4. After shrinking the footprint to count:1/maxDist:2 (tightest practical): WALL_OFF actually
+   HELD the first engagement this time (hp 20->15, `panic_recovered`, not a death) — then the
+   real, persistent zombie re-engaged 502ms later (`panic_reenter ... threat still actionable,
+   level-triggered`) and finished the job on the second wave.
+
+Sanity-checked the test methodology itself against #119's own precedent (`NoAI:0b` real-combat
+RNG "killed the bot outright 3x independent of starting HP" in THAT fixture's own history) — ran
+one more trial with `NoAI:1b` specifically to isolate "is my dispatch/stop/reseal/skip-exit-
+conflict logic correct" from "does WALL_OFF's geometry survive real combat": confirmed all the
+MECHANICS fire correctly (stop, skip-exit-build, ledger events) with `NoAI:1b`, but that mode
+deals literally zero damage (no AI = no attack), so it cannot answer the survival question at
+all — useful for confirming my own code isn't the bug, not useful as a pass/fail signal here.
+
+**The honest trend across the 4 real-combat trials is real** (open-face count 4-6 -> 2 -> 2 ->
+one full wave survived) **but this did not reach the "3/3 alive" bar the lead originally asked
+for.** Reported this plainly to the lead before committing rather than rounding an incomplete
+result up to "done" — the root cause of what's left is downstream, in `branchWallOff`'s own
+box-sealing math against a real, persistent, actively-pursuing mob in a 1-wide-corridor /
+partial-chamber shape, which is REFLEX/survival.js panic-branch territory, not this task's own
+dispatch logic. engine-dev read both this session's findings (force:true and the WALL_OFF gap)
+and (a) endorsed the force:true call as reasoned, not a shortcut, and (b) agreed the corridor-
+sealing gap is real, reproducible, and worth a dedicated follow-up — filed as
+felsenuboot/FelsenBerry#127, engine-dev's own lane, explicitly NOT a blocker for landing 5m-b as
+the measurable improvement it is. Landed with the lead's parallel-editing ruling (staged via
+`git add` — the whole diff was cleanly mine, no hunk-splitting needed this time — verified
+`git status`/`git diff --cached` before committing with no pathspec).
+
+fix: survival.js v16->v17 (shelterEnter reseal-between-batches, count/maxDist shrink,
+shelterExitBuild-vs-REFLEX conflict fix)
+commit: 5ec67b0
+github: felsenuboot/FelsenBerry (TODO 5m-b, #120 follow-up) — landed as a real, measured
+improvement, not a full guarantee; felsenuboot/FelsenBerry#127 filed for the remaining
+WALL_OFF corridor-sealing gap (engine-dev's lane, follow-up, non-blocking)
