@@ -6875,3 +6875,38 @@ bench/preflight.sh (+1 line)
 commit: (this entry's own commit, immediately following)
 github: felsenuboot/FelsenBerry#122 (TODO 5o) — landed, deadlock resolved; #128 filed for the
 real armor/shield/water supply chains as scoped future work
+
+---
+### 2026-09-03 engine-dev — regression: enter()'s level-triggered re-entry (6f80b2b) could hang forever; capped, fixed
+
+engine-dev-3 caught this live via preflight, not me: bench/fixtures/survival-cannotheal.js
+regressed 8/11 right after 6f80b2b landed. All three real failures traced to one root cause —
+that commit's level-triggered re-entry (re-enter immediately if `actionableThreats()` is still
+non-empty after a cycle) had no explicit bound, only an implicit assumption that #121/5r's own
+panicStreak/branchWalkOff escalation would eventually clear it. True for a real threat (WALK_OFF
+actually changes distance); false for the fixture's own synthetic `{name:'test_threat', d:5}`
+object with no `id` — nothing about a static, fake distance number ever changes regardless of
+what the bot does, so the check stayed permanently true and `await V.trigger('hp')` never
+resolved, starving every later case in that same fixture run (hence 8 failures from ONE bug, not
+three separate ones). The same shape is reachable live too: a real but geometrically-trapped
+threat where `ownedGoto` keeps returning 'timeout' never separates the bot either — a genuine
+robustness gap, not only a test artifact.
+
+Fixed in 35ad372: `_bypassLockout` (bool) became `_reenterDepth` (a counter), same gating as
+before (bypasses lockout, never overrides drill()/pickOverride, never races standdown), but now
+hard-caps at REENTER_MAX_DEPTH(6) — well past what panicStreak needs to escalate to WALK_OFF —
+before handing control back to the next external trigger instead of recursing indefinitely.
+Verified: survival-cannotheal.js back to 11/11, full preflight 306/306, live sanity check
+against a real skeleton (depth incremented 1->4 correctly across a sustained encounter, hp
+never dropped from 20 — the mechanism still works exactly as designed for a real threat).
+
+Process note: this is exactly the kind of gap live-testing against a REAL bot with a REAL,
+finite threat can't surface on its own — the pathological case needed a threat that structurally
+never changes, which only a synthetic fixture reliably produces. Worth remembering next time a
+"bounded by construction" claim rests on an escalation eventually working rather than an
+explicit counter — add the explicit cap regardless, even when the informal argument seems solid.
+
+fix: survival.js (`_reenterDepth` cap on enter()'s level-triggered re-entry)
+commit: 35ad372
+github: felsenuboot/FelsenBerry#121/#124 — regression found and fixed same-day, no soak impact
+(caught before any soak run touched it)
