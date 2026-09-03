@@ -78,6 +78,10 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    a branch that makes no progress for N cycles must ESCALATE, never loop — order: WALL_OFF if filler; else fists (a human punches a
    skeleton at 0.5 blocks; unarmed counter-attack allowed below some HP or when cornered); else FLEE_AWAY. Fixture = the same
    induced-stress-sequencing.sh, must PASS unarmed. Issue number from issue-manager.
+5o. **Deep-tier orphaned kit demands: armor, shield, water** (eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
+   (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
+   can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
+   only what a supplier exists for. Law from the audit: every kit item must name its supplier rung; a demand with no supplier is a deadlock.
 5j. ~~Cook/smelt skill~~ DONE unwired (#118, a7df20b — produce({resource:'cooked_meat'}) cooks all held raw meat incl. chicken; open-container inventory-count bug fixed (furnace output slot counted as inventory before takeOutput); preflight 264/264, producer-cook 2/2). NOT wired into FOOD: auto-eat's watcher eats raw on pickup, and EAT (4) outranks FOOD (6.5) the tick foodCount>0 — priority inversion proven in a new agenda-ladder case. Follow-ups: cooking-in-progress flag gating EAT (design); furnace auto-craft needs a table within 4 blocks and never places one (inherited from smeltCharcoal).
 5k. ~~wall-off-multithreat fixture deterministic~~ DONE (#119, a177a4a — three real harness bugs: NoAI:0b real-combat RNG
    killed the bot outright 3x independent of starting HP, switched to NoAI:1b (dangerscan scores by type/name, unaffected,
