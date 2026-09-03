@@ -1,0 +1,55 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "e92a724569fa",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T08:55:35.610097524Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CHANGELOG.md",
+    "FEEDBACK.md",
+    "SCOREBOARD.md",
+    "TODO.md",
+    "bench/gates/direction-soak4.json",
+    "bench/gates/humanbar-soak4.json",
+    "bench/gates/humanbar4-soak4.json",
+    "bench/gates/trail-soak4.json"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "ec794f5cb8dc",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1827,
+    "cache_creation_tokens": 76694,
+    "cache_read_tokens": 1538803,
+    "output_tokens": 14468,
+    "api_call_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T08:55:35.584688568Z",
+    "agent_lines": 0,
+    "agent_removed": 5,
+    "human_added": 272,
+    "human_modified": 21,
+    "human_removed": 0,
+    "total_committed": 289,
+    "total_lines_changed": 298,
+    "agent_percentage": 1.6778523489932886,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 266,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "infra.js": 265,
+        "server.log": 1
+      }
+    }
+  ]
+}

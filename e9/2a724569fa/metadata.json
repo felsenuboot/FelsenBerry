@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "e92a724569fa",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CHANGELOG.md",
+    "FEEDBACK.md",
+    "SCOREBOARD.md",
+    "TODO.md",
+    "bench/gates/direction-soak4.json",
+    "bench/gates/humanbar-soak4.json",
+    "bench/gates/humanbar4-soak4.json",
+    "bench/gates/trail-soak4.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e9/2a724569fa/0/metadata.json",
+      "transcript": "/e9/2a724569fa/0/full.jsonl",
+      "compact_transcript": "/e9/2a724569fa/0/transcript.jsonl",
+      "content_hash": "/e9/2a724569fa/0/content_hash.txt",
+      "prompt": "/e9/2a724569fa/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1827,
+    "cache_creation_tokens": 76694,
+    "cache_read_tokens": 1538803,
+    "output_tokens": 14468,
+    "api_call_count": 21
+  }
+}
