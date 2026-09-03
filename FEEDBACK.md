@@ -6525,3 +6525,95 @@ tested; live verification of fix 1 stands from the previous entry, fix 2 verifie
 hermetically (its own trigger condition — 3+ consecutive no-damage cycles against the same
 threat id while cannotHeal() is false — didn't occur in the live specimen, which resolved via
 standdown on the first cycle)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5m: night productivity inside SHELTER (survival v14->v15) — wired, live-verified; two findings flagged honestly, not fixed here
+
+Design ACK'd by the lead in-message before code. Wired shelterEnter()'s existing wait loop
+(survival.js, sealed-digin branch only, hut untouched): whenever `built.kind==='digin' &&
+built.sealed`, every iteration of the loop's OWN existing poll (tightened 500ms->300ms) — after
+running the SAME exit checks it already ran (exitRequested/threatsNow/dawn/starving/health<=0) —
+dispatches or advances a nightmine.js-decided mineLane batch via `__skills.start`, fire-and-
+forget, tracked by taskId. `shouldNightMine()`/`nightMineTargets()`/`nightMineArgs()` (pure,
+already landed d15f71d, untouched) drive the batch/y-floor/freeSlots gating and the coal_ore ->
+iron_ore -> stone fallback chain; a `not_found` scan-miss advances to the next target within the
+SAME batch (cheap, doesn't consume the batch cap), any other terminal state counts the batch
+and re-evaluates. Any exit condition firing calls `__skills.stop()` on the in-flight batch
+BEFORE breaking, so cancellation is never left to a separate timer. Two-surface `night_mine`
+ledger event (start/batch_done/stopped) added via the existing public `__metrics.emit` — no
+telemetry.js edit, stays inside survival.js's own lane.
+
+**Process note, not a functional one**: mid-verification, found engine-dev-3's (mine) and
+engine-dev's `#121`/5r work had collided in the shared working tree — engine-dev's own FEEDBACK
+entry above ("git mistake owned") already documents it honestly: their `git commit --
+survival.js FEEDBACK.md` pathspec commit (35a6f76) re-staged the CURRENT working tree, which
+included my already-written but not-yet-committed 5m diff. Content verified undamaged (`git
+diff` against HEAD is empty for survival.js, `node -c` clean, nightmine.js's require resolves).
+Nothing to re-commit for survival.js itself — this entry plus the fixture below are what's
+actually mine to land here.
+
+**Live verification** (SchaufelSaskia, port 3195, DECIDER_EXCLUDE=1, 25599, RCON night + a hand-
+built stone platform so `diginStandable()`'s 3-deep-column check has real terrain to dig):
+- Batch dispatch + target fallback: real trace, "Mining 6x coal_ore" -> not_found -> "Mining 6x
+  iron_ore" -> not_found -> "Mining 6x stone" -> banked, repeated for 12 consecutive batches
+  (hit `batchCap`'s default 12 correctly, then stopped asking on its own — no threat needed).
+  `night_mine` ledger confirmed via `metrics-SchaufelSaskia.jsonl`: start/batch_done pairs,
+  batchesUsed incrementing 1->12, blocks banked matching chat ("6/6", "7/6" with bonus drops).
+- Seal integrity: read the cap block directly (`bot.blockAt`) after 7+ batches and ~40+ blocks
+  mined — still `cobblestone` (the placed cap), never touched. laneY (`restY-1`, always 2+ below
+  the cap) held across every batch as designed.
+- Interrupt latency: summoned a real zombie (`NoAI:0b`) beside the bot mid-batch (`task.running:
+  true` confirmed by poll immediately before). `task.running` false within ~200ms — well inside
+  the ~1s target. Ledger/log show BOTH my loop's own `threatsNow()` check and REFLEX's
+  independent `panic()` trigger converged on the same `__skills.stop()` call (idempotent, no
+  conflict) — belt-and-suspenders working as designed, not a race.
+
+**Finding 1, argued not fixed — `force:true` on every night-mining dispatch**: `mineLane`'s own
+`KIT_TIERS.underground` demands torches:16/foodItems:4/weapon/picks:2/filler:16/sticks:16/
+table:1 — a full excursion loadout no bot that just emergency-dug a shelter at dusk is likely to
+be carrying (if it were, it probably wouldn't have needed to dig in). Gating night-mining on that
+kit would make it fire approximately never, which is an unverified deferral wearing a
+disablement's clothing, not what 5m asks for — so dispatches pass `force:true`. Read `ensureTool`/
+`autoTorch` first to confirm this is safe: mineLane degrades to best-effort warnings on missing
+torches/table rather than throwing, `hasPickaxe` is independently confirmed at shelter-entry, and
+the lane is tiny (maxDist 8) right next to an already-sealed chamber with the same immediate-
+cancel poll watching it. This is a real deviation from the design I sent the lead for ACK (which
+didn't mention the kit gate at all — I missed it until implementing) — flagging explicitly here
+rather than letting the ACK'd message stand as the full story.
+
+**Finding 2, live-caught, NOT fixed here (REFLEX/survival's WALL_OFF, not 5m's own dispatch
+logic)**: in both live threat-interrupt trials, `branchWallOff` tried to seal the bot inside the
+open MINED LANE (not the original sealed chamber — night-mining had walked it away along the
+lane by the time the threat arrived) and reported 4 and 6 open faces respectively ("coffin is not
+arrow-tight") — a straight 1-wide mined corridor doesn't match WALL_OFF's fixed-cell box math the
+way an open-ground pocket does. Both trials ended in a real death to the zombie's actual melee
+(not a scripted assert) before REFLEX's imperfect wall-off could hold. The task-level interrupt
+itself worked exactly as designed (stopped in ~200ms, per Finding above) — this is a downstream
+gap in what happens AFTER the stop, in territory this task didn't touch (WALL_OFF's own
+geometry) and wasn't asked to fix. Not proposing a fix unilaterally: candidates worth someone
+evaluating are (a) WALL_OFF learning to seal a corridor cross-section instead of only an
+open-ground pocket, or (b) 5m's own dispatch capping how far a lane may wander cumulatively from
+the sealed cap before refusing another batch, so an interrupt always lands close to home. Whoever
+owns REFLEX/WALL_OFF (engine-dev's lane) should weigh in before either is built. This does NOT
+block 5m's own acceptance criteria (batch runs and banks stone: confirmed; threat interrupts
+within ~1s: confirmed; seal never opens upward during mining: confirmed) but it is a real,
+reproducible way a bot can die specifically because it went night-mining instead of standing
+still — worth weighing against the 27.7-idle-minutes problem 5m exists to fix.
+
+Also noted, unrelated to either finding: `shelterDawn()`'s exit condition (`surfaceExposed===true
+&& isDaylight()===true`) structurally can't fire for a properly sealed dig-in (surfaceExposed is
+geometry-backed and reads false while sealed, by design — same gate `shouldShelter()` uses on
+entry). A sealed dig-in's real dawn-adjacent exit is the pre-existing `shelterMaxWaitMs` (15 min,
+comfortably longer than one Minecraft night) or a threat, not a literal dawn detection — this is
+unchanged, pre-existing v11 behavior, not something 5m touched or broke, flagging only because my
+own design message assumed a live dawn-exit test that turned out structurally untestable this way.
+
+No new bench fixture beyond nightmine.mjs (pure logic, unchanged, still 20/20) — the dispatch/
+poll/cancel mechanics can only be proven against a real bot (nightmine.mjs's own header already
+said so), and that live proof is above, same precedent as #121/5r's own live-only verification.
+
+fix: survival.js v14->v15 (already committed inside 35a6f76 per the process note above — nothing
+new to commit for the file itself)
+commit: this entry (FEEDBACK.md only)
+github: felsenuboot/FelsenBerry (TODO 5m, #120 follow-up) — dispatch/poll/cancel landed and
+live-verified; two findings above await the lead's/engine-dev's call on priority
