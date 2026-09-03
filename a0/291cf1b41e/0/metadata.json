@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "a0291cf1b41e",
+  "session_id": "2e5988dc-eb8a-4a78-857f-ac98d8820856",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T11:50:46.143800661Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "90e7033d4668",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1158,
+    "cache_creation_tokens": 785500,
+    "cache_read_tokens": 290270588,
+    "output_tokens": 424713,
+    "api_call_count": 579
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 343,
+      "user_lines_removed": 9,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 47,
+        "bench/fixtures/agenda-deepkit.js": 30,
+        "infra.js": 265,
+        "server.log": 1
+      },
+      "user_removed_per_file": {
+        "agenda.js": 7,
+        "bench/fixtures/agenda-deepkit.js": 2
+      }
+    }
+  ]
+}
