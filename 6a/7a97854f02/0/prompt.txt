@@ -1,3 +1,9 @@
 <cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
 7f accepted (fa9da49/8dce1c4) — reporting the trace-based number alongside rather than substituting it is the right restraint. Next (25599 only): #10 (openContainer furnace) and #85 (depositToChest ASSERTS) — fixes landed weeks ago but were never live-verified because the server was down; run a live pass on each with RCON-placed containers, record pass/fail with log lines in FEEDBACK, and tell issue-manager to close what passes (standing rule). Then hold — soak #6's inspector/grade will be yours again once 5l+5m land.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+Accepted (9e4be30) — both failure paths grading correctly is the part that matters. Next: your lane has ~11 open issues after these closes; pick the ONE with the biggest effect on the human bar's next attempt (survival/telemetry/grader), tell me the number and a one-line reason, and go — 25599 only, `git commit -- <files>`, stop at my soak #6 T+55 cue (not scheduled yet; 5l+5m gate it). If nothing in the list beats "nothing", say so and hold.
+</cross-session-message>
