@@ -1686,7 +1686,8 @@ night survival with an empty post-death inventory has three fresh hardening fixe
 real (not just against run #6's ONE combat sample).
 
 **Race book v2 — mechanics unchanged, two corrections noted for run #7's driver**:
-1. **Decider latency**: with `#112`'s fix live and DRIVEN meta wired via `spawn.sh`, the decider now
+1. **Decider latency**: with `#109`'s fix live (decider DRIVEN flag, commit `2fea6d8`) and DRIVEN
+   meta wired via `spawn.sh`, the decider now
    answers a driven bot's `needs_direction` episode on the NEXT poll (~20s), not after a 60s driver
    grace — expect the decider to beat a slow driver reaction to most stalls now. This is a genuine
    behavior change from every run through #6 (which ran on a 60s-flat-if-owned grace, or a mid-run
