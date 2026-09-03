@@ -1381,30 +1381,63 @@ corpse-recovery detour (death coords ~60 blocks from the current bootstrap site,
 09:31:09.649Z) — logged here as its own timed interval per the branch's instruction, comparable
 across future runs.
 
-**DEATH #2 — 09:37:52.676Z, T+39m24s. `server.log`: `GammelGerhard was shot by Skeleton`.** Full
-timeline: an earlier, non-fatal skeleton shot at `[11:37:16]` server-log-time (09:37:16Z, ~36s before
-death) had already brought HP down to 6 by 09:37:38Z (`Stable again (BREAK_LOS, HP 6/20)`, BREAK_LOS
-firing repeatedly as the skeleton kept re-acquiring line of sight at ~2.3-2.5 blocks). **Critical: `No
-cobble to wall in with. Kit rule broken - heading out the way I came`** — the escalation ladder
-correctly recognized WALL_OFF was physically impossible (zero filler blocks, direct consequence of
-Death #1's inventory wipe 7m24s earlier and no RESTOCK cycle having replenished filler yet) and fell
-back to fleeing rather than looping uselessly on an unbuildable wall — the right decision, made too
-late to outrun a ranged attacker at 2.3 blocks. `Cobble wall up - that is my arrow shadow` then fired
-once (09:37:40.321Z, an arrow-shadow corner-step, not an actual wall — no material to build one) ->
-hp 3.3 (09:37:46.625Z) -> hp 0.3 (09:37:49.624Z) -> hp 0 -> death (09:37:52.676Z). **My own monitor's
-hp-alert only fired at hp=3.3**, already late in a ~36s encounter — the 15s poll interval missed the
-earlier hp=6 window; worth tightening for future runs but not actionable mid-race. Confirmed
-zero-defense floor genuinely tried (BREAK_LOS -> flee attempt), not a bug: a bot with literally no
-filler cannot wall, and fleeing from a ranged attacker already at melee-adjacent range is a real,
-honest loss, not a ladder failure. Inventory checked post-respawn: `dirtx1` only (near-empty, one
-stray pickup) — confirmed via read-only `/eval`. Followed the same combat-loss-at-night branch: (11)
-`setProject({skill:'mineLane',args:{target:'stone',count:16}})` at 09:38:16.500Z, re-armed from the
-bottom. **Death-to-re-arm gap: 23.8s** (09:37:52.676Z -> 09:38:16.500Z), faster than Death #1's 48.2s.
+**CORRECTION (team-lead caught this, 2026-09-03): my first pass wrongly merged TWO separate deaths
+into one "Death #2" entry.** `server.log`'s own kill-attribution lines are the record of truth, not
+my narrative reconstruction — re-verified directly: line 61 `[11:37:16] shot by Skeleton`, line 66
+`[11:37:52] shot by Skeleton`, line 69 `[11:38:19] shot by Skeleton` — **three separate deaths in 63
+seconds**, a genuine respawn-camp, not one encounter. Corrected and expanded below.
 
-Steering calls: 11 total (see full list above). Deaths: 2 — #1 creeper blast + an untracked spider's
-finishing hits (`slain by Spider` per server.log, organic — see corrected writeup above); #2 shot by
-Skeleton while filler-less post-Death#1 (organic, zero-defense floor tried the right fallback,
-outrun-failed against a ranged attacker — not a bug). Monitor: armed —
+**DEATH #2 — 09:37:16.676Z, T+38m48s. `shot by Skeleton`.** HP 11.2 (09:37:10.724Z) draining fast
+under continuous BREAK_LOS re-engagement (`skeleton shooting from ~5, breaking line of sight`,
+repeating every ~0.25s) while `No cobble to wall in with. Kit rule broken - heading out the way I
+came` fired identically every cycle — **no filler blocks since Death #1's wipe, so WALL_OFF was
+physically impossible and the ladder correctly fell back to fleeing**, but distance to the skeleton
+never actually changed (4.6-5.8 blocks the whole time — the flee wasn't gaining ground) and
+`restock` itself refused (`failed: restock — health 2.2 <= guard`, the same too-hurt-to-do-anything
+guard class run #2's writeup already named). Died at 09:37:16.676Z. Respawned instantly
+(09:37:16.735Z) at (6.5,96,-3.5).
+
+**DEATH #3 — 09:37:52.676Z, T+39m24s. `shot by Skeleton`.** Death #2's respawn got ~6s of peaceful HP
+regen (17->19.8) before a skeleton (same one, or the location itself) re-engaged at 09:37:28.769Z
+(`shooting from 3.7`). `#103`'s respawn episode (`dmtlbzwrz1`) got answered by the DECIDER —
+`chopTrees`, 17095ms latency — a correctly-functioning but survival-irrelevant response (combat is a
+separate module from the project ladder). `Digging in for the night` (SHELTER, proactive) DID fire
+once, at 09:37:38.763Z, but the skeleton was ALREADY shooting from 2.5 blocks at that exact moment and
+stayed there — the dig-in never completed before HP hit 0. Died at 09:37:52.676Z. Respawned instantly
+(09:37:52.730Z) at (8.5,96,2.5) — a different but nearby point, all four respawns this run clustering
+within ~20 blocks of world spawn (no bed set).
+
+**DEATH #4 — 09:38:19.426Z, T+39m51s. `shot by Skeleton`.** Death #3's respawn drew fire within 3.2s
+(`skeleton shooting from 1.6` at 09:37:56.000Z — essentially immediate). **`Digging in for the night`
+never fired at all this cycle** — only the reactive `Walling myself in to patch up` (09:38:13.997Z),
+which failed for the same no-filler reason as Death #2. I re-armed (11)
+`setProject({skill:'mineLane',args:{target:'stone',count:16}})` at 09:38:16.498Z — this closed
+`#103`'s respawn episode manually (`closedBy:"manual"`, 21750ms latency) but had zero effect on
+survival, which is engine-owned and separate from the project ladder; died 2.9s later regardless.
+**Not a driver error** (the re-arm didn't cause or worsen anything — combat outcome was already
+determined by the same missing-filler/already-engaged pattern), but flagged since the timing looks
+close enough to want an honest note. Respawned instantly (09:38:19.488Z) at (-8.5,103,0.5).
+
+**Live finding, written up in FEEDBACK.md 09:40Z**: no "respawned at night with a hostile already in
+range → dig in before anything else" fast path exists. `#103` (open a direction episode on respawn)
+and SHELTER (proactive night shelter) each work correctly in isolation, but when a hostile is already
+within a few blocks at the exact moment of respawn, REFLEX/combat handling owns the body from tick
+one and SHELTER's own dig-in project never gets a turn — the gap is in the INTERACTION under this
+specific compound condition, not either rung alone. Team-lead's framing, evidence-supported: this is
+a respawn-camp failure mode. Not proposing a fix shape myself (agenda.js/survival.js, eng-3's lane).
+
+**Driver response, team-lead-directed**: held all further `setProject` calls from Death #4's respawn
+onward — no re-arm until either 60s of stable survival or dawn (`timeOfDay<12500`), letting the bot's
+own `FLEE_AWAY` escalation run uninterrupted rather than fighting the engine for control mid-crisis.
+Bot's own flee, unassisted, DID cover real ground afterward: (-8.5,103,0.5) -> (13,87,-3) over the
+next ~90s, ~16 blocks of descent and real horizontal distance, HP stabilizing around 6-8 rather than
+continuing to 0 — first sign this specific spawn-camp cycle may be breaking on its own.
+
+Steering calls: 11 total (see full list above; none issued during the held window). Deaths: 4 — #1
+creeper blast + an untracked spider's finishing hits (`slain by Spider` per server.log, organic); #2,
+#3, #4 all `shot by Skeleton`, a genuine 63-second respawn-camp with zero filler blocks throughout
+(see live finding above) — all organic, no driver error, DEAD-STOP will apply if a 5th death occurs
+before the bot escapes the camp with no further legal recovery. Monitor: armed —
 actionable-only filter (milestone first-seen, death/damage, hp<8/food<6, rung-stuck>90s,
 `needs_direction` opened, server errors) per team-lead's tightened cadence, plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans.

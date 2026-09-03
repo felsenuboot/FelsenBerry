@@ -5005,3 +5005,46 @@ fix: `bench/lib/latency-breakdown.mjs` (new). `metrics.mjs` (`--direction-gate` 
 remain the graded numbers). `bench/humanbar.mjs` (scratch-dir copy mirrors `bench/lib/`).
 `bench/fixtures/latency-breakdown.mjs` (new, 19/19, hermetic).
 github: n/a (instrument-only)
+
+---
+### 2026-09-03 09:40Z — test-driver — run #6 live finding: no "respawned at night → dig in NOW" reflex — a respawn into an already-engaged hostile never gets a chance to shelter, `#103`+`#105` interaction
+Caught live on GammelGerhard: **3 deaths in 63 seconds** (09:37:16, 09:37:52, 09:38:19, all `shot by Skeleton` per
+server.log), each one a respawn that drew hostile fire again within seconds, cycling faster than any defense
+could set up. My own first-pass record wrongly merged two of these into one encounter (team-lead caught it,
+corrected against server.log's own kill lines — the authoritative source, not my narrative reconstruction).
+
+Precise mechanism, from the logs:
+- Death #2's respawn (09:37:16.735Z) got ~6s of peaceful HP regen (17->19.8) before a skeleton engaged at
+  09:37:28.769Z ("shooting from 3.7"). `#103`'s respawn episode (`dmtlbzwrz1`) was still open and got answered by
+  the DECIDER with `chopTrees` at 09:37:35.849Z — irrelevant to survival, since combat/REFLEX is a separate
+  module from the `agenda` project ladder, but worth noting the respawn-episode mechanism itself worked exactly
+  as designed here. `Digging in for the night` (SHELTER, proactive) DID fire once, at 09:37:38.763Z — but the
+  skeleton was already shooting from 2.5 blocks at that SAME moment and stayed there; the dig-in never completed
+  before HP hit 0 at 09:37:52.676Z (Death #3).
+- Death #3's respawn (09:37:52.730Z) got barely 3s before re-engagement: `skeleton shooting from 1.6` at
+  09:37:56.000Z — essentially immediate. **`Digging in for the night` never fired at all this cycle** — only the
+  REACTIVE `WALL_OFF` (`Walling myself in to patch up`, 09:38:13.997Z) tried, and failed to build (no filler,
+  same root cause as Death #2's writeup — inventory wiped by Death #1, never restocked in the ~90s since). Died
+  again at 09:38:19.426Z (Death #4).
+- Death #4's respawn (09:38:19.488Z) drew fire within 7.6s (`skeleton shooting from 7.1` at 09:38:27.007Z) but
+  this time the bot's own `FLEE_AWAY` escalation (no wall material, no weapon presumably lost too) actually
+  covered real ground — position moved from (-8.5,103,0.5) to (13,87,-3) over the next ~90s, descending ~16
+  blocks and putting real horizontal distance between itself and the threat, HP stabilizing around 6-8 rather
+  than continuing straight to 0. Bot was still alive as of this writeup.
+
+**The gap, stated precisely**: SHELTER (agenda rung, prio 2.5, meant to fire proactively "digging in for the
+night") only got to act on ONE of three post-death nights, and even then too slowly to finish before the next
+hit landed. On the other two, an already-engaged hostile (shooting within 1.6-3.7 blocks of the respawn point)
+meant REFLEX/combat handling owned the body from the first tick, and SHELTER's own project-level dig-in never
+got a turn — there is no "respawn detected AND it's night AND a hostile is already in range → dig in before
+anything else, even before the standard `#103` episode-open flow" fast path. `#103` (open a `needs_direction`
+episode on respawn) and `#105`/SHELTER (proactive night shelter) both work correctly in isolation — the gap is
+in their INTERACTION under this specific compound condition (respawn + night + hostile already in weapon range
++ zero filler blocks from a prior death). Team-lead's framing, which the evidence supports: this is a genuine
+respawn-camp failure mode, not a single-rung bug.
+**Not proposing a fix shape myself** (agenda.js/survival.js are eng-3's lane) — flagging the precise mechanism
+and the three-death evidence trail so whoever designs the fix has the exact reproduction case. Driver response
+per team-lead's steer: held all `setProject` calls from Death #4's respawn onward, letting the bot's own
+survival modules (FLEE_AWAY) run uninterrupted until either 60s of stable survival or dawn, rather than
+re-arming a mining project into an active spawn-camp.
+github: felsenuboot/FelsenBerry (companion to `#103`/`#105`; respawn-into-active-combat gap)
