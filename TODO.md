@@ -55,7 +55,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    frozen-repeat dedup keys on position so it can't catch it. Design: N same-remedy failures across positions →
    escalate (bigger relocate / different remedy class); pairs with the held #95 follow-ups. Also: MampfManfred after
    the grade = a NATURAL "frozen while gathering wood" specimen — diagnose live (R2 tooling).
-5d. **PROJECT standDown backoff keyed on rung, not project** (eng-3, from run #6 live, test-driver FEEDBACK ~09:14Z): a driver/decider
+5d. **PROJECT standDown backoff keyed on rung, not project** (#112, eng-3, from run #6 live, test-driver FEEDBACK ~09:14Z): a driver/decider
    `setProject()` redirect issued while PROJECT is cooling down from the PREVIOUS project's failure sits inert for the rest of that
    cooldown, then gets its own false `project_stalled` episode (one showed 128s "latency" that is standdown carryover). Fix: key the
    backoff on (rung, project skill+args) or reset it on setProject; fixture in agenda-ladder.js. Grader side (engine-dev): the
