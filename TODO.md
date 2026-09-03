@@ -17,13 +17,16 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    ./list.sh first, always. `./bench/preflight.sh <port>` = regression (203/203 expected at 0dbde11+).
 5. Decider daemon: `[SOAK_BOT=<name>] setsid nohup node decider.js > logs/decider.log 2>&1 &`
    (state persists in decider-state.json/decisions.jsonl; liveness = state-file mtime, NOT log silence).
-6. Teammates (Agent tool WITH name, ONE at a time + verify members; Sonnet): engine-dev-3
+6. **Keep the PC awake for unattended runs** (the machine went idle 2026-09-03 ~00:00 and froze everything):
+   `setsid nohup systemd-inhibit --what=idle:sleep:handle-lid-switch --who=FelsenBerry --why="overnight bot operation" --mode=block sleep infinity &`
+   (hypridle honors logind inhibitors by default; verify with `systemd-inhibit --list`). Kill it at wind-down.
+7. Teammates (Agent tool WITH name, ONE at a time + verify members; Sonnet): engine-dev-3
    (skills/agenda/producer/decider), engine-dev (QA/telemetry/metrics/survival/grader),
    test-driver (races), issue-manager (tracker sync — hasn't run since ~104 issues; due).
    PUT IN EVERY SPAWN PROMPT: drain inbox at every task boundary (chronic cross-in-transit
    all day); commit with explicit pathspecs only; OWNER/PURPOSE on every spawn; ack-before-edit
    on any cross-lane file (even break-glass); wall-clock timers are the LEAD's job only.
-7. Lead monitors to re-arm: cavecrew watch (100.101.197.44:25565; on UP → fleet reconnect
+8. Lead monitors to re-arm: cavecrew watch (100.101.197.44:25565; on UP → fleet reconnect
    3101-3105 + AFTER-playcheck vs stored baseline) + night-pulse (scratchpad script gone; rebuild:
    poll test-driver-owned bots' agenda rung → alert IDLE streaks; tail both server logs for
    <Felsenuboot> chat = supervisor wake).
