@@ -50,11 +50,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    (foodItems==0 && hunger ≤ ~12 → huntAnimals w/ widening radius → harvest/farm fallback → backoff) + a zero-token
    rules.json entry. Starvation ended runs #1/#2 too.
 5c. ~~Same-remedy-repeats-across-positions escalation~~ DONE (#110; landed inside 16604e7 by a shared-index commit race — content is eng-3's: A.remedy class counters wood_gather/depot_reach, REMEDY rung prio 4.8, tier 1 = relocateToWork hops 64, tier 2 = directed 128-block findBlock + come; ledger event `remedy_escalate`; agenda-ladder 46/46, preflight 224/224; live-verified tiers on 25599). Corrected diagnosis: the (-21,108) wedges were RESTOCK failing to REACH THE DEPOT (route), the (-45,114) site was clean wood-search failure — both now classes of the same mechanism. Grader for `remedy_escalate` = engine-dev (soak #5).
-5d. **PROJECT standDown backoff keyed on rung, not project** (#112, eng-3, from run #6 live, test-driver FEEDBACK ~09:14Z): a driver/decider
-   `setProject()` redirect issued while PROJECT is cooling down from the PREVIOUS project's failure sits inert for the rest of that
-   cooldown, then gets its own false `project_stalled` episode (one showed 128s "latency" that is standdown carryover). Fix: key the
-   backoff on (rung, project skill+args) or reset it on setProject; fixture in agenda-ladder.js. Grader side (engine-dev): the
-   latency breakdown must attribute standdown carryover so it can't read as decider latency.
+5d. ~~PROJECT standDown backoff keyed on rung, not project~~ DONE (#112, 3c7c3b7 — A.setProject resets PROJECT unproductive/standDown/standDownCount + restarts the stall clock on every call; A.owner untouched; agenda-ladder 52/52, preflight 230/230, live-verified). Grader side (engine-dev) still owed: latency breakdown attributes standdown carryover.
 5e. **skills.js FOODS allowlist missed #108 + huntAnimals species widening** (eng-3, from run #6 live, test-driver FEEDBACK ~09:31Z,
    BEFORE #112 — it is small and it gates stone→iron on food): (a) skills.js's excursion-kit FOODS allowlist never got #108's raw-meat
    additions (only agenda.js's copy did) → a hunted porkchop cannot satisfy mineLane/chopTrees' food-kit gate; make ONE shared FOODS
