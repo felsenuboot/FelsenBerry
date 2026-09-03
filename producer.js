@@ -92,24 +92,41 @@ async function digAt(bot, pos, force) {
 // mine ore/stone until `want` of `product` is in inventory or nothing reachable remains.
 // chk() is the cancellation hook (ctx.step when run as a skill) — it THROWS to stop cleanly.
 async function mineProduct(bot, oreNames, product, want, steps, chk) {
+  const oreIds = idsOf(bot, oreNames);
+  const noun = product === 'coal' ? 'coal' : 'ore';
+  // TODO 7c (#71): cheap existence check BEFORE spending anything on a pickaxe. Live-caught:
+  // a bot with no pickaxe AND no ore nearby (the produce('torch') coal-fallback path from a
+  // sealed/deep spot, no reachable stone-tier ore at all) used to call `S.ensureTool(bot,
+  // 'pickaxe', {})` UNCONDITIONALLY first — which, holding nothing, tries to bootstrap a whole
+  // wooden pickaxe from scratch (gather logs, craft planks/sticks/table) before ever checking
+  // whether there was anything to MINE with it. Measured live: 25.6s spent acquiring nothing,
+  // every single retry cycle (every PRODUCE_COOLDOWN_MS, agenda.js), before finally falling
+  // through to `no_pickaxe`/`no_fuel` — not a literal infinite loop, but a real, recurring,
+  // wasted-effort deadlock from a live bot's perspective ("parks one torch short forever").
+  // The SAME origin-anchored, protection-filtered scan the real mining loop below uses (#91's
+  // own doctrine — bounded, not a wandering search) decides in one cheap `findBlocks` call
+  // whether acquiring a tool is even worth attempting.
+  const origin = bot.entity.position.clone();
+  const floorY0 = Math.floor(bot.entity.position.y) - MAX_MINE_BELOW;
+  const anyOreNearby = bot.findBlocks({ matching: oreIds, maxDistance: MINE_RADIUS, count: 1 })
+    .some((p) => !isProt(bot, p) && p.y >= floorY0 && p.distanceTo(origin) <= MINE_RADIUS);
+  if (!anyOreNearby) { steps.push('mine:no_' + noun + '_nearby'); return { ok: false, made: 0, how: 'mined', reason: 'no_' + noun + '_nearby', steps }; }
   const tr = await S.ensureTool(bot, 'pickaxe', {});
   steps.push('pick:' + tr.how);
   if (!tr.ok) return { ok: false, made: 0, how: 'mined', reason: 'no_pickaxe', steps };
   if (bot.inventory.emptySlotCount() === 0) return { ok: false, made: 0, how: 'mined', reason: 'no_space', steps };
-  const oreIds = idsOf(bot, oreNames);
   const start = inv(bot, product);
-  const noun = product === 'coal' ? 'coal' : 'ore';
   // #91 forensics (OhneHoseOtto, GEAR-RACE run #1, 2026-09-02): findBlocks was centred on the
   // bot's CURRENT position every scan, with no bound on how far the WHOLE multi-scan pass
   // could wander chasing "nearest unmined stone" — over up to 60 iterations that is an
   // unbounded random walk, and it is what actually dug this bot into a fully-enclosed dead
   // end with no path back (the #89 specimen; NOT a WALL_OFF seal — zero panic/danger events
   // ever fired for that bot — and NOT mineLane, which never once ran there, always
-  // kit_missing). Anchor the search to where THIS CALL started, same MINE_RADIUS, so a
-  // mining pass explores a bounded area instead of marching progressively further with every
-  // scan. Nothing left reachable within that area now hits the existing "found.length===0"
-  // exit and reports partial — the same honest stop, reached for the right reason.
-  const origin = bot.entity.position.clone();
+  // kit_missing). Anchor the search to where THIS CALL started (same `origin` as the
+  // existence check above), same MINE_RADIUS, so a mining pass explores a bounded area
+  // instead of marching progressively further with every scan. Nothing left reachable within
+  // that area now hits the existing "found.length===0" exit and reports partial — the same
+  // honest stop, reached for the right reason.
   let scans = 0, stagnant = 0, spaceOut = false;
   while (inv(bot, product) - start < want && scans++ < 60) {
     chk();
@@ -470,14 +487,14 @@ S.define('produce', {
 
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 8,
+  version: 9,
   restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 8, boundAt: Date.now(), stale: false };
+REG.producer = { version: 9, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 8,
+return { installed: true, version: 9,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
   resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table', 'cooked_meat'],

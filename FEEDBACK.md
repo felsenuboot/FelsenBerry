@@ -5718,3 +5718,57 @@ fix: `decider.js` (`mapAndyCommand`'s species branch now returns `types:'any'`;
 `mapAndyCommand` added to `module.exports`). `bench/decider-latency-replay.js` (+5 cases,
 17/17 total).
 github: felsenuboot/FelsenBerry#73 (TODO 7b)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 7c: RESTOCK torch deadlock — mineProduct wasted ~25s
+bootstrapping a pickaxe before ever checking there was anything to mine (#71, producer v9)
+type: fix + fixture
+status: built, live-verified (real bot, real sealed test area, real timing before/after),
+`bench/fixtures/producer-torch-fuel.js` (new, self-calibrating — 0/0 on this run's spawn spot
+since coal/logs happened to be reachable, correctly skipped rather than faking a pass/fail;
+same discipline as producer-cook.js), `bench/preflight.sh` 275/275. Nothing near 25600 (soak
+#5) throughout — confirmed still fine before/after.
+
+what: re-checked the code before building anything (matching TODO 7a's own lesson from
+earlier today) — `produce('torch')` ALREADY had the coal→charcoal fallback and an honest
+`{ok:false,reason:'no_fuel'}` failure report (landed as the historical `#71` fix, cherry-picked
+44d4bed per FEEDBACK's own much older entries). So the literal "no charcoal path" framing
+didn't match the code. Found the REAL gap by live-testing the worst case directly: sealed a bot
+into a small stone box (RCON `fill ... hollow`, no wood/ore reachable) and timed
+`S.produce(bot, 'torch', 4)` — **25.6 seconds** to reach the correct `no_fuel` conclusion.
+Root cause: `mineProduct` (the coal-mining half of the fallback) called `S.ensureTool(bot,
+'pickaxe', {})` UNCONDITIONALLY, before ever checking whether there was any ore to mine WITH
+that pickaxe — holding nothing, `ensureTool` tries to bootstrap a whole wooden pickaxe from
+scratch (gather logs, craft planks/sticks/table), all of it wasted if there is no ore reachable
+either. Not a literal infinite loop (`PRODUCE_COOLDOWN_MS` bounds the RETRY cadence to once per
+2 minutes), but a real, recurring, wasted-effort cost EVERY cycle — exactly what "parks one
+torch short forever" looks like from a live bot's own perspective, even though the underlying
+mechanism was never technically stuck.
+
+fix: a cheap existence check (one `findBlocks` call, reusing the SAME origin-anchored,
+protection-filtered bounds `#91`'s own doctrine already established for the real mining loop)
+runs BEFORE `ensureTool` — if nothing is even findable, return the honest `no_<ore>_nearby`
+result immediately, no tool acquisition attempted. Measured live, same sealed box, same
+starting inventory: **542ms** (confirmed via `steps:['mine:no_coal_nearby','smelt:no_logs']`)
+— a ~47x reduction, and this is now the SHARED path for every `mineProduct` caller (coal for
+torches, cobblestone/stone for filler), not just the torch chain.
+
+Live-verified both sides: (1) the FAST path (sealed box, genuinely nothing reachable) — 542ms,
+confirmed above. (2) the ORDINARY path still works correctly when ore genuinely IS nearby — a
+second live probe (high in the sky over unloaded terrain, standing on a single placed block, no
+coal within 20 blocks) confirmed the existence check itself costs single-digit-to-double-digit
+milliseconds regardless of outcome (4ms when ore found, 24-96ms when not) — the fix adds
+negligible overhead to the case where mining genuinely proceeds.
+
+`bench/fixtures/producer-torch-fuel.js` (new): self-calibrating against the bot's ACTUAL
+current position/inventory — the timing assertion (must resolve in <10s, a generous regression
+guard against the measured ~25s pre-fix cost, not a tight performance bound) only runs when the
+bot genuinely holds no fuel AND has no coal/logs reachable, verified independently first. Ran
+0/0 (correctly skipped) on this session's own preflight bot, spawned near a resource-rich area
+— matches producer-cook.js's own precedent for a live-terrain-dependent case that most spawns
+won't happen to satisfy.
+
+fix: `producer.js` (`mineProduct`'s existence pre-check, moved `oreIds`/`noun` computation
+ahead of `ensureTool` — v9). `bench/fixtures/producer-torch-fuel.js` (new). `bench/
+preflight.sh` (added `producer-torch-fuel` to the fixture list).
+github: felsenuboot/FelsenBerry#71 (TODO 7c)
