@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "054007243cfb",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "SCOREBOARD.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/05/4007243cfb/0/metadata.json",
+      "transcript": "/05/4007243cfb/0/full.jsonl",
+      "compact_transcript": "/05/4007243cfb/0/transcript.jsonl",
+      "content_hash": "/05/4007243cfb/0/content_hash.txt",
+      "prompt": "/05/4007243cfb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5993,
+    "cache_creation_tokens": 287872,
+    "cache_read_tokens": 15905263,
+    "output_tokens": 60450,
+    "api_call_count": 114
+  }
+}
