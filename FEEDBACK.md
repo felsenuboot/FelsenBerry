@@ -6196,3 +6196,75 @@ food demand was hit on soak #5's very first hour.
 fix: n/a (audit only — awaiting lead's call on priority/whether this gates soak #6 or is a
 follow-up TODO)
 github: felsenuboot/FelsenBerry#120 (TODO 5l) — third ask, reporting the table as requested
+
+---
+### 2026-09-03 engine-dev — #121 (TODO 5n) BREAK_LOS escalation landed; FLEE_AWAY-under-fire flagged as the remaining blocker
+
+Design was ACK'd by the lead in-message before code (WALL_OFF-if-filler -> unarmed
+counter-attack if cornered/desperate -> FLEE_AWAY, "escalate, never loop", streak expires
+after 10s not just on threat-id change, fist-loop ledgers its outcome via the same
+two-surface emit as the other branches). Implemented, live-verified on 25599 with fresh
+bots per run (a stale in-memory payload silently ran old code once mid-pass — lesson
+re-learned: always respawn after editing survival.js before re-testing), committed as
+365fdad (survival.js v14 + telemetry.js's M.panic `extra` param).
+
+Two-surface ledger emit confirmed for real, not just by reading the code: pulled
+`metrics-<bot>.jsonl` directly and saw `{phase:'recovered', branch:'BREAK_LOS', how:'fist',
+hits, killed, threatHpBefore/After/Delta, escalated:true}` land for real fist encounters.
+
+Three live bugs found and fixed during verification (all three are in the commit, all
+three were caught the honest way — real deaths/near-deaths against real summoned
+skeletons, not drills):
+1. `cornered`/`desperate` too loose (<=2 blocks / hp<8, no reach gate) — fired fists into
+   a losing kite trade at 2-3.2 blocks, and once at 4.6-6 blocks (unreachable, wasted a
+   whole escalation cycle). Tightened to <=1.5 / hp<4 + an explicit `reachable` gate.
+2. a no-progress ending used to just return 'none' and wait for the NEXT enter() call to
+   escalate — but dangerscan's onDanger is edge-triggered (fires once per panic-state
+   transition, not every scan tick), so with no cover and no filler the only other trigger
+   left was the hp<8 backstop. Measured: HP 20->7.33 over 9 fully unopposed seconds on
+   exactly this path before a second call ever got a chance to escalate. No-progress now
+   escalates within the SAME call.
+3. `desperate` (hp<4) is sticky once true, so with no per-streak memory the bot re-picked
+   fist on every single escalation call even after a swing landed nothing on the last one —
+   5 straight fist cycles, HP 7.3->1.3, before finally connecting by luck. New
+   `g.breakLosStreak.triedFist` caps it at one bare-hand attempt per streak; a second
+   no-kill call falls through to FLEE_AWAY instead of repeating the same losing trade.
+
+Armed-path check (the ACK's other explicit ask — "prove the armed path is byte-for-byte
+unchanged"): confirmed at the code level, phase (c) — the kill window, survival.js
+~line 710-757 — has zero lines touched by this change. Live confirmation is partial: two
+separate live attempts with a real sword and a real skeleton never got the sword-fight
+condition (threat within 2 blocks AND health>=rushHp simultaneously) to hold long enough
+to watch a full kill through — both times the pre-existing gate correctly declined the
+fight for the same reason it always would have (skeleton kiting outside 2 blocks, or HP
+already below rushHp by the time it closed), which is consistent with unchanged behavior
+rather than evidence of a regression, but isn't the clean "watched it kill" trace I'd
+prefer. Flagging the honest limit rather than rounding it up to "verified."
+
+**Remaining blocker, NOT fixed here, reported rather than unilaterally redesigned**:
+`bench/fixtures/induced-stress-sequencing.sh` is not yet a clean 3/3 unarmed pass. Not
+because of anything in #121's scope — sequencing is clean, BREAK_LOS fires correctly, no
+rung thrash, no death — but because `branchFleeAway` itself (pre-existing code, untouched
+by this commit) takes continuous, effectively unopposed damage while retreating in the
+open: it targets raw distance (`GoalInvert(GoalFollow(ent,12))`) with no line-of-sight
+bias, so a skeleton with a clear shot keeps shooting the entire 8s retreat. Measured
+across two clean-sequencing live runs: hpMin 1.3 and hpMin 0.5 (fixture's own bar is
+hpMin>=6 to count as a pass, not just "didn't die"). This is exactly the "Bernd death"
+pattern survival.js's own header comments already warn about elsewhere (fleeing a ranged
+mob in the open doesn't stop it from shooting) — it's the FLEE_AWAY floor tier the lead's
+design explicitly specified as the final fallback, so surfacing this now rather than
+quietly shipping a fixture that still doesn't hit 3/3, or redesigning flee's targeting
+strategy without checking in first (same "design in one message before code" practice as
+#121 itself).
+
+Also surfaced, unrelated, not investigated further (not my lane, flagging only): an
+earlier run of this fixture (before the fixes above) logged a rung-sequence THRASH —
+"EAT_CRITICAL REFLEX EAT REFLEX EAT" — only visible now because BREAK_LOS survives long
+enough for hunger-driven EAT cycling to manifest. No agenda.js/EAT changes were made in
+this session; flagging for whoever owns that rung.
+
+fix: survival.js v11->v14 (this session, cumulative); telemetry.js M.panic `extra` param
+commit: 365fdad
+github: felsenuboot/FelsenBerry#121 (TODO 5n) — escalation + ledger landed; FLEE_AWAY-
+under-fire is the open remainder, awaiting the lead's call on whether it's in-scope for
+#121 or a new follow-up issue
