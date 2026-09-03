@@ -13,6 +13,9 @@ Milestones, curated. Everything else: `git log`. Engine payload versions live in
   all four live-fired; API `__survival.shelter.*` for the SHELTER agenda rung (pending).
 - **#106** raw block light is permanently 0 underground even beside a torch (never truth); composite spec in flight.
   LIGHT-rung torch-spam hypothesis disconfirmed by 435 ledger firings.
+- **Instruments**: `bench/trail.mjs` (criterion-4 human-trail inspector: floating logs, stranded drops, naked shafts,
+  torch density — live-verified both directions) and `bench/humanbar4.mjs` (all four human-bar criteria, one verdict;
+  soak-3 retro: FAIL on criterion 2 alone).
 - Ops: repo renamed felcrew-mcp → FelsenBerry and moved to the ghq layout; auto-push hook; pathspec-only commits;
   keep-awake inhibitor after a 9-hour hypridle suspend (23:54→09:06).
 

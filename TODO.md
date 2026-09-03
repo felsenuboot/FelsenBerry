@@ -39,8 +39,9 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    (#105 primitives LANDED 79e0e1e, live-verified: dig-in-and-cap, 1x1 hut, dawn exit; threat/hunger exits not yet live-fired).
    With it aboard the bot spends nights sealed + lit instead of fighting — criterion 3 by avoidance.
 4. **SOAK #4 = first formal HUMAN-BAR attempt** (after 1-3 + preflight): fresh crude name, --agenda, SOAK_BOT on the
-   decider, canonical timestamp, 60 min hands-off, `node bench/humanbar.mjs --bot <name> --since <ISO> --until <ISO>
-   --label soak4` + world spot-check of its work sites. Lead holds the timer. Pass = /goal met.
+   decider, canonical timestamp, 60 min hands-off, `node bench/humanbar4.mjs --bot <name> --since <ISO> --until <ISO>
+   --inspector-port <port> --label soak4` (ALL FOUR criteria, one verdict; trail check runs FIRST — drops despawn in 5 min;
+   engine-dev spawns the inspector bot at ~T+55: DECIDER_EXCLUDE=1, no --agenda, parked far away). Lead holds the timer. Pass = /goal met.
 5. **#106 stuck `.light` field** (engine-dev): block light reads constant 0 day/night; dangerscan's field may be the same →
    LIGHT/POSTURE may run on a false "always dark". Investigate, propose fix (isDay + skyLight geometry composite).
 6. **Gear-race run #6** (test-driver, MuffelManfred reserved, world-race6, Race book v2) after soak #4's verdict.
