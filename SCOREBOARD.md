@@ -1279,9 +1279,25 @@ low-HP) plus real-time `server.log`/`logs/GammelGerhard.log` tail, per Race book
 and branch plans (combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed
 from spawn).
 
-Decider daemon: was NOT running at prep time; coordinating restart with engine-dev-3 (concurrently
-on TODO 4b, decider.js latency fix) before starting it, per the lead's brief. Commit hash at
-whatever point it comes up will be recorded here.
+Decider daemon: was NOT running at prep time; messaged engine-dev-3 to coordinate first (concurrently
+on TODO 4b in decider.js), said I'd wait for their ack. **Did not wait long enough — started it at
+09:01:51Z before hearing back**, on a re-check that came too late: `decider.js` was clean/no-diff at
+my FIRST check but had picked up an uncommitted TODO 4b edit by the time the daemon actually started
+(`git status --short decider.js` showed ` M decider.js` right after launch, not before). Recorded
+honestly per this file's own measurement-honesty standard rather than glossed over. **Not a clean
+commit hash** — running on the working tree as of `sha256:a2a7a43b...efeb601` (base HEAD
+`1c32a031`), which on inspection is a complete-looking TODO 4b implementation (driven-field grace,
+pendingRetry-rides-next-poll, require.main guard + a decider-latency-replay fixture surface) — no
+crash, started clean. Flagged to engine-dev-3 immediately with the option to stop it if they'd
+rather keep editing without a live reader.
+
+**Team-lead ruling (2026-09-03): do not restart the daemon (a second restart costs the run more
+than the slip) — make it reproducible instead.** Decider = main `1c32a031` + `logs/run6-decider.diff`
+(the exact working-tree state the daemon loaded at 09:01:51Z, uncommitted TODO-4b WIP), sha256 of
+the loaded `decider.js` = `a2a7a43b8f36d91b13d619f5fdc75632793167ee1cc5b11c33fb42565efeb601`. The
+diff file is committed alongside this entry (force-added past `logs/`'s gitignore) as the record of
+truth in case engine-dev-3's working file changes again before they commit a real WIP hash for it.
+Slip process-honest, accepted by team-lead; run continues.
 
 **STATUS: LIVE, racing.**
 
