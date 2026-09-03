@@ -5488,3 +5488,47 @@ fixture) comment's own reasoning generally rather than assuming it only held for
 fix: `survival.js` (`diginDepth`, `shelterDigIn(depth=2)`, `shelterBuild()`'s spawn-camp branch
 — v13).
 github: felsenuboot/FelsenBerry#116 (TODO 5g item 4)
+### 2026-09-03 engine-dev — soak-hour task before T+55 cue: wall-off-multithreat fixture made deterministic (#119) + self_recovered stall bucket named
+type: fix + fixture
+status: both landed, verified
+
+**(1) #119 — the fixture is now a real, deterministic regression guard.** Re-ran it 3x back to
+back after each fix: PASS/PASS/PASS, `hpMin=20` every time (zero combat risk), `threatsNamed=2`
+every time, "Also zombie at 2 blocks - didn't see that one before." corroborated in the actual
+runner.js chat log every time. Three real harness bugs found, none in the survival.js fix
+itself: (a) `NoAI:0b` (live-attacking) zombies against an unshielded bot doing nothing but
+`placeAt()` calls for several real seconds killed it outright THREE separate times across this
+and the prior session (server.log: `... was slain by Zombie`), independent of starting HP —
+both hp=12 and hp=20 died this way, because `branchWallOff` deliberately does not fight back
+until HP<4 AND still falling (by design, not a bug). Switched to `NoAI:1b`: dangerscan's own
+`scan()` only reads `e.type`/`e.name` (unaffected by AI state — a NoAI zombie is still
+`'hostile'`/`'zombie'`, scores identically, still crosses `panic()`'s threshold), so the
+PROACTIVE detection path (the one this fixture is actually for) is tested exactly as
+thoroughly with zero death risk. The REACTIVE path (mid-wait-loop, real damage, real recovery
+from ~0.8 HP) stays separately live-confirmed from the original 5f work
+(2026-09-03T10:18:22Z) — not re-tested here, no need to re-risk it for the same evidence.
+(b) The corroborating chat-line check read the WRONG source: `__skills.status(bot,0).log` is
+`pushLog()`'s own internal diagnostic ring (agenda transitions, danger alert/panic lines) — a
+completely different sink from `say()`/`bot.chat()`, which is what "Also zombie..." actually
+goes through. No slice width (tried -20, then -80) would ever have found it there; fixed by
+tailing the bot's own runner.js log file directly (`logs/<name>.log`, same machine/checkout as
+the fixture itself). (c) widened the read window as defense in depth even with (b) fixed, since
+an `--agenda` bot's own post-encounter activity (IDLE -> collectDrops sweep, REFLEX/POSTURE
+transitions) pushes real lines fast.
+
+**(2) `self_recovered`-after-owner-latch bucket, named in the latency breakdown** (per the
+lead's ask, tying back to task 3's own #117 find): an episode that closes `closedBy:
+'self_recovered'` with ZERO decisions.jsonl attempts was never touched by the decider at all —
+the agenda LADDER recovered on its own. That was previously lumped into the generic
+`unattributedMs` bucket (honest, but not named) — `selfRecoveredStallMs` re-homes whatever
+`standDownCarryoverMs` doesn't already explain on exactly that shape into its own field, so a
+future soak's grader can name #117's specific failure mode (a rung latched on a dead end until
+an unrelated event knocked it loose) instead of re-diagnosing it by hand every time it recurs,
+same doctrine as the driver-grace/standdown-carryover buckets before them. 7 new fixture cases
+(26/26 total): the real #117 shape (146113ms, fully named), stacked with an inherited standDown
+(carryover subtracted first, only the true remainder named), and the negative case (self_recovered
+WITH a real decider attempt present — must NOT be mistaken for this failure mode).
+fix: `bench/fixtures/wall-off-multithreat.sh` (NoAI:1b, chat-log source fix, wider window).
+`bench/lib/latency-breakdown.mjs` + `bench/fixtures/latency-breakdown.mjs` (`selfRecoveredStallMs`,
+26/26). `metrics.mjs` (console line for the new bucket).
+github: felsenuboot/FelsenBerry#119 (TODO 5k); #117 (bucket names the stall this file already found)

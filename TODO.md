@@ -70,7 +70,12 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    `node bench/humanbar4.mjs --bot <name> --since <join> --until <join+60m> --inspector-port <p> --label soak5`. Pass = /goal met.
 5j. **Cook/smelt skill** (#118, eng-3, soak-hour task on 25599): furnace path for raw meat (reuse producer.js station lookup + fuel),
    argue saturation math in FEEDBACK before wiring into FOOD; ship unwired if not worth it.
-5k. **wall-off-multithreat fixture deterministic** (#119, engine-dev, before the T+55 cue): agenda ≥34 bot, controlled summons.
+5k. ~~wall-off-multithreat fixture deterministic~~ DONE (#119, a177a4a — three real harness bugs: NoAI:0b real-combat RNG
+   killed the bot outright 3x independent of starting HP, switched to NoAI:1b (dangerscan scores by type/name, unaffected,
+   zero death risk); corroborating chat check read the WRONG log source (`__skills.status().log`'s internal diagnostic
+   ring, not say()/bot.chat()'s actual sink) — no slice width would ever have found it, now tails the bot's own runner.js
+   log directly; widened the read window as defense in depth. Re-run 3x back to back: PASS/PASS/PASS, hpMin=20 each time,
+   threatsNamed=2, "Also zombie..." corroborated in the real chat log each time.
 6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. **POST-SOAK-#5 QUEUE** (from issue-manager's 2026-09-03 tracker triage; order by blast radius on the human bar):
    a. #74 relocateToWork false-success (reports ok with 0 m moved) — the REMEDY rung (#110) now depends on it; a lying primitive corrupts escalation + soak telemetry. eng-3.
