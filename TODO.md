@@ -56,11 +56,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    lane; run #6 death #1 09:30:17–21Z, test-driver f50f6b7): -10 HP co-timed with "Creeper at 2.8 blocks", then three -2 bite drops with
    NO dangerscan mention of a spider. Threat tracking must hold N threats (nearest-first) and WALL_OFF must not run mid-build with an
    unseen melee attacker landing hits — re-scan on damage-without-named-source. Fixture against real mobs on 25599 (RCON summon OK there).
-5g. **Respawn camp: respawned at night with an empty inventory → walks → shot again** (#116, eng-3, agenda/survival, from run #6:
-   server.log deaths 09:37:16 / 09:37:52 / 09:38:19Z — three in 63s at world spawn, the last 3s after a re-arm). #103 opens an
-   episode on respawn but nothing says "it is night and I have nothing: dig in FIRST". Design: on respawn at night (or hostile within
-   16 blocks), SHELTER runs before any project/kit work, with dirt-dig fallback when there is no filler; also a spawn-camp counter
-   (N deaths within M s of respawn → dig-in + wait-for-dawn regardless). Fixture in agenda-ladder; live on 25599 with RCON-set night.
+5g. ~~Respawn camp~~ DONE items 1-3+5 (#116, 89ab46b — bot-level death ring + spawnCampCheck (3 in 90s; release on window age-out / dawn+60s stable / 10-min cap), SHELTER fires on spawnCamped or justRespawned+(night|hostile), safeFire() suppresses TOOL/RESTOCK/FOOD/LIGHT/PROJECT/ESCAPE while camped, `spawn_camp` ledger event; two re-injection bugs fixed (death listener double-registration, A-vs-bot state); agenda-ladder 67/67, preflight 257/257, live RCON-kill verified). Corrected mechanism: SHELTER already outranks project work; the gaps were late start after respawn and no dispatch suppression. **Item 4 open** (survival.js diginStandable dirt-dig fallback when camped) — engine-dev, diff sent for ack.
 5h. **EAT/EAT_CRITICAL owner-latch deadlock at foodCount 0** (#117, eng-3, agenda.js, HIGH; engine-dev live find on 872aa07, FEEDBACK ef0fe53):
    EAT (prio 4) / EAT_CRITICAL (prio 2) fire on food≤N && foodCount>0 and clear on food≥19; once latched, choose() never re-checks the
    owner's own fire() — after eating the LAST item without reaching 19, fire()=false, clear()=false, and FOOD (6.5) cannot preempt →
