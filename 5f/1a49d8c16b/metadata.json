@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "5f1a49d8c16b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "bench/fixtures/induced-stress-sequencing.sh",
+    "survival.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5f/1a49d8c16b/0/metadata.json",
+      "transcript": "/5f/1a49d8c16b/0/full.jsonl",
+      "compact_transcript": "/5f/1a49d8c16b/0/transcript.jsonl",
+      "content_hash": "/5f/1a49d8c16b/0/content_hash.txt",
+      "prompt": "/5f/1a49d8c16b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15848,
+    "cache_creation_tokens": 606097,
+    "cache_read_tokens": 156457505,
+    "output_tokens": 168726,
+    "api_call_count": 474
+  }
+}
