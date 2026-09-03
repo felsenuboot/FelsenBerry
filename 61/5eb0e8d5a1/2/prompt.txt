@@ -561,3 +561,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>[POLL] ALERT-STUCK rung=REFLEX pos=(-95,73,-76) for 90s</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bw2h10lhn</task-id>
+<summary>Monitor event: "run #7 GrantigGustav: actionable-only (milestone/death/needs_direction/errors from log; hp&lt;8/food&lt;6 worsening-or-10min-heartbeat, rung-stuck&gt;90s)"</summary>
+<event>[POLL] ALERT-STUCK rung=REFLEX pos=(-95,73,-76) for 181s</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
