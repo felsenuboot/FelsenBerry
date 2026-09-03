@@ -1,0 +1,55 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "19042aec7f84",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:34:41.363458413Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "bench/fixtures/trail-vacuous.mjs",
+    "bench/fixtures/vitals-floor.mjs",
+    "bench/gates/direction-soak4-audit-truncated.json",
+    "bench/gates/direction-soak4-audit.json",
+    "bench/gates/direction-soak4-c3floor.json",
+    "bench/gates/humanbar-soak4-audit-truncated.json",
+    "bench/gates/humanbar-soak4-audit.json",
+    "bench/gates/humanbar-soak4-c3floor.json",
+    "bench/gates/humanbar4-soak4-audit-truncated.json",
+    "bench/gates/humanbar4-soak4-audit.json",
+    "bench/gates/humanbar4-soak4-c3floor.json",
+    "bench/gates/trail-soak4-audit-truncated.json",
+    "bench/gates/trail-soak4-audit.json",
+    "bench/gates/trail-soak4-c3floor.json",
+    "bench/humanbar4.mjs",
+    "bench/lib/vitals-floor.mjs",
+    "bench/trail.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "62cb2e39312a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 5989,
+    "cache_creation_tokens": 287141,
+    "cache_read_tokens": 15707526,
+    "output_tokens": 60420,
+    "api_call_count": 113
+  },
+  "session_metrics": {
+    "turn_count": 18
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T09:34:41.27680917Z",
+    "agent_lines": 865,
+    "agent_removed": 88,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 865,
+    "total_lines_changed": 953,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

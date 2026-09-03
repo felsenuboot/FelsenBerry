@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "19042aec7f84",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "bench/fixtures/trail-vacuous.mjs",
+    "bench/fixtures/vitals-floor.mjs",
+    "bench/gates/direction-soak4-audit-truncated.json",
+    "bench/gates/direction-soak4-audit.json",
+    "bench/gates/direction-soak4-c3floor.json",
+    "bench/gates/humanbar-soak4-audit-truncated.json",
+    "bench/gates/humanbar-soak4-audit.json",
+    "bench/gates/humanbar-soak4-c3floor.json",
+    "bench/gates/humanbar4-soak4-audit-truncated.json",
+    "bench/gates/humanbar4-soak4-audit.json",
+    "bench/gates/humanbar4-soak4-c3floor.json",
+    "bench/gates/trail-soak4-audit-truncated.json",
+    "bench/gates/trail-soak4-audit.json",
+    "bench/gates/trail-soak4-c3floor.json",
+    "bench/humanbar4.mjs",
+    "bench/lib/vitals-floor.mjs",
+    "bench/trail.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/19/042aec7f84/0/metadata.json",
+      "transcript": "/19/042aec7f84/0/full.jsonl",
+      "compact_transcript": "/19/042aec7f84/0/transcript.jsonl",
+      "content_hash": "/19/042aec7f84/0/content_hash.txt",
+      "prompt": "/19/042aec7f84/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5989,
+    "cache_creation_tokens": 287141,
+    "cache_read_tokens": 15707526,
+    "output_tokens": 60420,
+    "api_call_count": 113
+  }
+}
