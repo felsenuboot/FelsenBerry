@@ -6682,3 +6682,56 @@ fix: agenda.js v37->v38 (EAT_REFLEX_DWELL_MS, A.reflexClearSince, EAT fire() gat
 fixtures/agenda-ladder.js (+7 cases, 96/96)
 commit: (this entry's own commit, immediately following)
 github: felsenuboot/FelsenBerry#125 (TODO 5q) — landed, hermetically verified
+
+---
+### 2026-09-03 engine-dev — #121/#124 (TODO 5n-b) FLEE_AWAY LOS-bias v2 + enter()-level re-trigger fix: 3/3 pillared PASS, closing both
+
+Two commits landed this pass: 757bd0c (FLEE_AWAY distance-primary scoring + forced sprint) and
+6f80b2b (enter()-level level-triggered re-entry, landed in parallel with engine-dev-3's 5m-b
+via index-only commits, both verified clean with no cross-contamination).
+
+**FLEE_AWAY v2** (757bd0c): the first version of this fix (see the entry above, "0/2 real
+deaths") preferred the nearest cell that merely broke LOS with no distance floor — a real-AI
+skeleton closed to point-blank shortly after. Lead's revised ruling: distance primary, LOS a
+bonus, never a trade-down (`score = (dist(cell,threat)-current) + LOS_BONUS`, hard floor
++2 blocks, disqualify below it even with LOS). Also force-asserts sprint every tick
+(`bot.setControlState('sprint', true)`) since `allowSprinting` on the movements config only
+permits the pathfinder to sprint, doesn't confirm it held through this fix's frequent goal
+changes. Live-verified: 5 encounters, 0 deaths (vs 2/2 before), gained 3.1-12.1 blocks per
+cycle, sprint:true/sprintRatio:1/losBreak:true on every cycle that ran.
+
+**enter()-level re-trigger fix** (6f80b2b): the remaining near-misses traced to a third
+occurrence of the same invariant (BREAK_LOS's own "none" ending in v14; FLEE_AWAY's own
+imperfect-separation cycles this session) — dangerscan's onDanger is edge-triggered, so a
+branch that "recovers" without fully resolving the threat sat idle until the next transition
+or the hp<8 backstop, both potentially several seconds and a lot of free damage away. Fixed
+generically in `enter()` this time: after a cycle completes, if `actionableThreats()` is still
+non-empty, polls briefly (100ms steps, capped 500ms) then re-enters immediately via a new
+internal `_bypassLockout` param that skips the 10s thrash-guard for this one continuation (the
+guard's purpose — "don't thrash on an already-resolved encounter" — doesn't apply to a
+continuation that already confirmed the threat is NOT resolved). Ledgered as `panic`
+`op:'reenter'` with `gap_ms`. Live-verified: a sustained encounter chained
+enter->flee->reenter(~500ms)->enter repeatedly, hp never dropped below 18.5 (previous
+encounters of this shape hit single digits or death), panicStreak/branchWalkOff escalation
+still fired correctly mid-chain, resolved cleanly, no runaway loop.
+
+**Final verification** (both fixes together): 3/3 clean PASS on `bench/fixtures/
+induced-stress-sequencing.sh`'s default pillared arena — hpMin 19.17, 17.67, 16.33 across
+three fresh-bot runs. Bare-platform informational run (`STRESS_ARENA_BARE=1`): hpMin=20 (zero
+damage), though the fixture itself FAILed on the unrelated EAT/REFLEX thrash (now fixed
+separately in #125/5q, 5573e06) before reaching its own hpMin gate — the ground-truth ledger
+still shows a clean, undamaged encounter, a real data point even though the fixture's own
+verdict line didn't get emitted this run.
+
+Also flagged, not part of this task: `git status`/`git diff --stat` verified before every
+stage this pass, no repeat of the earlier pathspec-commit mistake — both commits landed
+index-only (`git apply --cached`, precise hunks) while engine-dev-3 had concurrent,
+non-overlapping edits in the same file (shelterEnter() for 5m-b), confirmed via `git diff`
+after each commit that only the intended hunks moved.
+
+fix: survival.js (findFleeTarget, branchFleeAway sprint force, enter()'s level-triggered
+re-entry), bench/fixtures/induced-stress-sequencing.sh (pillar torches)
+commit: 757bd0c, 6f80b2b
+github: felsenuboot/FelsenBerry#121 (TODO 5n/5n-b) and #124 — both closed; BREAK_LOS,
+FLEE_AWAY, and the generic enter()-level re-trigger gap are all live-verified against real
+mobs now
