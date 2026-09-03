@@ -5904,3 +5904,54 @@ into their own gate files + console lines, read-only pass-through, same discipli
 other cross-instrument field in this codebase). `bench/fixtures/stall-attribution.mjs` (new,
 17/17, hermetic).
 github: n/a (instrument-only)
+### 2026-09-03 engine-dev — TODO 7f (#69): two of the three telemetry ledger gaps were already closed at the emission side; playcheck.mjs now reads them
+type: fix + fixture
+status: built, verified (bench/fixtures/ledger-gaps.mjs 15/15, hermetic), confirmed against
+real live ledger data (soak #5's own SchnoddSchorsch ledger)
+
+what: #69 was filed against an older commit (1285a34); re-investigated against current main
+before building anything, since "fix the gap" and "fix the READER of an already-fixed gap" are
+different jobs. Findings:
+
+**Gap 1 (M.chest() defined but never called) — ALREADY FIXED, not by this pass.** Grepped every
+payload: `farmskills.js:234`, `skills.js:1404/2086/2090/4239` all call `M.chest('deposit'|
+'withdraw', pos, moved)`. Confirmed real records live: `logs/metrics-WurstBaron.jsonl` has a
+genuine `{ev:"chest",kind:"deposit",at:[254,80,84],moved:{"cobblestone":20}}`. The remaining
+gap: playcheck.mjs never read `ev:'chest'` at all — `itemsDeposited` was still inferring from
+`depositToChest` task_end's `collected` field, exactly the imperfect proxy #69's own text
+warned about ("may not represent the same thing consistently across deposit paths").
+
+**Gap 2 (no continuous position trace) — ALSO ALREADY FIXED, not by this pass.**
+`telemetry.js`'s 500ms sampler already emits `ev:'pos'` (`shouldEmitPos`-gated: >=6 blocks
+displacement OR a 30s heartbeat, UNCONDITIONAL on task state — the general sampler, not
+task-scoped) — confirmed 148 real `pos` records for SchnoddSchorsch from soak #5 alone. This is
+exactly the "wedged inside a task" signal #69 asked for, sitting unread.
+
+**Fix (this pass): playcheck.mjs now reads both streams.** `bench/lib/ledger-gaps.mjs`:
+`summarizeChestEvents()` (real deposit/withdraw totals — now the authoritative `itemsDeposited`
+source, old task-inference kept as `itemsDepositedFromTaskInference` for transparency, used
+only as a fallback when a window has zero chest events at all) and `computePositionTrace()`
+(real stationary/moving durations from the pos stream, reported as `realStationaryPct` — with
+`posTraceCoverage` so a thin/short sample can't overclaim, same "don't overclaim a thin sample"
+doctrine as trail.mjs's own vacuous flag). **Deliberately did NOT replace the existing
+task-coverage-based `stationaryPct`** (the number that actually feeds the SPARSE/IDLE/PLAYING
+verdict) — `realStationaryPct` is reported ALONGSIDE it, not substituted for it, so this
+grader-side data-quality fix can't silently recalibrate the human-bar verdict on its own
+authority (same discipline as everything else this session: an instrument reports, it doesn't
+unilaterally redefine what it's grading).
+
+Verified against soak #5's real ledger: `real stationary: 90.4% (position trace, 99.6% window
+coverage, n=126)` vs the existing `stationaryPct: 85.2%` — close and cross-confirming (both
+signals agree the bot was overwhelmingly stationary), with the real trace being the strictly
+more trustworthy of the two now that both are visible side by side.
+
+**Gap 3 (chat content classification: no-op vs meaningful) stays genuinely open.** No ledger
+event carries chat content at all; #69's own text is explicit that a text-pattern guess is
+something this harness deliberately avoids. Not attempted — flagged honestly as still open in
+playcheck.mjs's own LEDGER GAPS section, same as the issue itself already frames it.
+fix: `bench/lib/ledger-gaps.mjs` (new — `summarizeChestEvents`, `computePositionTrace`).
+`bench/playcheck.mjs` (reads `ev:'chest'`/`ev:'pos'` in its existing single ledger pass;
+`itemsDeposited`/`itemsWithdrawn`/`realStationaryPct`/`posTraceCoverage` fields; updated LEDGER
+GAPS section to stop describing gaps 1+2 as unfixed). `bench/fixtures/ledger-gaps.mjs` (new,
+15/15, hermetic).
+github: felsenuboot/FelsenBerry#69 (gaps 1+2 closed at the reader; gap 3 stays open, tracked)
