@@ -1251,26 +1251,39 @@ Launch is prepped to be instant on green light:
 - `./list.sh` before and after, `/state` read immediately post-spawn to lock in actual versions,
   `gearrace.mjs` as recorder of record from the start.
 
-Engine versions at run start: **TBD at spawn** (`/state` read immediately after spawn is the
-source of truth — do not assume any stack numbers still hold without checking; expected per
-team-lead 2026-09-03: skills v62+, agenda ~v30 (SHELTER rung + FOOD rung `#108` + sword/axe
-upgrades), survival v11, dangerscan v6, possibly `#102` folded in if landed by then).
+**LAUNCHED 2026-09-03 08:58:28Z** (test-driver, respawned post-reboot session — new context, repo
+is ground truth). Green light confirmed per TODO §1 item 6 / SCOREBOARD "SOAK #4" verdict
+(non-catastrophic, run #6 GREEN-LIT). World bring-up: `level-name` swapped to `world-race6`
+(fresh, never-used), server relaunched, "Done (2.252s)" — `world-race5` left on disk as archive,
+untouched. `./list.sh` clean before spawn (only `Trail4Insp2`, team-lead's soak-4 inspector on
+25599, decider-excluded — no collision).
+
+Engine versions at run start (read from `/state` immediately post-spawn, ACTUALS, matching
+team-lead's expected stack exactly): skills **v62**, agenda **v30**, survival **v11**, dangerscan
+**v6**, digguard v5, toolguard v2, digchain v1, producer v7, graychat v5, reachguard v1 (idleguard
+false — no `--role` at spawn, panicguard false — subsumed). `role:null` (role-less racer, by
+design, so `#108`'s FOOD rung is exercised as intended).
 
 | Tier | Time from join | Notes |
 |---|---|---|
-| Join | pending | — |
+| Join | **T+0 (08:58:28Z / entity id 35)** | fresh spawn, position (3.5, 101, 3.5), hp 20/20, food 20/20, empty inventory confirmed via `/state` |
 | Wooden pickaxe | pending | baselines to beat: run #4 T+59s (fastest), run #5 (suspended, not comparable) T+7m25s |
 | Stone pickaxe | pending — **the wall** | 0 of 4 comparable runs (#1-#4) have ever reached this; run #5 suspended mid-kit-assembly, excluded |
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
 
-Steering calls: 0 so far (not launched). Deaths: 0 so far. Monitor: not armed yet — will run the
-standing 15s `/state` poll (IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus
-real-time `server.log` tail for `GammelGerhard`, per Race book v2's trigger table and branch plans
-(combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
+Steering calls: 1 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+08:58:53.698Z (T+25s), clean on first attempt, per Race book v2's trigger table. Deaths: 0 so far.
+Monitor: armed — 15s `/state` poll (IDLE-while-project-set, `needs_direction`, kit `blocked`,
+low-HP) plus real-time `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table
+and branch plans (combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed
+from spawn).
 
-**STATUS: prep complete, standing by for team-lead's green light on run #6 (gated on soak #4's
-verdict per the queue).**
+Decider daemon: was NOT running at prep time; coordinating restart with engine-dev-3 (concurrently
+on TODO 4b, decider.js latency fix) before starting it, per the lead's brief. Commit hash at
+whatever point it comes up will be recorded here.
+
+**STATUS: LIVE, racing.**
 
 ## SOAK #4 — first formal HUMAN-BAR attempt: **FAIL (3 of 4)** (team-lead, graded 2026-09-03 08:53Z)
 
