@@ -1443,11 +1443,25 @@ hunger-18 heal-deadlock shape run #2's writeup already named, not a new finding)
 food first, since healing is gated on it and HP is still low (6.3) with the camp behind but not
 forgotten.
 
-Steering calls: 12 total (see full list above; none issued during the held window). Deaths: 4 — #1
+**T+60 status (team-lead-directed ruling): racer's stack stays FROZEN at spawn version — no mid-run
+re-injection.** `#113` (shared `foods.js`, commit `872aa07`) landed live on `main` and closes the
+skills.js/agenda.js FOODS-allowlist drift I found at 09:28Z, but GammelGerhard carries pre-fix
+skills v62 in-memory and will NOT receive it this run. **Run #6's headline finding, stated plainly:
+this run died at the exact food-kit wall `#113` removes — run #7 carries the fix.** Inventory checked
+at T+60 for the cleanest possible evidence line: currently holds NO raw meat (the 09:26:07 porkchop
+was lost to the death-wipes since) — `crafting_table, dirt x17, bone x2, wooden_pickaxe x2, arrow,
+wheat_seeds x1, wooden_sword, coal, torch x24`. The 09:26:07 kill + immediately-unchanged `food 0/2`
+refusal (both already logged above with exact timestamps) stands as the run's evidence trail
+regardless. (13) `setProject({skill:'huntAnimals',args:{species:[...],radius:48,repeat:true}})` at
+09:58:26.034Z, re-issued for a second, closer-to-cap confirmation instance.
+
+Steering calls: 13 total (see full list above; none issued during the held window). Deaths: 4 — #1
 creeper blast + an untracked spider's finishing hits (`slain by Spider` per server.log, organic); #2,
 #3, #4 all `shot by Skeleton`, a genuine 63-second respawn-camp with zero filler blocks throughout
 (see live finding above) — all organic, no driver error. Bot self-escaped the camp; DEAD-STOP did not
-apply. Monitor: armed —
+apply. Riding to the cap (10:28:28Z) per team-lead's ruling unless DEAD-STOP's flat-everything test
+is met for 5 minutes, in which case concluding DNF-with-cause myself, stone already stands regardless.
+Monitor: armed —
 actionable-only filter (milestone first-seen, death/damage, hp<8/food<6, rung-stuck>90s,
 `needs_direction` opened, server errors) per team-lead's tightened cadence, plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans.
