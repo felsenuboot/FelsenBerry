@@ -5048,3 +5048,76 @@ per team-lead's steer: held all `setProject` calls from Death #4's respawn onwar
 survival modules (FLEE_AWAY) run uninterrupted until either 60s of stable survival or dawn, rather than
 re-arming a mining project into an active spawn-camp.
 github: felsenuboot/FelsenBerry (companion to `#103`/`#105`; respawn-into-active-combat gap)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5e: shared FOODS allowlist (foods.js, #113) +
+huntAnimals anyMob species widening (#114), run #6 live findings
+type: fix + fixture
+status: built, live-verified (real bot, real kit gate), `bench/fixtures/foods-huntspecies.js`
+(new, 12/12), `bench/preflight.sh` 242/242 (added to the fixture list) on a fresh throwaway
+bot (MotzMaxi/KrachKevin, 25599, DECIDER_EXCLUDE=1, stopped after) — GammelGerhard/25600
+untouched throughout.
+
+**(a, #113) One shared FOODS source.** skills.js's excursion-kit preflight gate and agenda.js's
+FOOD rung each carried their OWN FOODS Set — textually similar, not the same object. #108 added
+the raw meats a real hunt actually produces to agenda.js's copy only; skills.js's copy never
+got them, so a hunted porkchop satisfied the FOOD rung's "stop starving" check but could NOT
+satisfy `mineLane`/`chopTrees`'s own kit-departure gate — test-driver measured a starving-
+adjacent bot with a fresh kill in its bag still refused "half-kitted: food 0/2" (FEEDBACK
+~09:28Z). New `foods.js`: a plain CommonJS module (not a payload — never injected via runner.js's
+`new AsyncFunction(...)` mechanism, which has no `require` binding at all), loaded by BOTH
+files via `process.mainModule.require(...)`, the exact idiom both already use for reading
+protected.json (their own `readCfg()`/`cfg` init). The union of both prior lists, nothing
+dropped: skills.js's copy additionally had `golden_apple`/`enchanted_golden_apple`/
+`sweet_berries`/`glow_berries` that agenda.js's never had; agenda.js's copy additionally had
+the #108 raw meats skills.js's never had. `raw_chicken` stays deliberately excluded (#108's own
+argued risk call, unchanged). Live-verified: gave a fresh bot 2 raw porkchop via RCON, kit-gate
+refusal changed from `food 0/2` to `food 2/2` — before/after confirmed on the exact same code
+path test-driver diagnosed.
+
+**(b, #114) huntAnimals `anyMob:true` species widening.** `anyMob` only ever relaxed the entity-
+TYPE check in `validate()` — the actual search list stayed `args.species || ['cow']`
+regardless, so Race book v2's documented driver fallback (`anyMob:true`, deliberately no
+`species` — meant as "widen the search, take whatever's around") silently hunted cows only.
+Live-caught: a pig 19 blocks away, `no cow within 32 blocks` reported twice (FEEDBACK ~09:28Z);
+passing `species` explicitly fixed it instantly. Baked the fix into the skill's own default
+(`ANY_MOB_DEFAULT_SPECIES = ['cow','pig','sheep','chicken']`, applied whenever `anyMob:true`
+and `species` is omitted) rather than leaving every caller responsible for knowing to pass it —
+matches what agenda.js's own FOOD rung already does explicitly. A plain call (no anyMob, no
+species) keeps the narrow `['cow']` default; passing an explicit non-animal species without
+`anyMob` is still refused — the widening never weakens the type gate, both confirmed by fixture.
+Live-verified: `huntAnimals{anyMob:true,radius:1,count:1,force:true}` (radius 1 = guaranteed
+empty) now reports `"no cow/pig/sheep/chicken within 1 blocks"`, not `"no cow within 1
+blocks"`.
+
+**(c) Follow-up, not built — flagging per the lead's instruction**: no cook/smelt skill exists
+in the registry (`./task.sh list` / `producer.js` checked — producer only smelts logs into
+charcoal for torch fuel, `restock` only withdraws from depot chests). A role-less racer that
+successfully hunts raw meat still has no legal `setProject` path to turn it into a `foodItems`-
+gate-satisfying COOKED item if the gate ever specifically wants cooked food (today's kit gate
+counts raw meat fine per (a) above, so this is not blocking right now) — but a `smeltItem`/
+`cook` skill (a furnace + fuel + raw-food recipe, same shape as producer.js's existing charcoal
+path) is a real gap for anything that ever tightens that requirement, or for bread/farming-less
+runs generally. Not designing it here — future TODO item if it becomes load-bearing.
+
+fix: `foods.js` (new, shared FOODS Set). `agenda.js`/`skills.js` (FOODS now `require`s foods.js
+with an inline fallback; `A._foods`/`S._foods` exposed for the fixture). `skills.js`
+(`ANY_MOB_DEFAULT_SPECIES`, huntAnimals' `validate`/`fn` species default, `S._huntAnyMobDefaultSpecies`
+exposed). `bench/fixtures/foods-huntspecies.js` (new, 12 cases). `bench/preflight.sh` (added
+`foods-huntspecies` to the fixture list — a one-line array addition; flagging since preflight.sh
+itself is engine-dev's file, told them directly rather than assuming silent-ack).
+
+**Also landed this pass, at engine-dev's request (task 2, direction-gate latency breakdown)**:
+two small field additions, neither changing existing behavior, both defensively read (metrics.mjs
+treats absence as "pending", same pattern as everything else instrumented-but-not-yet-wired here).
+`decider.js`: `dispatch_ms` on rule/llm decisions.jsonl records — the dirDispatch eval call was
+previously untimed, its duration invisibly folded into the gap before the next record; now timed
+separately (`appendDecision`'s own call site, ~line 536). `agenda.js`: `standDown` on the
+direction `open` event (`openEpisode`'s `dirEmit`) — `{rung, until}` when the episode's own
+owning rung is still cooling down from a PREVIOUS project's standDown at open time (ties directly
+to 5d/test-driver's `dmtlb2m212` finding), `null` otherwise — lets the grader compute exactly how
+much of a close's reported latency is standdown carryover vs decision time, without hand-reading
+AGENDA_EVENT log lines. Verified via `bench/decider-latency-replay.js` (12/12, decider.js
+unaffected) and `bench/preflight.sh` 242/242 (agenda-direction fixture unaffected by the new
+field — additive, no existing assertion reads the full open-event shape strictly).
+github: felsenuboot/FelsenBerry#113, #114 (TODO 5e)

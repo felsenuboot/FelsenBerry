@@ -215,19 +215,26 @@ const cfg = (() => {
 const HOME = Array.isArray(cfg.home) ? { x: cfg.home[0], y: cfg.home[1], z: cfg.home[2] } : { x: -3, y: 111, z: 4 };
 const DEPOT = (cfg.depot || {});
 
-// #food-acquisition drive, live-caught: a real hunt (FOOD rung) kills an animal and collects
-// RAW meat — huntAnimals itself never cooks anything — but this set only recognized the
-// COOKED forms, so s.foodCount stayed 0 even holding a fresh kill, and the rung stood down
-// thinking it had failed when it had actually just fed the bag something invisible to it.
-// Added the raw meats that are safe to eat in vanilla with no poison/hunger-effect risk
-// (beef, porkchop, mutton, rabbit); deliberately NOT raw_chicken, which carries a real chance
-// of the Hunger status effect raw — a starving bot should still be able to eat it as an
-// absolute last resort, but that is a deliberate risk/reward call this set alone shouldn't
-// make silently, so it stays out until that's decided on purpose.
-const FOODS = new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken',
-  'cooked_rabbit', 'cooked_cod', 'cooked_salmon', 'baked_potato', 'apple', 'carrot', 'beetroot',
-  'melon_slice', 'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp',
-  'beef', 'porkchop', 'mutton', 'rabbit']);
+// 5e (#113): FOODS is now the ONE shared allowlist (foods.js), required the same way this
+// file already reads protected.json above — see foods.js's own header for why this used to
+// be two independently-drifting copies (skills.js's kit gate never got #108's raw-meat
+// additions) and why `process.mainModule.require` is the right loading idiom here, not a bare
+// `require` (this file has no `require` binding — runner.js's injectPayload constructs it via
+// `new AsyncFunction(...)` from source text, no module system in scope). Inline fallback set
+// (the pre-5e list) covers the pathological case foods.js itself can't be read at all, so a
+// missing/corrupt shared file degrades to the old behavior rather than crashing agenda.js.
+const FOODS = (() => {
+  try {
+    const np = process.mainModule.require('path');
+    return process.mainModule.require(np.join(np.dirname(process.mainModule.filename), 'foods.js')).FOODS;
+  } catch (e) {
+    return new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken',
+      'cooked_rabbit', 'cooked_cod', 'cooked_salmon', 'baked_potato', 'apple', 'carrot', 'beetroot',
+      'melon_slice', 'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp',
+      'beef', 'porkchop', 'mutton', 'rabbit']);
+  }
+})();
+A._foods = FOODS;   // exposed for bench/fixtures/foods-huntspecies.js — same object as S._foods when foods.js loaded
 const FILLERS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite', 'granite']);
 const ROLE_TOOL = { miner: 'pickaxe', lumberjack: 'axe', hunter: 'sword', builder: null, farmer: 'hoe' };
 // What a bot DOES when nobody has given it a project. A good human player with no assignment
@@ -691,7 +698,16 @@ const openEpisode = (why, detail, s) => {
   d.episode = { id: eid, why, openedAt: s.now, detail };
   d.state = 'needs_direction';
   d.opened++; d.byWhy[why] = (d.byWhy[why] || 0) + 1;
-  dirEmit('open', { eid, why, project: A.project ? A.project.skill : null, detail, rung: A.owner ? A.owner.id : null, pos: s.pos || null });
+  // engine-dev's direction-gate latency-breakdown ask (task 2, metrics.mjs), ties directly to
+  // 5d/test-driver's run-#6 finding: an episode can open while its own rung is STILL cooling
+  // down from a PREVIOUS project's standDown (before 5d's setProject reset ever gets a chance
+  // to run — an open here can precede the driver/decider redirect that eventually clears it).
+  // Surfacing it on the open record itself lets the grader compute exactly how much of a
+  // close's reported latency is standdown carryover, not decision time, without hand-reading
+  // AGENDA_EVENT log lines the way test-driver had to.
+  const ownerId = A.owner ? A.owner.id : null;
+  const sd = ownerId && A.standDown[ownerId] > s.now ? { rung: ownerId, until: A.standDown[ownerId] } : null;
+  dirEmit('open', { eid, why, project: A.project ? A.project.skill : null, detail, rung: ownerId, pos: s.pos || null, standDown: sd });
 };
 const closeEpisode = (closedBy, skill, s) => {
   const d = A.direction;

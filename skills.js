@@ -125,10 +125,26 @@ const SPECIES = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cher
 // anything below y=0 adds `deep`. Enforced in S.start so a half-kitted bot never departs
 // — two of this fleet's three deaths were kit failures discovered at depth, and the user
 // rule "8+ torches on ANY excursion" is mechanical here rather than doctrine.
-const FOODS = new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken',
-  'cooked_rabbit', 'cooked_cod', 'cooked_salmon', 'baked_potato', 'apple', 'golden_apple',
-  'enchanted_golden_apple', 'carrot', 'beetroot', 'melon_slice', 'sweet_berries', 'glow_berries',
-  'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp']);
+// 5e (#113): FOODS is now the ONE shared allowlist (foods.js), also required by agenda.js —
+// see foods.js's own header for why this used to be two independently-drifting copies (this
+// one never got #108's raw-meat additions, so a hunted porkchop couldn't satisfy the kit gate
+// below even though agenda.js's FOOD rung correctly recognized the same item in the same
+// inventory — test-driver, run #6 live). `process.mainModule.require` is this file's own
+// existing idiom for anything outside the injected AsyncFunction's bare scope (see readCfg()
+// further down, which reads protected.json the identical way). Inline fallback covers foods.js
+// itself being unreadable, so a missing/corrupt shared file degrades rather than crashes.
+const FOODS = (() => {
+  try {
+    const np = process.mainModule.require('path');
+    return process.mainModule.require(np.join(np.dirname(process.mainModule.filename), 'foods.js')).FOODS;
+  } catch (e) {
+    return new Set(['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'cooked_chicken',
+      'cooked_rabbit', 'cooked_cod', 'cooked_salmon', 'baked_potato', 'apple', 'golden_apple',
+      'enchanted_golden_apple', 'carrot', 'beetroot', 'melon_slice', 'sweet_berries', 'glow_berries',
+      'cookie', 'pumpkin_pie', 'mushroom_stew', 'beetroot_soup', 'rabbit_stew', 'dried_kelp']);
+  }
+})();
+S._foods = FOODS;   // exposed for bench/fixtures/foods-huntspecies.js, same discipline as S.tierFor
 const FILLERS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite', 'diorite',
   'granite', 'deepslate', 'tuff', 'netherrack']);
 const KIT_TIERS = {
@@ -3902,14 +3918,28 @@ S.define('mineLane', {
   doneMsg: (t) => `Mining done: ${t.result.banked}/${t.progress.total} ${t.result.want[0] || t.result.target} banked (${t.result.dug} dug, ${t.result.torches} torches placed).`,
 });
 
+// 5e (#114): `anyMob:true` with no explicit `species` used to search ONLY `['cow']` — it
+// relaxes validate()'s entity-TYPE check (lets a named non-animal mob through) but never
+// touched the actual search list, so Race book v2's documented driver fallback
+// (`huntAnimals{anyMob:true,radius:32,repeat:true}`, no species arg — meant as "widen the
+// search, take whatever's around") silently kept hunting cows only. Live-caught: a pig 19
+// blocks away, `no cow within 32 blocks` reported twice in a row (test-driver, run #6,
+// FEEDBACK ~09:28Z) — fixed instantly once `species` was passed explicitly. This is that fix
+// baked into the skill's own default instead of relying on every caller to know to pass it —
+// matches what agenda.js's own FOOD rung already does explicitly (`huntAnimals({species:
+// ['cow','pig','sheep','chicken','rabbit'],...})`), minus rabbit per the lead's exact list.
+// A plain `anyMob:false`-or-absent call (species also absent) keeps the narrow ['cow']
+// default unchanged — this only widens the ANY-MOB fallback shape.
+const ANY_MOB_DEFAULT_SPECIES = ['cow', 'pig', 'sheep', 'chicken'];
+S._huntAnyMobDefaultSpecies = ANY_MOB_DEFAULT_SPECIES;   // exposed for bench/fixtures/foods-huntspecies.js
 // ---------- huntAnimals ----------
 S.define('huntAnimals', {
   kit: 'hunt',        // #45: weapon-gated, not food-gated — a foodless hunter can hunt FOR food
   tool: 'sword',
   description: 'Hunt N animals of given species, attack on the weapon damage cooldown, collect all drops. NEVER targets players.',
-  params: { species: "array, e.g. ['cow','pig'] (default ['cow'])", count: 'kills (default 1)', radius: 'search radius (default 32)', anyMob: 'allow non-animal mobs like zombie (default false; players never allowed)' },
+  params: { species: "array, e.g. ['cow','pig'] (default ['cow']; widened to ['cow','pig','sheep','chicken'] when anyMob:true and species is omitted)", count: 'kills (default 1)', radius: 'search radius (default 32)', anyMob: 'allow non-animal mobs like zombie AND widen the default species search (default false; players never allowed)' },
   validate: (a, bot) => {
-    const sp = a.species || ['cow'];
+    const sp = a.species || (a.anyMob ? ANY_MOB_DEFAULT_SPECIES : ['cow']);
     if (!Array.isArray(sp) || !sp.length) return 'species must be a non-empty array';
     for (const s of sp) {
       const d = bot.registry.entitiesByName[s];
@@ -3921,7 +3951,7 @@ S.define('huntAnimals', {
   },
   fn: async (ctx) => {
     const { bot, args } = ctx;
-    const species = new Set(args.species || ['cow']);
+    const species = new Set(args.species || (args.anyMob ? ANY_MOB_DEFAULT_SPECIES : ['cow']));
     const count = Math.max(1, Math.min(16, args.count || 1));
     const radius = Math.min(args.radius || 32, 64);
     const blacklistIds = new Set();

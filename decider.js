@@ -522,18 +522,25 @@ async function handleBot(b, rules) {
   }
 
   let dispatchOk = false, dispatchError = null;
+  // engine-dev's direction-gate latency-breakdown ask (task 2, metrics.mjs): decisionLatencyMs
+  // above measures decide-COMPUTE time only (0 for a rule hit, the Ollama round-trip for llm) --
+  // the dirDispatch eval call below was untimed, its duration invisibly folded into the gap
+  // before the NEXT decisions.jsonl record. Timed separately so the breakdown has a clean
+  // "dispatch mechanics" bucket instead of inferring one.
+  const dispatchT0 = Date.now();
   try {
     const spec = JSON.stringify(Object.assign({}, decision, { by: 'decider' }));
     const r = await evalOn(b.port, `return __agenda.dirDispatch(${JSON.stringify(eid)}, ${spec});`);
     dispatchOk = Boolean(r && r.result && r.result.ok);
     if (!dispatchOk) dispatchError = r && r.result && (r.result.error || r.result.skipped);
   } catch (e) { dispatchError = e.message; }
+  const dispatchMs = Date.now() - dispatchT0;
 
   // mark handled REGARDLESS of dispatch outcome: a validated decision that failed to dispatch
   // (e.g. the episode closed itself in the meantime -- a driver answered first) is still
   // "handled" for this eid; retrying would just re-derive the same stale-eid no-op forever.
   state.handled[dedupKey] = Date.now();
-  appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key, src, decision, raw, latency_ms: decisionLatencyMs, dispatchOk, dispatchError });
+  appendDecision({ t: Date.now(), bot: b.name, eid, why: dir.why, key, src, decision, raw, latency_ms: decisionLatencyMs, dispatch_ms: dispatchMs, dispatchOk, dispatchError });
   log(`${b.name}: ${src} decision for '${dir.why}' -> ${decision.skill} (dispatch ${dispatchOk ? 'ok' : 'FAILED: ' + dispatchError})`);
 }
 
