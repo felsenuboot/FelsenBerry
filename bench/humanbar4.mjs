@@ -137,6 +137,18 @@ const deciderCalls = interventions.filter(isDeciderCall);
 const humanInterventions = interventions.filter((r) => !isDeciderCall(r));
 const c3 = deaths.length === 0 && humanInterventions.length === 0;
 
+// #4 (soak-4, 2026-09-03, team-lead's own T+30 read): zero deaths + zero human help is a real
+// but NARROW claim -- a bot pinned at food:0/low HP for the whole window survived in the sense
+// that mattered to the binary check, but a single real fight would have killed it, which is
+// exactly the situation "survives real threats" is supposed to rule out. Not changing the c3
+// boolean itself (team-lead's own instruction: grade what the ledger says, the fix is a
+// post-mortem question) -- surfacing the bot's own LAST logged hp/food reading in the window as
+// supplementary evidence, same doctrine as criterion 4's "vacuous" flag: never let a bare PASS
+// imply more safety margin than the data actually shows.
+const withVitals = recs.filter((r) => typeof r.hp === 'number' && typeof r.food === 'number');
+const lastVitals = withVitals.length ? withVitals[withVitals.length - 1] : null;
+const vitalsCritical = lastVitals && (lastVitals.food <= 6 || lastVitals.hp <= 6);
+
 // ---------------- report ----------------
 const overall = c1 && c2 && c3 && c4;
 console.log(`humanbar4 ${LABEL}: ${overall ? 'PASS — all four human-bar criteria met' : 'FAIL'}`);
@@ -146,6 +158,11 @@ console.log(`  3. survives unaided:         ${c3 ? 'PASS' : 'FAIL'}  (deaths ${d
 if (humanInterventions.length) {
   console.log('     non-decider interventions (cross-check against known induction timestamps before calling this a real fail):');
   for (const r of humanInterventions.slice(0, 10)) console.log(`       ${new Date(r.t).toISOString()}  ${r.route}  ${(r.preview || '').slice(0, 80)}`);
+}
+if (vitalsCritical) {
+  console.log(`     CAVEAT: last logged vitals in the window (${new Date(lastVitals.t).toISOString()}) — hp ${lastVitals.hp}/20, food ${lastVitals.food}/20. Zero deaths / zero human help is real, but a bot pinned this low would not survive a real fight — this PASS does not mean the bot was actually safe.`);
+} else if (lastVitals) {
+  console.log(`     last logged vitals: hp ${lastVitals.hp}/20, food ${lastVitals.food}/20 (${new Date(lastVitals.t).toISOString()})`);
 }
 const sitesNote = trail ? ` [${trail.findings.sitesChecked} site(s) checked — chop clusters seen ${trail.sitesSeen.chopClusters}, dig clusters seen ${trail.sitesSeen.digClusters}${!trail.findings.sitesChecked ? ', NOTHING TO INSPECT — this PASS is vacuous, not a confirmed-clean trail' : ''}]` : '';
 console.log(`  4. human-looking trail:      ${c4 ? 'PASS' : (trail ? trail.verdict : 'NO DATA')}  ${trail ? `(${trail.reasons.length ? trail.reasons.join('; ') : 'clean'})${sitesNote}` : '(trail.mjs did not produce a gate file)'}`);
@@ -158,7 +175,9 @@ const out = {
     playcheck: { pass: c1, verdict: hb.playcheck ? hb.playcheck.verdict : null },
     directionGate: { pass: c2, opened: hb.direction ? hb.direction.opened : null, closed: hb.direction ? hb.direction.closed : null, unclosed: hb.direction ? hb.direction.unclosed : null },
     survivesUnaided: { pass: c3, deaths: deaths.length, humanInterventions: humanInterventions.length, deciderInterventions: deciderCalls.length,
-      humanInterventionDetail: humanInterventions.map((r) => ({ t: new Date(r.t).toISOString(), route: r.route, preview: (r.preview || '').slice(0, 200) })) },
+      humanInterventionDetail: humanInterventions.map((r) => ({ t: new Date(r.t).toISOString(), route: r.route, preview: (r.preview || '').slice(0, 200) })),
+      lastVitals: lastVitals ? { t: new Date(lastVitals.t).toISOString(), hp: lastVitals.hp, food: lastVitals.food } : null,
+      vitalsCritical: Boolean(vitalsCritical) },
     trail: { pass: c4, verdict: trail ? trail.verdict : null, reasons: trail ? trail.reasons : ['trail.mjs produced no gate file'],
       sitesChecked: trail ? trail.findings.sitesChecked : 0, sitesSeen: trail ? trail.sitesSeen : null,
       vacuous: Boolean(trail && !trail.findings.sitesChecked) },
