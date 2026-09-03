@@ -65,7 +65,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    trail PASS (3 sites, non-vacuous); **playcheck FAIL (SPARSE, 86.9% stationary)**: back half of the hour stalled on chopTrees' kit gate
    `food 0/2` while hunger was 20/20 — FOOD rung never fires when sated, RESTOCK can't produce food, frozen-repeat dedup correctly refuses
    the re-dispatch → nothing fetches KIT food. SCOREBOARD "SOAK #5". Specimen SchnoddSchorsch left running on 25600.
-5l. **Kit-food acquisition while sated** (eng-3, GATES soak #6, HIGH): (a) kit-completion routes a food-KIT shortfall (foodCount < kit need)
+5l. **Kit-food acquisition while sated** (#120, eng-3, GATES soak #6, HIGH): (a) kit-completion routes a food-KIT shortfall (foodCount < kit need)
    to huntAnimals regardless of hunger, widening radius + backoff, honest shortfall when no fauna; (b) chopTrees/short surface excursions
    drop the food demand when hunger ≥14 and the target is within ~48 blocks (argue thresholds in FEEDBACK); fixtures in agenda-ladder,
    live on 25599. Then SOAK #6 on 25600/world-soak6 (fresh), preflight on a THROWAWAY, join timestamp after preflight.
