@@ -1,0 +1,1025 @@
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Update, T+~16m, no stone yet:
+
+**Decider resolved cleanly**: engine-dev-3 committed TODO 4b as `2fea6d8` — sha256 matches the running daemon's loaded file byte-for-byte, so no asterisk needed anymore. Recorded in SCOREBOARD.
+
+**Live engine finding, written up in FEEDBACK.md (not my lane to fix, agenda.js/eng-3's)**: `PROJECT` rung's `standDown` backoff is keyed on the rung id, not the specific project — so a driver's `setProject()` redirect issued while `PROJECT` is under a leftover cooldown from the PREVIOUS project's failure sits inert for the remainder of that cooldown, and can then get falsely flagged with its OWN `project_stalled` episode for a delay it didn't cause. Hit this twice live (my `huntAnimals` and `come` redirects both walked into it). Corroborating evidence: one resulting episode showed 128665ms "latency" that's actually standdown carryover, not a real decision-latency regression — flagged in FEEDBACK.md so nobody misreads a future soak's numbers off it.
+
+Steering calls: 3 total (mineLane open, huntAnimals food-fallback, come barren-search-reposition). None of the decider's own dispatches (chopTrees x2) count toward my total per your ruling. Deaths: 0.
+
+**Current**: night has fallen — SHELTER rung (new this run, agenda v30) engaged correctly ("Boxing myself in for the night"), hp/food still full, no combat yet. This preempts the stalled chopTrees/food chain entirely until dawn; no driver action needed or taken (zero-defense branch is retired per Race book v2 — this is normal night-cycle behavior, not the #96 combat ladder). Will resume steering toward stone once day breaks and the food/kit picture clears.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+R2 diagnosis done (spawned KnautschKuno DECIDER_EXCLUDE=1 on 25599, RCON-teleported to the ledger's exact wedge coords, stopped after). Doesn't change the design you already specified — reporting per instructions, then building.
+
+What actually happened at (-21,108,-3)/(-18,109,3), from decisions/metrics: 3 separate `restock` task_end events with outcome='wedge' (2+2+1 wedges, 4+4+2 unsticks) — genuine physics stalls (skills.js's frozenMs>6000/noProgressMs>20000 watchdog), not the leaf-litter/no-collision-block class _unstick already handles (I scanned the AABB-adjacent blocks at that spot: nothing but short_grass, which _unstick digs fine). Root condition: that whole area is heavily deforested (a whole hour of a chopping bot will do that) — only reachable trees are 15-40+ blocks away across steep terrain (bot's own y 107-109, nearest real tree canopy at y~116-119, ~9-12 block climb). chopTrees/restock's gather-search, finding nothing local, wanders wide over that terrain hunting for wood. I ran chopTrees(force:true) 3x from those exact coords: 2/3 wandered 25-40 blocks and failed CLEAN (`tool_missing`, 0 logs reached) — same shape as the (-45,114,*) site's repeated ensureTool failures (that one's the busy-rung finding, 0 wedges there, separate from this). I didn't personally reproduce a literal wedge in 3 tries — consistent with the real data too (most restock attempts at that spot didn't wedge either; 3 did out of many). Read: this is a probabilistic pathfinder stall during a long blind search over sparse/uneven terrain, not a deterministic one-block bug — there's no single terrain fix to make. That's exactly why position-based dedup can't catch it AND why a targeted terrain fix wouldn't either: the real invariant is "this neighborhood is picked clean, going back (or three blocks over) won't help." Confirms the escalation design as the right lever, doesn't change it. Building now: N same-remedy failures across positions (regardless of wedge vs clean tool_missing/acquisition_failed — same failure signature) → escalate to relocateToWork's bigger hop or a different remedy class. Fixture cases in bench/fixtures/agenda-ladder.js, preflight green after. Will report again before commit.
+</cross-session-message>
+
+---
+
+why do you keep asking for permissions, you hve bypass permissions activated
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Task 1 report (audit of the soak #4 post-hoc grade). FEEDBACK.md entry: "soak #4 grade audit: byte-equivalent, plus criterion-4 vacuous-verdict threshold + window-truncation annotation."
+
+**(a) Audit**: re-ran the exact staged command against Trail4Insp2 (3171). All four gate files (humanbar4/humanbar/trail/direction) diff byte-identical to yours (numeric fields, `del(label,at,since,until,artifacts)`). The post-hoc grade is confirmed correct.
+
+**(b) Criterion 4 vacuous verdict — argued + built**: MIN_SITES_FOR_VERDICT=3, reusing trail.mjs's own existing n=3 "anecdote vs pattern" line (already used for floating-log FAIL threshold) with the sign flipped for a clean read. Never flips the verdict boolean — only adds `vacuous`/`vacuousReasons` annotations, same "annotate don't flip" doctrine as your own c3 caveat. Re-run on soak #4: `trail soak4: PASS (VACUOUS — not a confirmed-clean trail)` — 1 site, 0 chop clusters. Fixture: bench/fixtures/trail-vacuous.mjs, 13/13, hermetic (had to split trail.mjs's pure verdict math from its CLI/network path behind an isMain guard, same idiom eng-3 used for decider.js's handleBot() — saw their 4b entry in FEEDBACK.md after I'd already done this independently, good sign it's the right pattern for this codebase).
+
+**(c) Window truncation — argued yes, built**: `--ledger-end <ISO>` on humanbar4.mjs, opt-in (not auto-detected — a quiet bot mid-soak would false-trigger a gap heuristic; the true external cutoff is something the grader states, same as --since/--until). Demoed on soak #4 with --ledger-end 08:46:12Z: prints "WINDOW TRUNCATED... this grade covers the actual ~56 minutes observed, not the full pre-registered window" and stamps the gate JSON. Fully opt-in — omitting it leaves every gate file byte-identical to before (re-confirmed). Did NOT thread it into trail.mjs (live-world truth, not time-series) or metrics.mjs's --direction-gate (no --until concept there today — humanbar.mjs already pre-filters into a scratch dir instead). Flagged as a real follow-up if a future truncated soak has unclosed episodes right at the cutoff worth annotating specifically.
+
+**(d) Criterion 3 vitals floor — PROPOSAL, not built** (per your instruction not to unilaterally touch GOAL.md):
+
+GOAL.md's "survives real night threats without driver help" has no vitals floor today. Soak #4 passed criterion 3 with the bot pinned at hp10/food0 at the last logged reading — humanbar4.mjs already prints this as a CAVEAT (unchanged this pass) but the boolean itself doesn't distinguish "never threatened" from "one hit from death the whole time," and both currently read as an identical clean PASS.
+
+Proposed addition to GOAL.md criterion 3: **"...without driver help, AND without sustained critical vitals — never below hp 6 OR food 0 for more than 10 continuous minutes."**
+
+Why these numbers: hp6/20 is the point survival.js's own reflex branches already treat as urgent (worth confirming the exact threshold against survival.js before adopting — I used the CAVEAT's own hp<=6/food<=6 check in humanbar4.mjs as the starting anchor, might want to align them explicitly either way). 10 minutes is arbitrary but deliberately not zero-tolerance: a brief dip while FOOD (#108) is actively working the problem shouldn't fail the run, only a bot stuck there.
+
+Why now: independent of #108 landing (that's a behaviour fix; this is a grading-criterion question) — a future soak could have #108 working correctly and still spend 15 minutes at food:0 before the FOOD rung's widening-radius hunt finds fauna, and today's c3 boolean would call that an unqualified PASS same as a bot that was never hungry. Your call whether/how to phrase it — flagging the gap and a concrete anchor, not asking you to adopt verbatim.
+
+Also FYI, unprompted: while reading FEEDBACK.md tail for context I saw eng-3's TODO-4b landed (decider.js driver-grace re-keyed on DRIVEN not OWNER, replay-verified 12/12) and test-driver's run #6 finding (PROJECT standDown outliving its project). Neither affects task 1's audit (soak #4's grade is historical/frozen) but flagging since 4b is directly relevant to my task 2 (direction-gate latency breakdown) — I'll read decider.js's current state before designing the breakdown, per the "coordinate with engine-dev-3 first" instruction.
+
+Moving to task 2 now.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:16:00] [Server thread/INFO]: KnautschKuno left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+GOAL.md criterion 3 vitals floor built into humanbar4.mjs — now a hard c3 fail (boolean flips), not a caveat, since you changed the goal text itself. New shared bench/lib/vitals-floor.mjs (`detectSustainedCriticalVitals`, 16/16 hermetic fixture at bench/fixtures/vitals-floor.mjs) — strict "more than 10 continuous minutes" (verified at the exact 10:00/10:30 boundary), streaks don't sum across a real recovery, duration never extrapolated past the actual samples.
+
+HP-anchor: survival.js has no single "critical HP" — CRIT=4 (BREAK_LOS search shortcut) and hpPanic=8 (dangerscan-absent backstop default) are two different numbers for two different subsystems. hp<=6 matches neither; it traces back to humanbar4.mjs's own pre-existing CAVEAT threshold, not survival.js. Flagging per your ask, not resolving — your call whether to move it.
+
+Ran `--label soak4-c3floor` on the real ledger (soak4 canonical gate files untouched, confirmed via git status): **FAIL** — food=0 held continuously 08:13:32.519Z → 08:46:01.118Z (the last logged reading before the reboot cut the run off). That's **32.5 minutes, not ~26** — your dispatch estimate was off; measured strictly between first and last food=0 sample, no extrapolation to --until or the reboot instant (both would push it higher still). Under the new criterion soak #4's retroactive verdict would be 2/4, not 3/4 — recorded in FEEDBACK as "what the bar would have said," soak #4's frozen grade unchanged.
+
+Full writeup in FEEDBACK.md ("GOAL.md criterion 3 vitals floor built into humanbar4.mjs..."). Moving to task 2 (latency breakdown) now — will read decider.js's post-4b state and the #112 standdown-carryover finding before designing the decisions.jsonl schema ask to engine-dev-3.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>b07fb5suk</task-id>
+<summary>Monitor event: "run #6 wall-clock marks T+30/60/85/90 (cap 10:28:28Z)"</summary>
+<event>RUN #6 wall-clock T+30min (09:28:30Z) — cap 90 min = 10:28:28Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5c is done and pushed, but with an attribution wrinkle worth knowing about: my `git add agenda.js bench/fixtures/agenda-ladder.js FEEDBACK.md && git commit` raced with your own commit on the same working tree — your commit (16604e7, "GOAL: criterion 3 floor...") landed a beat before mine and its "Entire-Checkpoint" mechanism appears to have swept up my already-staged files too, so my 3 files are bundled into your commit instead of a commit of their own. My `git commit` then correctly found nothing left to commit. Verified via `git show --stat 16604e7`: agenda.js/bench/fixtures/agenda-ladder.js/FEEDBACK.md are all there with my actual diffs, and `git ls-remote origin main` confirms it's pushed. Content is safe, just filed under your commit/authorship rather than mine — flagging so the history makes sense later, not asking for a fixup.
+
+What landed: `A.remedy` — a remedy-CLASS failure counter (wood_gather, depot_reach) that survives the `A.setProject`-always-resets-attempts problem I found (a decider-dispatched chopTrees project never accumulated its own 3-strikes escalation because every dirDispatch builds a brand-new project object). New REMEDY rung, prio 4.8 (between EAT and TOOL/RESTOCK/PROJECT), fires once per distinct failure count via an escalatedAt guard, hands the body straight back after one move — no bespoke backoff, reuses the file's existing generic "completed but did not achieve" detector if the move itself fails. Tier 1 (2nd failure) = relocateToWork's own bigger hop (64 vs default 40). Tier 2 (3rd+) = directed findBlock scan (128 blocks) + come() straight to a real target, per your note — not another blind heading. Wired into the 3 real call sites (PROJECT's harvest branch, ensureTool's outcome, restock's reached:0 check). depot_reach has no directed target (the depot itself is what restock's already aimed at) so its tier 2 falls back to tier 1, still counted/logged.
+
+Live-verified against the REAL tick loop, not just the dry-run fixture (injected A.remedy.wood_gather.n=2/3 on a throwaway bot, SchlappSchlonz DECIDER_EXCLUDE=1 on 25599, stopped after): tier 1 dispatched relocateToWork({skill:'chopTrees',hops:64}), got boxed_in (small test area), released cleanly — no re-fire loop. Tier 2 dispatched come() to a real found log block, escalatedAt tracked correctly. bench/fixtures/agenda-ladder.js 46/46 (8 new cases), preflight 224/224.
+
+Ledger event `remedy_escalate` (op:fail|escalate, cls, n, tier, pos) is emitted via the same m.emit two-surface discipline dirEmit uses — the raw signal is in metrics-*.jsonl now; I did NOT touch metrics.mjs itself to build a grader for it (your lane). Diagnosis + full writeup in FEEDBACK.md (append-only entry, wedge coords and root-cause included as you asked).
+
+Correction to my earlier framing, confirmed by the dig: the soak-4 freeze wasn't uniformly "wood-gather" — the (-21,108,-3)/(-18,109,3) wedges were RESTOCK failing to reach the depot chest (a route problem), separate from the (-45,114,*) site's clean wood-search failures. Both are now unified under the same escalation mechanism as distinct classes (wood_gather / depot_reach), which is why I built it remedy-class-generic rather than wood-specific.
+
+Ready for what's next — didn't see a TODO 5d item when I last read TODO.md; let me know if one's been added.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:27:38] [Server thread/INFO]: SchlappSchlonz left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+**STONE PICKAXE ACHIEVED, T+31m50s (09:30:18.526Z) — first ever in this program's history.** `Tool ready: stone_pickaxe (crafted)`, log-confirmed. Steering-call tally at that instant: 9. Engine stack unchanged from spawn (skills v62/agenda v30/survival v11/dangerscan v6).
+
+1.9s later, **Death #1**: a creeper closed to point-blank before the zero-defense floor's disengage->WALL_OFF sequence could finish — HP 20→0 in ~3s from the blast, bot died 09:30:21.427Z. Zero-defense floor fired in the right order, just outpaced by burst damage (same honest ceiling run #5 already documented, not a regression). Inventory wiped on death as expected — the stone pickaxe is gone, but the tier stands as reached regardless.
+
+**`#103`'s respawn-episode fix (agenda v28, eng-3's mid-run commit `2caaf66`) fired live for the first time**: a `needs_direction` episode opened 2.08s after death, not left ambiguously IDLE. Followed Race book v2's combat-loss branch: confirmed empty inventory via read-only check, re-armed `mineLane{target:'stone',count:16}` from the bottom, death-to-re-arm gap 48.2s (logged).
+
+Also landed two more live findings along the way (both in FEEDBACK.md, not my lane to fix): (1) `skills.js`'s excursion-kit FOODS allowlist never got `#108`'s raw-meat fix — only `agenda.js`'s separate copy did, so a hunted porkchop still can't satisfy `mineLane`/`chopTrees`'s food-kit gate, and there's no cook/smelt skill in the registry either; (2) `huntAnimals{anyMob:true}` doesn't widen the species search past the `['cow']` default — Race book v2's documented fallback has been missing an explicit `species` list this whole time (likely explains run #2's old unresolved "search radius" note too).
+
+Steering calls: 10. Deaths: 1. Currently: night again post-respawn, SHELTER active, mineLane re-armed and waiting for it to clear per the normal pattern. All committed/pushed (008bfde). Will report the next real milestone or if this stalls.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5d done: commit `3c7c3b7` (used the new pathspec-on-commit law — `git commit -m ... -- agenda.js bench/fixtures/agenda-ladder.js FEEDBACK.md`, no bare `git add`/`git commit`, pushed clean, no race this time).
+
+Fix: `A.setProject` (already the file's own "fresh intent" choke point — every driver/decider/promotion call funnels through it) now resets `A.unproductive.PROJECT`/`A.standDown.PROJECT`/`A.standDownCount.PROJECT` AND restarts the direction stall clock (`A.direction.lastProductiveAt = now()`) on every call, not just the promotion path (whose own identical 3-line reset was now redundant — removed, one reset, one place). Deliberately leaves `A.owner` alone — an external setProject can legitimately arrive while another rung owns the body, and forcibly nulling A.owner there would interrupt unrelated in-flight work.
+
+`bench/fixtures/agenda-ladder.js` 52/52 (+6 cases: blocked-before-fix, 4 direct-field assertions via a new `TF` helper, fires-immediately-after). preflight 230/230. Live-verified against the real tick loop (WabbelWaldo, 25599, DECIDER_EXCLUDE=1, stopped after) — induced the exact inherited-standdown shape test-driver hit, confirmed all four fields clear in one /eval round-trip.
+
+Sent engine-dev the `remedy_escalate` record shape as asked (ev name, op values, field list, the stdout-vs-ledger `ev` name mismatch to watch for). Also acked test-driver on the decider-daemon thing (already resolved before their messages landed — told them main's safe, no restart needed).
+
+Ready for whatever's next — nothing queued for me in TODO past 5d as of my last read.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Good catch, thanks — corrected in SCOREBOARD (server.log line 53: "GammelGerhard was slain by Spider"). Reconciled precisely: the -10 HP jump at 09:30:17.442Z is co-timed exactly with the "Creeper at 2.8 blocks" chat line (that's the blast), then three more -2 bite-shaped drops finished it off with no matching chat — dangerscan never named a spider at all, so an untracked spider landed the kill while WALL_OFF was mid-build against the creeper it did see. Flagged as a distinct finding for eng-3 (multi-threat gap, not the single-threat-outpaces-ladder shape run #5 already documented). Committed (f50f6b7), pushed.
+
+Status unchanged since last report: night again, SHELTER holding, hp/food full, mineLane/chopTrees queued for dawn. Will hold to the T+60 mark unless something actionable happens first.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:33:04] [Server thread/INFO]: WabbelWaldo left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Task 2 done, committed (e70b6ab task 1 + vitals floor, 000c653 + 2005277 task 2), all pushed.
+
+metrics.mjs `--direction-gate` now reports `latency_breakdown`: timeToFirstAttempt / deciderCompute / interAttemptGap fully computable from existing decisions.jsonl+ledger fields, plus dispatchMs/standDownCarryoverMs as forward-looking buckets (null, not 0, until their source fields exist).
+
+Re-run on soak #4's real ledger: **timeToFirstAttempt p50 = 76456ms, byte-identical to the graded latency_p50_ms** — confirms the whole p50 floor was structural wait-before-first-attempt (driver-grace-on-OWNER bug), zero decider compute, matching your hand attribution exactly but now produced by the instrument. interAttemptGap p90 = 130187ms = the PER_BOT_MIN_GAP_MS retry wait behind the graded p90. unattributed ~0ms both ends — the buckets fully explain the total.
+
+Coordinated with engine-dev-3 before relying on anything new (SendMessage sent, then verified by reading their actual working-tree diff rather than assuming): proposed `dispatch_ms` on decider.js and `standDown` on agenda.js's open event. They landed `dispatch_ms` in their own working tree using the exact field name I proposed (picked up automatically once committed, no code change needed on my end) — and for standDown, they shipped a stronger fix (#112/5d, resetting the carryover at its source in setProject() rather than exposing it for grading), so that bucket may just stay at 0/null going forward, which is itself the correct outcome.
+
+Side note: had to fix bench/humanbar.mjs's scratch-dir copy (it only copied metrics.mjs, not the new bench/lib/ it now imports) — caught by re-running end-to-end, not just syntax-checking.
+
+Moving to task 3 (FOOD live check) now.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:35:26] [Server thread/INFO]: KribbelKrabbe left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:37:16] [Server thread/INFO]: GammelGerhard was shot by Skeleton</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:37:52] [Server thread/INFO]: GammelGerhard was shot by Skeleton</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Death #2, 09:37:52.676Z (T+39m24s): shot by Skeleton (server.log-confirmed). Zero-defense floor tried the right fallback — "No cobble to wall in with... heading out the way I came" (no filler blocks, direct consequence of Death #1's inventory wipe with no RESTOCK cycle yet to replenish) — but couldn't outrun a ranged attacker at 2.3 blocks. Organic, not a bug. Re-armed mineLane from the bottom at 09:38:16.500Z (death-to-rearm 23.8s, faster than Death #1's 48.2s). Steering calls: 11, deaths: 2. Committed (34bdb42). Still no stone since the respawn — mineLane queued, will report next milestone or T+60.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Confirmed and ack'd — I mis-merged two death cycles into one entry, my error; server.log lines 53/61/66/69 = 4 deaths total. Holding all further `setProject` calls now per your steer — will not re-arm until either 60s of stable survival post-respawn or dawn (timeOfDay<12500). Bot is currently ALIVE, hp 6.3, FLEE_AWAY actively running (not walled/sealed). Fixing the SCOREBOARD record now with the correct 4-death tally and per-death log lines, then watching without steering. If it dies again before dawn with no diagnosed legal recovery, I'll apply DEAD-STOP myself per the standing rule and conclude DNF-with-cause at stone (tier already stands, first-ever reached).
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:39:23] [Server thread/INFO]: MotzMaxi left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+[Image #1] this is what i meant with permissionsbeing asked
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Read the 3-death evidence closely (FEEDBACK ~09:40Z) before writing code, per your instruction, and the literal brief ("SHELTER runs before any project/kit work") doesn't actually match the failure mode — flagging why before I build something that doesn't fix the real bug.
+
+**What actually happened, from the log timestamps:**
+- Death #2: SHELTER's dig-in DID fire (09:37:38.763Z) — it just wasn't fast enough; the skeleton was already shooting from 2.5 blocks at that same moment and won the race before the dig-in finished.
+- Death #3: SHELTER never fired at all, because by the time agenda.js's tick loop could evaluate anything, `dangerState` was already `'panic'` (skeleton at 1.6 blocks, ~3s after respawn). survival.js's own `shouldShelter()` (line 925) explicitly returns false on `d.state==='panic'` — "REFLEX/POSTURE already own this", by that file's own documented design. And REFLEX/POSTURE (agenda prio 0/1, both above SHELTER's 2.5) DO win arbitration whenever panic is true, full stop — no widening of SHELTER's `fire()` condition can ever preempt them, since RUNGS.find scans in prio order. So "SHELTER runs before project/kit work" is already true structurally (2.5 < 3-8.5) and isn't the actual gap.
+- REFLEX's own act() just yields the body entirely to survival.js's SEPARATE internal panic-escalation ladder (BREAK_LOS/WALL_OFF/FLEE_AWAY — a mature, already-tuned system, v6 through v11 per its own header). Death #4 shows that ladder DOES work when given room (FLEE_AWAY covered real ground, HP stabilized) — the mechanism isn't broken, it just didn't win the race on #2/#3.
+
+**So the real gap is two separate things, not one:** (1) SHELTER needs to trigger EARLIER/more aggressively in the window BEFORE panic sets in (Death #2's shape — losing a race it was already running), not "get priority over combat" (it structurally already has that, and can't/shouldn't preempt REFLEX during actual panic — I don't want to touch that ladder). (2) once genuinely spawn-camped (Death #3's shape — no proactive shelter can outrace a 3s re-engagement), the fix isn't a better shelter primitive, it's an automatic version of what you already had test-driver do BY HAND on Death #4: stop dispatching project/kit rungs entirely and let survival.js's own reactive ladder run uninterrupted until stable/dawn.
+
+**Revised design, scoped to minimize risk to survival.js's tuned ladder:**
+1. `bot._deathTimes` (bot-level, survives reinjection like `_respawnedNeedsDirection` already does) — rolling death timestamps.
+2. `sense()` gains `s.recentDeaths`/`s.spawnCamped` (N=3 in M=90s, covers your exact incident with margin), `s.hostileNear` (reuses existing `s.threat.d`).
+3. SHELTER's `fire()` ORs in `s.spawnCamped` and a `justRespawned && (night || hostileNear)` window — gets it starting sooner post-respawn, addressing #2's shape. Does NOT touch survival.js's panic exclusion (moot given rung ordering, and not worth the risk to a mature system).
+4. `diginStandable()`'s conservative 3-deep-ground check gets a degraded fallback (dig whatever's there, 1+ deep) specifically when spawn-camped — that's your "dirt-dig fallback when no filler" ask, a narrow survival.js touch, not a ladder-logic change.
+5. NEW: while `s.spawnCamped`, agenda.js suppresses PROJECT/TOOL/RESTOCK/FOOD/LIGHT/ESCAPE dispatch entirely (a guard on their `fire()`, or one gating rung above them) — automating exactly what you had the driver do manually on run #6. Clears once dawn + stable, or the death streak ages out of the window.
+
+Item 5 is the piece I think actually matters most for a genuine spawn-camp (items 3/4 help but can't outrace a 3s re-kill) — it's also the part most likely to interact with things I don't fully see (does anything else expect PROJECT to always eventually get a turn?). Want me to build this shape, or would you rather scope it down / have engine-dev weigh in on the survival.js pieces (3/4) since it's normally their file? Not starting the build until I hear back.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:42:50] [Server thread/INFO]: HungrigHeinz left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:50:11] [Server thread/INFO]: HungrigHeinz left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Task 3 done. Ran on commit 872aa07 (post-#113/#114 both landed — confirmed via git log before testing, per your ask).
+
+Spawned HungrigHeinz (OWNER=engine-dev, DECIDER_EXCLUDE=1, --agenda, role-less, 25599, teleported ~347 blocks from Trail4Insp2 — the only other bot on that server, GammelGerhard untouched on 25600), forced hunger via RCON effect (no vanilla command sets food directly).
+
+**Confirmed the ask**: at food=12, FOOD rung fired, hunted a cow ("Hunting 1x cow/pig/sheep/chicken/rabbit"), killed it, and autoEat consumed the raw beef within ~1s (food 9→12→15). #108's own acceptance, reproduced role-less, hunt AND eat in one clean sequence.
+
+**But found a real deadlock on the SECOND cycle, not a rare edge case**: EAT (prio 4) and EAT_CRITICAL (prio 2) both fire on `food<=N && foodCount>0` and clear on `food>=19`, but `choose()`'s owner-latch never re-checks whether the owner's own fire() is still true once it's latched — only whether something MORE urgent is firing. The moment EAT/EAT_CRITICAL eats its last food item without reaching food>=19 (routine after a bad starve — one meal rarely refills that far), it's stuck: fire() now false, clear() also false, and FOOD (prio 6.5, the only rung that could fix it) can't preempt a higher-priority latched owner. First deadlock (EAT) got lucky-rescued by an unrelated SHELTER nightfall trigger after ~35s of HP drain (episode closed self_recovered at 146113ms — a real latency number, different root cause than #112's standdown carryover, worth keeping distinct). Second deadlock (EAT_CRITICAL, prio 2) had NO rescue available — confirmed stuck 65+ continuous seconds, food/hp/owner all flat, no self-recovery in sight before I stopped the bot.
+
+This is the ordinary continuation of exactly the #108 scenario, not a contrived double-failure. Filed as HIGH severity via issue-manager (suggested fix: clear() gains a second exit when foodCount===0 and there was nothing to eat, or choose() re-checks safeFire(owner,s) every tick instead of trusting the stale evaluation that won ownership). Full writeup + logs in FEEDBACK.md, commit ef0fe53, pushed.
+
+Trail4Insp2 stopped (task 1's work with it is done). Moving to 5f (#115, multi-threat gap — survival/dangerscan lane).
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+T+60 status. Milestones: wood T+1m15s, **stone T+31m50s (first ever, stands)**. Iron/diamond not reached. Steering calls: 12. Deaths: 4 (all corrected/recorded — #1 spider, #2-4 the 63s skeleton respawn-camp). Bot self-escaped the camp, currently alive, hp 6.3/20 (stable, no combat since 09:40Z), food 10/20 (slow decay, no active threat).
+
+Current blocker: genuinely structural, not a transient stall — mineLane/chopTrees both need real food items to "set off" (excursion kit food:2, underground kit food:4), and neither of the two legal acquisition paths can satisfy it right now: hunting only yields raw meat (skills.js's kit-gate FOODS set is cooked-only, the `#108` allowlist fix only touched agenda.js's separate copy — filed in FEEDBACK.md), and harvestGrass only yields seeds (not in either FOODS set). No cook/smelt skill exists in the registry to convert what we do have. The decider keeps cycling chopTrees/mineLane dispatches into the same wall; I'm not fighting it since it's a legitimate exploration, not a driver-actionable stall (inventory still gaining torches/sticks/seeds, so not literally DEAD RACE by the flat-everything definition). Will keep watching for an apple/berry drop via harvestGrass's broader search, or escalate if this goes fully flat for 5 min. ~30 min left on the cap.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Ack the ruling — frozen stack, ride to cap, run #6 = "died at the food-kit wall #113 removes, run #7 carries it." Good news #113 already landed; will cite it in the writeup.
+
+Current inventory check: NO raw meat held right now (`crafting_table, dirt x17, bone x2, wooden_pickaxe x2, arrow, wheat_seeds x1, wooden_sword, coal, torch x24`) — the porkchop from the 09:26:07 kill is gone (lost to the death-wipes since, or auto-eaten). But the clean evidence line already exists in the record: 09:26:07Z `Hunt over: 1/1 kills. Haul: 1 porkchop`, confirmed via inventory read, immediately followed by an UNCHANGED `food 0/2` kit refusal (both already in FEEDBACK.md/SCOREBOARD with exact timestamps). Re-issuing huntAnimals now to try to bank a fresh one for a second, closer-to-cap confirmation.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>b07fb5suk</task-id>
+<summary>Monitor event: "run #6 wall-clock marks T+30/60/85/90 (cap 10:28:28Z)"</summary>
+<event>RUN #6 wall-clock T+60min (09:58:30Z) — cap 90 min = 10:28:28Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:57:38] [Server thread/INFO]: NudelNorbert left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:58:58] [Server thread/INFO]: NudelNorbert2 left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:59:37] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[11:59:38] [Server thread/INFO]: NudelNorbert3 left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[12:00:16] [Server thread/INFO]: RotzRonny left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[12:01:41] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[12:02:07] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[12:02:28] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5g (items 1-3+5, agenda-only) done: commit `89ab46b`, pushed clean on top of the team's other work.
+
+Built exactly the revised shape from our design exchange: bot._deathTimes + bot._spawnCamp (bot-level, survives re-injection), sense() gains spawnCamped/justRespawned/hostileNear/isDay with the release math (window/dawn+stable/10-min hard cap) factored into a pure spawnCampCheck() exposed as A._spawnCampCheck for synthetic-timestamp fixture testing, SHELTER's fire() widened (spawnCamped blanket + justRespawned-and-night-or-hostile), suppression centralized in safeFire() via SPAWN_CAMP_SUPPRESSED (TOOL/RESTOCK/FOOD/LIGHT/PROJECT/ESCAPE — REFLEX/POSTURE/EAT_CRITICAL/SHELTER/DEPOSIT/EAT/REMEDY untouched), IDLE gets its own inline hold. setProject during suppression isn't lost (episode still closes, project just waits its turn). spawn_camp ledger event (open/close/reason) for soak #5.
+
+Two real bugs found live while building, both fixed: (1) bot.on('death',...) re-registers on every re-injection with nothing removing the old listener — a counting handler isn't idempotent like the pre-existing _respawnedNeedsDirection one, so 3 real deaths read as 6 until I added a bot._deathHandlersInstalled guard (fixed for both handlers). (2) tracking the open-span on A instead of bot produced two spurious spawn_camp "open" events for one real streak — same re-injection-wipes-state class as (1), moved to bot._spawnCamp.
+
+Live-verified via RCON kills at night on a throwaway bot — SHELTER fired within 1 tick of every respawn, single clean spawn_camp open event after 3 kills post-fix. bench/fixtures/agenda-ladder.js 67/67 (+15 cases), preflight 257/257.
+
+Own mistake, already flagged directly to engine-dev: my RCON `kill`-based live test respawned at world spawn every time (not the isolated coords I teleported to pre-death — kill doesn't preserve position through respawn), landing ~11 blocks from their live ZombieFutter (#115) test for a couple minutes. Stopped the moment I noticed, told them to check their data from that window.
+
+Item 4 (survival.js dirt-dig fallback) — sent engine-dev the exact proposed diff for ack, including a geometric question about the cap-placement offset I couldn't confidently resolve without their context on the primitive. Not applied here per your ruling; landing 1-3+5 without it.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[12:03:07] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[12:03:24] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm0pc7jia</task-id>
+<summary>Monitor event: "supervisor wake: human chat, bot deaths, server errors on 25599/25600"</summary>
+<event>[12:04:03] [Server thread/INFO]: ZombieFutter was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5h done: commit `f267e4c`, pushed clean.
+
+Audited LIGHT/RESTOCK as asked — neither has the deadlock shape. Both already report resource exhaustion honestly through act()'s own return value ('no_spot'/'refused', both already in the file's NO_PROGRESS set), so tick()'s existing generic handler (NO_PROGRESS -> standDown + A.owner=null) already releases them correctly. EAT/EAT_CRITICAL were the outliers specifically because eatInline()'s wrapper always claimed 'ate' regardless of outcome.
+
+One deviation, reasoned through rather than asked first this time (the fix is strictly additive/safe and the alternative was actively risky, so I built + documented rather than blocking): didn't implement the literal "choose() re-evaluates safeFire(owner,s) every tick" — that would break this file's own documented fire()/clear() hysteresis gap file-wide and reintroduce the exact RESTOCK/PROJECT boundary-bounce #84 already fixed (a rung's fire() naturally goes false the moment it crosses back above its own trigger — that's the point of the gap, not a bug). Fixed at the SAME call site choose() already uses instead: widened EAT/EAT_CRITICAL's own clear() to `food>=19 || foodCount===0` — that function has exactly one caller in the whole file (confirmed by grep), so this is zero-risk to any other rung. Also fixed eatInline()'s dishonesty as a second, independent release path (reuses the existing NO_PROGRESS/standDown mechanism, no new machinery).
+
+bench/fixtures/agenda-ladder.js 71/71 (+4 cases), preflight 266/266. Live-verified against the real tick loop: starved a bot via effect, force-set A.owner to EAT then EAT_CRITICAL at food=0/foodCount=0, confirmed release to FOOD within one tick both times. Also live-caught something unrelated worth knowing: mineflayer-auto-eat's own background watcher (checkOnItemPickup:true, startAt:16) eats food independent of the agenda ladder — a hunted item can be gone before the EAT rung ever gets a turn to own it. Not a bug, just changes how a live food-scarcity test needs to be set up (I ended up testing via direct state injection rather than natural hunger decay for exactly this reason).
+
+Moving on to soak #5 prep now — will bump VERSION constants, run preflight on a fresh --agenda bot with DRIVEN unset, and send you the exact expected stack line.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Version drift caught during prep: 4b/5c/5d/5g/5h landed against agenda.js and 5e against skills.js without ever bumping the literal VERSION field — FEEDBACK's own commit messages claimed v31-v34/v63 all along, but /state was still reporting stale v30/v62. Bumped both to match reality (commit `a3b0144`, TODO.md's auto-eat law is a separate commit `b181075` per your instruction). Re-ran preflight against the bumped versions on a fresh throwaway bot (25599, DECIDER_EXCLUDE=1, stopped after): still 266/266.
+
+Confirmed expected stack line for my lane, straight from a fresh --agenda spawn's /state:
+- **skills: 63**
+- **agenda: 34**
+- digguard: 5, toolguard: 2, digchain: 1, producer: 7, graychat: 5, reachguard: 1
+- idleguard: false (unless --role is passed at spawn), panicguard: false
+
+**survival/dangerscan are engine-dev's — I did NOT bump or report a final number for those**, since they're actively mid-edit on survival.js right now (TODO 5f, WALL_OFF multi-threat, several live-test attempts in progress as of this message). Last confirmed values I saw were survival:11/dangerscan:6, but that may not hold by the time they land 5f — worth getting the number directly from them right before you actually pre-register the window, not from me secondhand.
+
+decider.js daemon: noted your instruction — restart fresh on main for the soak, coordinated with test-driver AFTER run #6 concludes at 10:28Z, not before. I won't touch it until you say go.
+
+Ready to spawn the actual soak bot whenever you want (25599, DRIVEN unset, --agenda, SOAK_BOT set on the decider once it's up) — just say when.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+A skeleton appeared point-blank (0.5 blocks, no warning) at 10:15:58Z and hit the bot to HP 0.3. **Survived this time** — WALL_OFF actually completed (had filler from the grass/mining self-provisioning since respawn, unlike Death #2-4's zero-filler state) and sealed successfully. Currently: HP 0.33, REFLEX owns the body (correctly, highest priority), sealed, standing down — same heal-deadlock shape as run #2/#5 (natural regen needs hunger≥18, food stuck at 10, nothing to eat). Not issuing any setProject — don't want to risk pulling it off the wall while REFLEX has it safe; letting the engine hold. ~12 min left to cap. Will report if it breaks either way (heals/regains ground, or a new threat gets through the wall).
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+5f (#115) done, committed (51200cd), pushed.
+
+Root cause confirmed: `pick()` hands `branchWallOff` exactly ONE threat — dangerscan's own SCORE-sorted `ts[0]` (creeper weight 5 always beats spider weight 2 regardless of which is actually landing hits) — and nothing downstream ever looks again for the whole build+wait episode, even though the spider was sitting in dangerscan's own `threats[]` the entire time.
+
+Fix (survival.js v12): `nearestMeleeThreat()` re-derives the closest threat by DISTANCE, not score, every cycle of both the placement loop (proactively, before the critical-HP bail — not just reactively on damage) and the wait/heal loop. Names a closer/different attacker once, re-shields/re-targets immediately. Returns `threatsNamed` for observability.
+
+**Live-confirmed 3 independent times** against real summoned zombies, raw chat log: "Also zombie at 0.6 blocks - didn't see that one before." firing correctly each time, safe WALL_OFF recovery (two clean at 0 damage taken, one under real combat pressure recovering from ~0.8 hp). This is the strongest evidence I could get — actual engine log lines from real live encounters, not a fixture's own self-report.
+
+Fixture built (bench/fixtures/wall-off-multithreat.sh) and DID capture the fix cleanly, but I'm being upfront: I couldn't get it to a fully clean deterministic single-run pass in this session — two real harness bugs I found and fixed (unanchored RCON kill selector, a give-command inventory-sync race) plus a genuinely separate environmental confound: 10 real deaths to a zombie camping this server's (25599) actual respawn/bed point over ~16 minutes of testing. That last one corroborates #116's spawn-camp fix (which I see landed and covers the RACE server) — worth someone checking whether 25599 needs the same coverage, or whether it's a live gap on this server specifically. Full honest writeup in FEEDBACK.md.
+
+Also saw en route: TODO 5g's "item 4 open (survival.js diginStandable dirt-dig fallback when camped) — engine-dev, diff sent for ack" — I haven't seen that diff/message land in this session. Following up with engine-dev-3 directly to check.
+
+That's tasks 1-3 plus 5f all done. Let me know what's next, or if you want me to hold here.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>b07fb5suk</task-id>
+<summary>Monitor event: "run #6 wall-clock marks T+30/60/85/90 (cap 10:28:28Z)"</summary>
+<event>RUN #6 wall-clock T+90min (10:28:30Z) — cap 90 min = 10:28:28Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Soak #5 role (1) done: fresh throwaway --agenda bot (PreflightPaul, 25599, stopped after) ran `bench/preflight.sh` clean: **261/261** (assert-produce SKIPPED — empty inventory, expected/documented behavior, not a failure). Exact /state stack line: `{"skills":63,"dangerscan":6,"survival":13,"digguard":5,"toolguard":2,"agenda":34,"digchain":1,"producer":7,"graychat":5,"idleguard":false,"reachguard":1,"panicguard":false}`.
+
+Note survival is v13, not v12 — caught and fixed two things while preparing this report: (a) my 5f commit bumped the CODE but I forgot to bump the `version:` field itself (was still reporting v11 in /state despite the real functional change — fixed, 45f6a91); (b) item 3 below then bumped it again to v13. Both committed and pushed before I ran this preflight, so the number above is accurate and current.
+
+Item (3), item-4 diff: ack'd AND implemented (not just reviewed) — `d9d8376`, survival v13. Their cap-geometry worry (depth<2 placement) turned out to need no fix: `shelterDigIn`'s cap is computed from the real post-dig feet position, not a hardcoded offset, so it's already depth-independent — full reasoning in FEEDBACK.md. `diginDepth()`/`shelterDigIn(depth)`/`shelterBuild()`'s new branch, gated on `bot._spawnCamp.active` so an ordinary no-filler night still fails honestly as before. Not live-fired against a real camp episode this pass (narrow condition to stage safely right now) — flagged honestly in FEEDBACK, not claimed as confirmed.
+
+Also: applying your "no `cd &&` prefix" fix from here on — using `git -C <dir>` and absolute paths.
+
+Holding for your T+55 inspector cue + close ping for soak #5 grading (role 2).
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>br656oies</task-id>
+<summary>Monitor event: "supervisor wake: human chat, race-bot deaths, server errors (test bots excluded)"</summary>
+<event>[12:29:35] [Server thread/INFO]: GammelGerhard left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Full sequence done:
+1. SCOREBOARD run #6 conclusion committed (a2b51fc) — DNF at stone (first ever, stands), 4 deaths, 13 steering calls, findings #112-#117 all cited with their fix commits.
+2. GammelGerhard stopped cleanly (`./stop.sh`).
+3. Decider pid 27048 killed.
+4. Race server 25600 SIGTERM'd cleanly, world-race6 archived untouched (never deleted), level-name swapped to world-soak5, restarted — "Done (1.984s)" at 12:30:16 local, `Preparing level "world-soak5"` confirmed.
+
+25600 is up on world-soak5, ready for soak #5. Saw your pre-registration commit (fd4c38e) already referencing 25600/world-soak5 stack 63/34/13/6 — matches what I just brought up. Standing by; handing run #6's conclusion to issue-manager for #90 next.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Soak #5 is live. Sequence completed: decider restarted fresh on main (pid 180453, SOAK_BOT=SchnoddSchorsch) after test-driver confirmed world-soak5 was up; spawned the soak bot per your exact command (OWNER=engine-dev-3, PURPOSE="soak #5 human-bar attempt", MC_HOST=127.0.0.1 MC_PORT=25600, ./spawn.sh SchnoddSchorsch 3162 --agenda); meta confirms DRIVEN unset (`engine-dev-3|127.0.0.1:25600|soak #5 human-bar attempt||`).
+
+**Window start (join timestamp, server.log): 2026-09-03T10:30:54.879Z**
+
+**Stack line** (fresh /state):
+- skills: 63, agenda: 34, survival: 13, dangerscan: 6, digguard: 5, toolguard: 2, digchain: 1, producer: 7, graychat: 5
+- idleguard: false, panicguard: false
+
+**Preflight: 261/261** (ran before any dispatch, on the soak bot itself, per the standard pre-commit-to-a-run check).
+
+One thing worth knowing going in: within the first ~20s post-spawn the bot already hit real combat/survival pressure at this spawn point — a creeper at 3 blocks, a WALL_OFF episode, and food dropped to 9/20 with nothing to eat yet ("Walled off but can't heal — food stuck at 9/20... Standing down at 20 HP. Need food or new orders."). Not a bug, just flagging that world-soak5's spawn area is apparently more hazardous than a typical fresh spawn — could be a rough early stretch for the human-bar's survival criterion, or could resolve itself once FOOD/decider kick in. Not touching it myself — holding per the soak-window rules (no ops on the soak bot).
+
+Not spawning anything else on 25600, not opping the bot, timer is yours. Let me know if you want anything else checked.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Both done, committed with explicit pathspecs (`-- SCOREBOARD.md`):
+
+1. **Retrospective updated** (b06c4eb): header now covers runs #0-#6, comparison table extended with run #6's column, a new "What each run's DNF forced the engine to build" bullet for the #5→#6 and #6 windows, and a full "honest trend line, updated" section stating the wall is broken plainly while leaving the pre-run-#6 text intact as history (your measurement-honesty standard). Framed it as "dying deeper, not just differently" now — the new interesting metric is how far a run survives PAST stone, not whether it reaches it.
+
+2. **Run #7 prepped** (4efea94): `GrantigGustav`/`world-race7` reserved (checked clean against both usercaches + pids/logs — `MatschMoritz` was NOT clean, already used by an eng-3 QA bot today, avoided it). Expected stack stated as current main (63/34/13/6+, to be read fresh at actual spawn as always). Race book v2 carried forward unchanged except two corrections noted: decider now answers ~20s with no driver grace (post-#112), and `huntAnimals{anyMob:true}` now genuinely covers cow/pig/sheep/chicken by default (post-#114) — the species-list workaround I had to discover live in run #6 is no longer needed. Nothing executes: 25600 stays untouched, all paperwork.
+
+Standing by — haven't touched 25600, will wait for soak #5's verdict and your go before anything execute-shaped.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Fixed and committed (bcd5d3e) — corrected the decider no-driver-grace attribution to #109 (DRIVEN flag, 2fea6d8), left #112 correctly scoped to just the standdown-reset fix everywhere else in the file. Standing by for soak #5's verdict.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Both done, well before 11:20Z (finished ~10:52Z), committed and pushed (a177a4a, 1912b2a).
+
+**#119 — fixture now deterministic, 3/3 clean passes back to back.** Three real bugs, none in the survival.js fix itself:
+1. Combat RNG: live-attacking (NoAI:0b) zombies against an unshielded bot killed it outright 3 separate times across sessions (server.log: "slain by Zombie"), independent of starting HP — branchWallOff deliberately doesn't fight back until HP<4 and falling, so 2 live zombies vs an unshielded building bot was a real coin flip, not a fix problem. Switched to NoAI:1b — dangerscan scores by type/name only (unaffected by AI state), so detection is tested exactly as thoroughly with zero death risk. The reactive/real-damage path stays separately confirmed from the original 5f work.
+2. The corroborating chat check read the WRONG log source (`__skills.status().log` — pushLog's internal diagnostic ring, not say()/bot.chat()'s actual sink) — no slice width would ever have found "Also zombie..." there. Fixed to tail the bot's actual runner.js log file directly.
+3. Widened the read window too, as defense in depth (an --agenda bot's own post-encounter activity pushes lines fast).
+
+Re-run 3x: PASS/PASS/PASS, hpMin=20 every time, threatsNamed=2 every time, corroborated in real chat log every time.
+
+**self_recovered stall bucket**: `selfRecoveredStallMs` in the latency breakdown, named per your ask — an episode closing `self_recovered` with zero decisions.jsonl attempts (the decider never touched it, the ladder recovered on its own) now gets its own field instead of falling into generic `unattributed`, tying directly back to task 3's #117 find (146113ms EAT-latch stall). Handles the stacked case (an inherited standDown subtracted first, only the true remainder named) and the negative case (self_recovered WITH a real decider attempt — not mistaken for this shape). 26/26 fixture cases.
+
+Full writeup in FEEDBACK.md. Holding for your T+55 inspector cue now.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Cook/smelt soak-hour task done: commit `a7df20b`, 264/264 preflight, nothing near 25600 throughout (soak bot confirmed still fine, agenda:IDLE/chopTrees, right where it should be).
+
+Built `cooked_meat` as a produce() resource — cooks whatever raw meat is already held (including chicken, since cooking is literally how a human neutralizes the raw-chicken poison risk #108 excluded from FOODS). Reused smeltCharcoal's furnace-finding shape.
+
+**Real bug found and fixed while live-verifying** (introduced by this feature, caught before shipping): first working version reported `made:0` on every successful cook despite the raw meat genuinely being consumed and cooked items genuinely appearing. Root cause: `bot.inventory.items()` counts items sitting in an OPEN container's own slots too — a cooked item already read as "in inventory" the moment it landed in the furnace's output slot, before `takeOutput()` ever moved it to the player's true inventory, so a before/after count taken while the window stayed open always measured zero on a real success. Fixed by snapshotting before opening the furnace and reading the final count only after close(). Also found live but NOT fixed (pre-existing, inherited from smeltCharcoal, not introduced by me): furnace auto-crafting needs a table already within 4 blocks, never places one from inventory — flagged in FEEDBACK for whoever eventually touches that.
+
+**Argument, as asked**: saturation math clearly favors cooking (roughly 2-3x hunger, 5-7x saturation over raw) when the bot can afford the stop. But I'm shipping the skill UNWIRED into FOOD's post-hunt sequence — two real architectural obstacles, not a preference call: (1) mineflayer-auto-eat's own background watcher eats raw meat on pickup independent of the agenda ladder (documented in TODO's own 5h-era law) — a hunted item can be gone before FOOD's harvest code ever sees it to hook a cook step in. (2) Even past that, EAT (prio 4) unconditionally outranks FOOD (6.5) the instant foodCount>0 — choose() hands the body to EAT the very next tick regardless of what FOOD still wants to do, a genuine priority inversion, not just a hookup detail. Proved it in a new agenda-ladder fixture case rather than just asserting it. Solving that properly needs real design work (a cooking-in-progress flag that also gates EAT, or changing what counts toward foodCount) — out of proportion to a same-session task, and exactly the class of rung-priority bug this whole session's other findings turned out to be. The skill itself is fully usable directly (`runSkill('produce',{resource:'cooked_meat',count})`) by a driver/decider/future rung right now.
+
+bench/fixtures/producer-cook.js (new, self-calibrating like assert-produce.js, 2/2) + 1 new agenda-ladder case proving the priority-inversion. Full writeup in FEEDBACK.
+
+Holding for the next task or the soak window closing, whichever comes first.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bk1alyyvk</task-id>
+<summary>Monitor event: "soak #5 wall-clock marks T+30/T+55 inspector cue/T+60 close (11:30:54Z)"</summary>
+<event>SOAK #5 T+30min (11:01:06Z) — window 10:30:54.879Z → 11:30:54.879Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Both done: commit `d48baa9`, pushed clean on top of your soak-window registration commit. Nothing near 25600 throughout — soak bot confirmed fine before/after (agenda:SHELTER/chopTrees, right where it should be).
+
+**7a (#74)**: relocateToWork's existing #C fix (`dist<3` absolute floor) didn't scale — a 64-block REMEDY tier-1 ask landing just past 3 blocks still reported `relocated:true`. Now requires `dist >= hop*0.5` (argued: candidates sit at ring distances hop/hop+20/hop+40, gotoNear navigates straight to one, so a genuine arrival should clear half the smallest ring tried; hop's own clamp means this is always ≥ as strict as the old floor). Extracted as a pure `S._relocateVerified` predicate, 9/9 in a new dedicated fixture, +2 agenda-ladder cases proving IDLE's own barren-relocate tracking reads the honest result correctly too (not just REMEDY's telemetry).
+
+Honest note on the live check: tried 6 different locations for a "clean successful long relocate" demo and never got one — every attempt came back `boxed_in`, and a direct `getPathTo` probe on plain 5-block offsets returned `partial` on 4/5 tries even in open-looking terrain. This world's had a LOT of bots digging/building/walling across it all day — I did confirm `boxed_in` reports correctly (walled a bot in via RCON, twice), just couldn't produce a genuine long-success live demo on this particular worn terrain. Confidence rests on the pure fixture + the confirmed boxed_in path + the agenda-ladder consumer check, not a live demo that didn't pan out — documented honestly in FEEDBACK rather than claimed.
+
+**7b (#73)**: skills.js's chopTrees already defaults to any species — the actual bug was decider.js's `mapAndyCommand` taking Andy's one named species (its own training bias, not an observation) as a hard restriction. Now maps to `types:'any'` always — species preference, not restriction, since the decider has no way to express an ordered preference anyway. +5 cases in decider-latency-replay.js (17/17), against the real function. Does NOT affect the currently-running soak decider daemon (started before this landed) — not touching it, lands for the next start as you'd expect.
+
+preflight 275/275 throughout. Ready for whatever's next.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+7c done: commit `e504964`, 275/275 preflight, nothing near 25600 throughout (soak bot confirmed fine before/after).
+
+Checked the code first (same lesson as 7a today): produce('torch') already had the coal→charcoal fallback and honest no_fuel reporting — the historical #71 fix, landed long ago. The literal "no charcoal path" framing didn't match what's actually there. Found the real gap by live-testing the worst case directly: sealed a bot in a stone box (RCON fill hollow, nothing reachable) and timed `S.produce(bot,'torch',4)` — **25.6 seconds** to reach the correct conclusion. Root cause: `mineProduct` called `S.ensureTool(bot,'pickaxe',{})` unconditionally before ever checking whether there was any ore to mine WITH it — holding nothing, that bootstraps a whole wooden pickaxe from scratch, all wasted effort if nothing's reachable either. Not literally an infinite loop (the 2-min produce cooldown bounds retries) but a real, recurring cost every cycle — which is exactly what "parks one torch short forever" looks like from a live bot's perspective.
+
+Fix: a cheap existence check (one findBlocks call, same bounded #91-style scan the real mining loop already uses) runs before ensureTool. Same box, same starting state: **542ms** — a ~47x reduction, and it's the shared path for every mineProduct caller now, not just torches. Confirmed the ordinary case (ore genuinely nearby) is unaffected — the check itself costs single-digit-to-double-digit ms either way.
+
+New self-calibrating fixture (producer-torch-fuel.js, matching producer-cook.js's precedent) — ran 0/0 on this session's own preflight bot since it spawned somewhere resource-rich, correctly skipped rather than faking a result.
+
+Ready for 7e whenever, or the soak verdict — whichever's next. Soak closes 11:31:20Z per your note, I'll hold clear of 25600.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bji3facwg</task-id>
+<summary>Monitor event: "soak #5 marks: T+55 inspector cue (11:26:20Z), T+60 close (11:31:20Z)"</summary>
+<event>SOAK #5 T+55min (11:26:33Z) — graded window 10:31:20Z → 11:31:20Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Inspector spawned: Trail5Insp, 25600, port 3163, DECIDER_EXCLUDE=1, no --agenda. Note: a first blind RCON teleport to y=150 killed it via fall damage (unexpectedly deep terrain there) — respawned fresh and used `/spreadplayers` instead for a verified safe surface placement this time: (302.5,126,313.5), hp=20, onGround, grass_block below/air above, ~433 blocks from SchnoddSchorsch's last known (-6,99,9) — well past 200. Ready for your close ping.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+7e done: commit `02aa516`, 278/278 preflight, soak bot + your trail inspector both confirmed fine throughout (nothing near 25600).
+
+Checked the ROLE_WORK question first as instructed: this fix does NOT touch ROLE_WORK (the role→skill mapping) at all — only `RELOCATABLE`, a separate downstream set. No role's default work changed, no role:null routing added — concluded it's not #88 territory and proceeded without a blocking pause.
+
+Audited every ROLE_WORK entry against the barren classifier expecting a "protected floor" gap per the literal brief, found something more precise: chopTrees/mineLane/huntAnimals all throw `not_found` on zero yield regardless of WHY (nothing found vs. everything found was protected — same throw either way), and harvestGrass/safeDescend/spawnProof all correctly grade a zero-yield success as barren via their own check. Every role's work IS correctly classified barren already — no classifier gap. The real gap: `RELOCATABLE` itself was missing `huntAnimals` (hunter's own default work) — a barren hunter was correctly detected every cycle but could never act on it, the exact no-op-loop shape this section exists to prevent, just never extended to that one role. `spawnProof` stays deliberately excluded (audited, confirmed already correct — #72's own latch already routes builder to chopTrees once its own chore is done).
+
+Live-verified with a real `--role hunter` bot: "Hunting 1x cow" → "no cow within 32 blocks" → "Local ground worked out — moving to fresh terrain" (the fix firing) → resumed hunting after, matching the exact pattern the other 3 relocatable roles already have in fixture. Didn't physically move on that isolated test platform — same pre-existing ctx.reachable characteristic from today's #74 entry, not a flaw here; the trigger itself fired correctly, which is what this task adds. Also hit and flagged (not fixed): `--agenda --role hunter` in that order silently drops the role (runner.js's arg parser eats `--role` as `--agenda`'s own value) — `--role hunter --agenda` works.
+
+bench/fixtures/agenda-idlework.js +2 cases (42/42). Holding for the soak verdict now (~11:35Z) — nothing else queued from me until then.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bji3facwg</task-id>
+<summary>Monitor event: "soak #5 marks: T+55 inspector cue (11:26:20Z), T+60 close (11:31:20Z)"</summary>
+<event>SOAK #5 T+60min (11:31:33Z) — graded window 10:31:20Z → 11:31:20Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+`node bench/humanbar4.mjs --bot SchnoddSchorsch --since 2026-09-03T10:31:20Z --until 2026-09-03T11:31:20Z --inspector-port 3163 --label soak5`
+
+**humanbar4 soak5: FAIL**
+1. playcheck PLAYING: **FAIL** — SPARSE, 86.9% stationary, 0.8/10min productive actions
+2. --direction-gate PASS: **PASS** — opened 13/closed 13/unclosed 0, latency p50 18794ms / p90 29883ms (well under 60s/120s — TODO 4b's fix holds under a real hour, this is the criterion that failed soak #4)
+3. survives unaided: **PASS** — 0 deaths, 0 human interventions, vitals floor ok, hp20/food20 at close
+4. human-looking trail: **PASS**, non-vacuous — 3 sites checked (2 chop clusters, 1 dig cluster), clean
+
+Gate files (committed ae62552, pushed): bench/gates/{humanbar4,humanbar,direction,trail}-soak5.json
+
+**Attribution — this is a NEW failure mode, not soak #4's**: decisions.jsonl shows 7 of the last 8 episodes are the exact same key `project_stalled|none|kit_missing|0`, all closed `skipped_frozen_repeat`, spanning roughly the last 24+ minutes of the window (~10:57Z onward). decider.js's own #95/#97 dedup is working correctly (refusing to re-dispatch an identical failing chopTrees instruction against a frozen kit_missing condition) — but nothing ever resolves the underlying kit shortfall, so the bot sits stalled for the back half of the hour. That's exactly why playcheck reads SPARSE/86.9% stationary. Confirms your mid-window read (chopTrees stalled on kit_missing repeatedly) held to the close.
+
+**Latency breakdown for the record** (all buckets attributable now, unattributed ~0-1ms everywhere): timeToFirstAttempt p50 18619ms/p90 20005ms (structural poll wait, healthy); deciderCompute p50 0/p90 4244ms; interAttemptGap p90 13493ms (retry spacing on the 2 multi-attempt episodes); dispatch n=4 (the decider-closed ones), p50/p90 ~1-2ms; standDownCarryover n=0; selfRecoveredStall n=0 — no #112/#117-shaped stalls this run, the whole miss is the kit_missing freeze.
+
+Trail5Insp stopped per your instruction; SchnoddSchorsch left running as the post-grade specimen.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Task 1 done, committed and pushed (1f6df70). `bench/lib/stall-attribution.mjs`, wired into playcheck.mjs (computed only when verdict isn't PLAYING) → threaded through humanbar.mjs/humanbar4.mjs gate files. 17/17 hermetic fixture.
+
+Two signals, kept separate (same doctrine as the latency breakdown): **episodeCauses** (each closed direction episode classified standdownCarryover > kitMissing > frozenRepeat > other, priority order — a frozen_repeat close whose root cause is visible attributes to that cause, not the dedup mechanism correctly refusing to re-dispatch it) and **rungOwnership** (from agenda.js's own `note` ledger events — already emitted on every rung transition, nobody was reading them before this — SHELTER/IDLE broken out by name, everything else rolls into `directed`).
+
+Ran on soak #5 (`--label soak5-stallattr`, canonical soak5 gates untouched — confirmed clean via git status): episodeCauses matches what I found by hand — 10/13 episodes kitMissing (3.1min), 3 other, 0 frozenRepeat (the tail frozen_repeat closes all had kit_missing visible on their own open record, so priority order correctly attributes to the root cause).
+
+**rungOwnership is the bigger finding, and it's new — decisions.jsonl alone would never have shown it**: SHELTER owned 27.7 of the 60 minutes, IDLE another 22 — only **8.2 minutes of the whole hour were an actual project rung running**. The kit_missing stall explains part of the SPARSE verdict; SHELTER (proactive night-safety, working as designed, not a bug) explains a bigger part, since SHELTER doesn't necessarily open a direction episode at all — this only surfaced because the reader now reads agenda's own rung-transition ledger. Worth knowing before soak #6: even with the kit_missing stall fixed, a bot that's correctly sheltering half the night will still read SPARSE by playcheck's own thresholds, which may be a criterion-1 calibration question, not an engine bug — flagging, not proposing a change.
+
+Full writeup in FEEDBACK.md. Moving to TODO 7f (#69 telemetry ledger gaps) now.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>b4rbh47qv</task-id>
+<summary>Monitor event: "supervisor wake: human chat, soak-bot deaths/leaves, server errors"</summary>
+<event>[13:46:23] [Server thread/INFO]: SchnoddSchorsch was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Part (a) done and live-verified: commit pending (writing FEEDBACK now, will send hash shortly) — RESTOCK now hunts for kit food regardless of hunger when the depot/produce chain can't supply it, separate counter (`A._restockHuntFails`) from FOOD's own so the two widening searches never corrupt each other. Live-verified with a sated (food 20/20 throughout), foodless bot given a project + weapon: watched it produce torches first (PRODUCE_ORDER priority, unchanged), then correctly fall to hunting once torches were topped up — "Hunting 1x cow/pig/sheep/chicken/rabbit" → real kills → "Haul: ... 1 porkchop" → hunted again for more, exactly the soak #5 gap closing. `bench/fixtures/agenda-deepkit.js` +4 cases (13/13), full preflight 281/281.
+
+**Part (b) needs your call before I write any code — it's a real design fork, not just an implementation detail.**
+
+The problem: chopTrees's own kit gate lives in skills.js's `S.start` preflight (`kit:'excursion'`, a STATIC string, `foodItems:2`), which is what actually throws "half-kitted: food 0/2" — RESTOCK giving up or succeeding doesn't touch that gate at all. To make chopTrees itself skip the food demand for a short/sated trip, the gate has to become conditional, which means `chopTrees`'s `kit:` field has to become a FUNCTION (like `mineLane`'s already is) instead of a static string — and that function needs to read `bot.food`, not just `args`.
+
+That collides with an existing, documented contract: `resolveKit`'s own comment in agenda.js says a kit function "may read POSITION only... reading anything else off that bot silently breaks deterministic replay" — the dry-run shim (`bench/fixtures/agenda-ladder.js`'s `A.step()`) only fakes `entity.position` today, nothing else. Two ways through:
+
+1. **Extend the shim to also carry food** (`src = {entity:{position:s.pos}, food: s.food}` when injected) — keeps determinism intact (the fixture already injects `s.food` in every snapshot), but is a real, documented-contract change other kit functions could now rely on too, not just chopTrees.
+2. **Keep kit() position-only, gate this in agenda.js instead** (`activeFloors`/`projectKit` zeroes out the food floor when hunger≥14 and a short-trip signal is present) — but this ONLY affects RESTOCK's own departure floor, not chopTrees's own internal `S.start` preflight gate — the bot would still refuse "half-kitted: food 0/2" even though nothing is asking RESTOCK to fetch it anymore. Doesn't actually fix the observed soak-#5 symptom (the refusal itself), just stops RESTOCK chasing an unnecessary floor.
+
+I lean toward (1) — it's the only one that actually stops chopTrees's own refusal, and it's a narrow, well-justified extension (position was arbitrarily the only thing threaded through before because nothing else needed it yet, not because it was a considered ceiling). But it does mean any FUTURE kit function could start reading hunger too, which is a real precedent-setting call, not just a chopTrees-local tweak — hence checking with you first as asked.
+
+**Thresholds, argued**: hunger ≥14 (of 20) — more conservative than EAT's own re-arm point (food≤17 fires EAT), so even if hunger drops during the trip, EAT's own mechanism engages well before the bot could be stranded hungry. ~48 blocks — half of chopTrees's own default maxDist (64), a clean, easy-to-justify "closer than the skill's own normal range" definition of "short."
+
+Which way do you want this, or a different shape entirely? Not touching (b) until I hear back — audit of every kit-table item for an orphaned supplier is next either way, will report that separately.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Both done, pushed (9e4be30). Both fixes were already correct, verified live against real containers on 25599:
+
+**#10**: raw `bot.openContainer` confirmed still throws on a real furnace ("containerToOpen is neither a block nor an entity") — then `openContainerAuto(bot, furnaceBlock)` opens it cleanly, no throw. Chest path re-confirmed unaffected.
+
+**#85**: real 20-cobblestone deposit → `assertTask` returned `{fail:false, want:20, got:20, yield:1}` (a real non-null verdict, where it was `null` forever before). Then filled the chest completely and deposited 10 more → `{fail:true, want:10, got:0, yield:0}` — the failure path grades correctly too, not just the happy path.
+
+Told issue-manager to close both. Full log lines in FEEDBACK.md. Holding now — no active bots, working tree clean.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Picking **#32** (survival.js CREEPER + BREAK_LOS branches have never faced a live mob) — high priority, my lane (survival.js), and directly threatens criterion 3 (survives unaided): run #6 death #1 was a real creeper+spider encounter, and grepping FEEDBACK.md confirms `panic_recovered branch=CREEPER` has never once appeared — that branch has genuinely never been cleanly confirmed against a real creeper. BREAK_LOS's half looks partially covered already (induced-stress-sequencing.sh fires it against a real skeleton per its own header comment) — I'll verify that's still passing and focus my new work on CREEPER specifically, the clearly-unverified half. Going now, 25599 only.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+TODO 5l both parts landed: commit `7f52d32` on main (pushed and verified against origin — a transient ref-lock race threw a rejection on the first push attempt, fetch confirmed origin/main already matched HEAD exactly, no force needed).
+
+**(a)** RESTOCK STEP 2.5 hunts for kit food regardless of hunger (own counter, `A._restockHuntFails`, separate from FOOD's).
+
+**(b)** Built to your approved design (option 1): `resolveKit`'s shim now carries position+vitals (`entity.position`, `food`, `health` — all already in every snapshot) behind a Proxy that throws on any other bot property read, so the contract can't silently re-widen. `chopTrees`'s `kit:` is now a function: food≥14 and maxDist≤48 → new `excursion_short` tier (no food demand); anything else keeps full `excursion`. Scoped to chopTrees only — mineLane's underground/deep untouched.
+
+Fixtures: 287/287 preflight (agenda-ladder +5 covering the sated+close/exact-threshold/hungry/far matrix, agenda-deepkit +4). Live-verified both parts AND their composition on a throwaway bot (MoppelMorris, 25599, DECIDER_EXCLUDE=1) — gave it torches+sword+axe so only the food gate was under test: `maxDist:32` at food 20 → chopTrees actually set off ("Off to chop 2 trees..."), failed only on a genuine "no tree within 32 blocks" (barren spot, not a kit refusal), no "half-kitted" anywhere. `maxDist:64` → RESTOCK immediately asked for food again ("Topping up: 3 bread"), depot-less, fell straight to part (a)'s hunt fallback — both fixes composing correctly on the same bot in the same run. SchnoddSchorsch (25600) untouched throughout. `agenda.js` v35→36, `skills.js` ENGINE_VERSION 64→65. Full writeup in FEEDBACK.md.
+
+Next: the orphaned-kit-supplier audit (every KIT_TIERS item across excursion/hunt/underground/deep needs a confirmed real supplier rung) — starting that now, will send the table before soak #6 as asked.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+#32 done, committed and pushed (7cd4183). Mixed, real result:
+
+**CREEPER: PASS, first-ever clean confirmation.** New fixture (bench/fixtures/induced-creeper-encounter.sh), real summoned creeper 6 blocks out. "Creeper at 6 blocks - backing off" → "Stable again (CREEPER, HP 20/20)" — opened to 10.5 blocks (≥10 target), zero damage, never swung. Grepped FEEDBACK.md first: zero prior `branch=CREEPER` hits in this project's history.
+
+**BREAK_LOS: FAILED, reproducibly, 2/2 real deaths.** Re-ran the existing induced-stress-sequencing.sh fixture (it already claimed BREAK_LOS coverage) twice — both times a real skeleton closed to and stayed at 0.5-0.8 blocks for 4+ seconds, the branch kept re-firing the same "breaking line of sight" line every ~250ms, HP drained steadily, and the bot died both times (server.log confirms: "slain by Skeleton", twice, 3 minutes apart, identical shape). Likely mechanism: the fixture's deliberately-unarmed design means the counter-attack path can never fire, and at sub-1-block range in a confined arena the corner-step/arrow-shadow paths plausibly have no valid cell either — an unarmed bot cornered by a melee-range skeleton has no working defense right now. This directly threatens criterion 3 for any early-game/role-less bot (#88's shape) that hasn't got a sword yet.
+
+Also found and fixed a real fixture bug along the way: the poll loop only sampled HP every 2s, and a death-then-instant-respawn cycle can hide entirely inside that gap — run 1 was originally mis-reported as "dropped to 0.33 HP" instead of "died" until I added a ground-truth log-based death check.
+
+Told issue-manager to close #32 (CREEPER half satisfied it) and file a new HIGH-priority issue for the BREAK_LOS death — not fixed by me, safety-critical combat code deserves its own focused pass rather than a same-session patch. Full evidence in FEEDBACK.md.
+
+No bots running, working tree clean. Holding for your soak #6 T+55 cue.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Full launch sequence done:
+1. SchnoddSchorsch stopped cleanly, soak decider (180453) killed.
+2. 25600 SIGTERM'd cleanly, world-soak5 archived untouched, level-name → world-race7, restarted — "Done (2.085s)" at world-race7.
+3. Fresh decider daemon up: pid 314023, clean commit `504e3ac` (no uncommitted diff), no SOAK_BOT.
+4. GrantigGustav spawned (pid 314677, port 3161, OWNER=test-driver).
+
+**Canonical join timestamp: 12:00:56.716Z** (server.log: `[14:00:56] GrantigGustav joined the game`, local UTC+2) — that's your window start, hold the 90-min cap from there.
+
+Actuals from `/state`, exact match to your expected stack: skills **v65**, agenda **v36**, survival **v13**, dangerscan **v6**, producer **v9** (bumped from v7, wasn't in the stated list but worth noting). role:null.
+
+Firing the opening steering call (mineLane→stone) now per Race book v2's trigger table, will report milestones as they land.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Both recorded, commit `3dcfc8e` (pushed, confirmed in origin/main alongside your run #7 SCOREBOARD commits — saw the ref-lock race, no force, just a quick fetch to confirm landed).
+
+**#116 ledger entry**: confirmed from SchnoddSchorsch's own log — deaths at 11:46:23.013Z and 11:46:34.411Z (11s apart, hp0 both times, a zombie already on it at each respawn), third respawn stabilized "Stable again (WALL_OFF, HP 20/20)" within 1.2s, no further death for the rest of the session. Attributed the mechanism precisely: `RESPAWN_GRACE_MS` (20000ms) + SHELTER's `s.justRespawned && s.surfaceExposed && (...)` fire condition — closes the gap one level short of `bot._spawnCamp`'s own hard-cap escalation (2 deaths didn't even reach that threshold). First live confirmation since 5g landed (`89ab46b`).
+
+**Kit-supplier audit — table is in FEEDBACK.md, headline finding**: torches/food/weapon/picks/filler/sticks/table are all supplied (food closed today). **armor, shield, water (deep tier only) are orphaned** — `activeFloors()` in agenda.js literally never reads `k.armor`/`k.shield`/`k.water` (its return object only carries torches/food/filler/sticks/table), so no rung ever tries to acquire them, while S.kitCheck's own preflight still demands all three the instant a project/role-work resolves to `deep` (y<0). Same shape as the food gap, but with zero existing supply mechanism to extend — no produce path, not even threaded through activeFloors far enough for a withdraw attempt. Didn't fix it in the 5l commit; it's new supply-chain work (equip/acquire armor, craft/withdraw a shield, get+fill a water bucket), properly sized as its own follow-up. Narrower blast radius than food was — only hit by explicit below-zero mining, not an ordinary fresh-world excursion — so I'd guess it doesn't need to gate soak #6, but that's your call.
+
+Ready for 5m whenever you want to hand off the design brief — SHELTER/REFLEX boundary noted, will wait for specifics before touching code.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+5n design, before code, per your ask.
+
+**Root cause of the 2/2 deaths**: `branchBreakLOS` has no memory across invocations. Every ~250ms re-trigger (survival's own `onHealth` bypassing lockout while HP keeps falling) runs the SAME corner-step search (phase a) and arrow-shadow build (phase b) fresh, with no signal that they already failed against THIS threat. At sub-1-block range in a confined arena both plausibly find no valid cell every time (`placed` stays 0), the existing ending (`if (placed || health<rushHp) → branchWallOff`) only reaches WALL_OFF's own no-filler bail (an 8-block `ownedGoto` that never finishes before the next re-trigger interrupts it), and the armed counter-attack (phase c) is gated on a sword that doesn't exist in the unarmed scenario. Net: no escalation, just the same failing attempt on a loop while HP craters — exactly the 5c/5g shape.
+
+**Fix — a persistent no-progress counter, same doctrine as 5c's REMEDY tiers:**
+
+```js
+g._breakLosStreak = { threatId: null, fails: 0 };  // new g state, alongside g.shelter etc.
+```
+
+At `branchBreakLOS(t)` entry: if `t.id !== g._breakLosStreak.threatId`, reset `{threatId: t.id, fails: 0}` — a genuinely new encounter (or the first call of this one) gets phases (a)/(b) exactly as today, unchanged, so already-working cases (corner-step succeeding, BREAK_LOS's own clean recoveries elsewhere) are untouched.
+
+**On the SECOND consecutive call against the same still-live, still-close threat** (`fails >= 1`, i.e. phases a/b already had their one honest shot and didn't resolve it) — skip straight to your 3-tier cascade instead of repeating (a)/(b):
+
+1. `fillerItem()` present → `branchWallOff(t)` (unchanged function, already correct when it has materials).
+2. Else, unarmed AND (`liveDist <= 2` [cornered, same threshold the armed path already uses] OR `bot.health < g.cfg.hpPanic` [8, the existing emergency floor]) → **new**: bare-hand counter-attack. No sword requirement, no `rushHp`(12) floor — that floor exists for the ARMED case where declining to fight is a genuinely safe alternative (shield + wait); it is NOT safe here, that's the whole finding. `t.name !== 'creeper'` guard carried over (defense in depth, matches phase c). Bounded ~3000ms attack loop via `bot.pvp.attack`, breaks off early only if the threat dies/despawns or real distance opens up (>meleeReach) — not on falling HP alone, since we already judged fighting the least-bad option to get here.
+3. Else (not cornered, not critical, still no filler) → `branchFleeAway(t)` (existing, unchanged, needs no inventory — #96's own floor).
+
+`fails` increments every call that reaches this escalated branch without resolving the threat (still alive, still close), so a bot that starts punching and doesn't finish the fight in one call keeps re-evaluating fresh next cycle (filler could appear, distance could open, HP could keep falling toward flee-is-safer) rather than being locked into repeating exactly one tactic. Resolved (dead/despawned threat, or real distance) resets the streak to 0.
+
+**Verification**: re-run `bench/fixtures/induced-stress-sequencing.sh` (unarmed, real skeleton, already has the ground-truth death check I added) 3x, require 3/3 PASS with no death, `panic_recovered branch=BREAK_LOS` still logged (the `how` field will show `fist` or `flee` on the escalated path, `corner`/`wall` on the honest-first-try path).
+
+Starting on ack, 25599 only.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+5m design, before any code. Read survival.js's full shelter module (shelterDigIn/shelterHut/shelterBuild/shelterEnter/shelterExit) and agenda.js's SHELTER rung + stall-attribution.mjs's own doctrine comment first — that last one matters, see below.
+
+**Where this lives: entirely inside survival.js's `shelterEnter()`, NOT a change to agenda.js's SHELTER/REFLEX wiring.** Reasoning: `bench/lib/stall-attribution.mjs` already frames SHELTER-owned time as *legitimate*, not a failure ("SHELTER is the proactive night-safety primitive working as designed") — its rungOwnership bucketing isn't what soak #5 was actually complaining about; the complaint is that playcheck's own output/activity signal saw near-zero real activity for 27.7 minutes. Fixing that doesn't require moving rung ownership to PROJECT — it requires the SHELTER-owned time to contain real digs/drops/torches. Keeping it inside `shelterEnter()`'s existing wait loop means zero changes to fire()/clear()/act() or the owner-latch, and inherits every safety property that loop already has for free (same 500ms exit-condition cadence, same REFLEX/POSTURE handoff on `threatsNow()`).
+
+**Trigger**: only `built.kind==='digin' && built.sealed===true` (hut stays untouched, as asked — no vertical shaft to work with).
+
+**Mechanism**: dispatch real `mineLane` via `globalThis.__skills.start(bot, 'mineLane', {...})` directly from survival.js — same cross-payload-global pattern `shelterEnter()` already uses today (`globalThis.__skills.stop('shelter')` at entry, `globalThis.__survival` read from agenda.js's own SHELTER act()). I'm deliberately NOT hand-rolling a "keep extending the dig-in shaft straight down" primitive, even though that reads closer to the brief's literal wording — the reason: reliable drop-banking needs `ctx.collectDrops`, which only exists inside a running skill's own execution context, not as a bare global. Reimplementing torch-cadence + hazard-abort + drop-pickup-with-retry from scratch would duplicate mineLane's own (already fixture-tested) logic for no real gain. Args: `vein:false` (no wandering off toward an unbounded vein — including, critically, never following one back UP), `laneY` pinned to `built.restY - 1` (one below the sealed floor, never above), `maxDist:8` (stays close to the hole), `target:'stone'` (universal, also feeds RESTOCK's filler/cobblestone economy as a side benefit — open to an ore list instead if you'd rather), `count:6` per batch — small batches so exit-condition latency never grows, not one multi-hour call.
+
+**Gate, ties to 5l's audit as asked**: check the bot already HOLDS a pickaxe before the first batch; if not, skip straight to today's plain wait-loop for the rest of the night (a bot that entered shelter tool-less isn't going to grow one — TOOL, prio 5, never got a turn before SHELTER's prio 2.5 took the body). mineLane's own `kit:` fn resolves 'underground' at this depth (pinned `laneY` stays near the surface) — my 5l audit confirmed underground's full demand list (torches/food/weapon/picks/filler/sticks/table) is already suppliable, so S.start's own preflight is a real, satisfiable gate here, not a new orphaned one. Explicit hard stop before every batch: refuse to continue if the next batch could cross y<0 — steers clear of 'deep' tier's armor/shield/water gap (5o) entirely rather than depending on a fix that hasn't landed. Also stop if `freeSlots<=2` (reusing DEPOSIT's own existing threshold) or after a capped number of batches (proposing 5, ~30 blocks/night — arguable).
+
+**Exit responsiveness**: a poll loop (same 250-500ms cadence as today) runs CONCURRENTLY with each batch, checking the exact same conditions `shelterEnter()` already checks (`exitRequested`/`threatsNow()`/`shelterDawn()`/`shelterStarving()`/`bot.health<=0`) — on any hit, `globalThis.__skills.stop(...)` the in-flight mineLane batch immediately (don't wait for it to finish) and fall straight into the existing `shelterExitBuild`/pillar-up sequence. REFLEX/POSTURE preemption latency is unchanged from today.
+
+**Fixture location — flagging a mismatch with the literal ask.** Since none of this touches agenda.js's rung fire()/clear()/act(), agenda-ladder's dry-run `A.step()` can't exercise it at all (it never reaches survival.js's real state machine) — same reason #105's own live dusk fixture exists separately from agenda-ladder today ("sense()'s own computation of shelterShould/shelterActive is a live-bot concern"). I can pull the DECISION logic (has-pickaxe? would this cross y<0? batches-remaining?) out as a small pure function so at least that much is fixture-testable in isolation, but the actual dispatch/monitor/interrupt loop can only be proven live — proposing a live/RCON-night fixture (dusk-forced, sealed, verify a mineLane batch actually runs and banks stone, verify a spawned threat interrupts within ~1s and the seal never opens upward) rather than an agenda-ladder case for the dispatch itself. Let me know if you want the agenda-ladder cases anyway for wiring-level regression (they'd mostly just re-confirm SHELTER's existing fire()/clear() are unaffected, which is true by construction here since I'm not touching them).
+
+Two things I'd like your call on before I build: (1) stone as the default mining target, or would you rather it prioritize ore, (2) the batch/depth-cap numbers above, or different ones. Otherwise this is ready to build as described.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Commit `d15f71d` (pushed, confirmed in origin/main). One correction to my design surfaced while building it, worth flagging: mineLane's `target` param is a single string only (confirmed reading skills.js's validate()/fn() — `ORE_ALIASES[a.target] || [a.target]`, no array support) — so "prefer ore, never chase" isn't a preference-list argument to one mineLane call, it's an ORDERED sequence of separate cheap attempts (coal_ore, then iron_ore, then stone as the guaranteed catch-all), each one bailing fast on mineLane's own `not_found` if that block isn't genuinely adjacent (tight maxDist:8, vein:false — no chase either way). `nightmine.js` exports `nightMineTargets()` for that order; the survival.js wiring will try each in turn per batch.
+
+`shouldNightMine()`/`nightMineArgs()` landed with your caps: 12-batch ceiling, y-floor at 0 (checked against the LANE, restY-1, every call — not a one-time check), freeSlots<=2 (reusing DEPOSIT's own threshold), pickaxe-held checked once at entry. 20/20 on the hermetic fixture (`bench/fixtures/nightmine.mjs`, plain `node` run, no live bot).
+
+Messaged engine-dev about the survival.js lane conflict (5n's branchBreakLOS vs my shelterEnter() diff) and I'm holding off touching that file until they respond — haven't heard back yet. Everything landed so far is the pure decision layer only, sitting in a new sibling file (`nightmine.js`, same CommonJS-require idiom as foods.js) so it's ready to wire in the instant survival.js is clear, without needing to touch it now.
+</cross-session-message>
+
+---
+
+whats the overall status? what can the engine do
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+State change: unannounced combat around 12:28Z dropped HP from 19.3 to 6.8 in ~25s (no mob name logged before it — dangerscan may have missed the initial trigger, or it was a creeper blast). WALL_OFF completed and sealed successfully. Currently stable: HP 6.8, food 15, REFLEX owns the body correctly. Mild heal-deadlock (food stuck at 15 — below the 18 needed for natural regen, but above FOOD rung's 12-trigger, so nothing routes to fix it; not the same shape as `#117`, which was about foodCount>0-but-still-stuck — here foodCount is genuinely 0). Not steering — letting REFLEX hold per the retired zero-defense doctrine.
+
+No sign of the food-kit wall yet — mineLane/chopTrees haven't hit a "half-kitted... food X/Y" refusal this run; hunting has been working well (killed sheep for mutton earlier via the #114 species fix). Will flag immediately if that specific message appears. Steering calls: still just 1 (opening mineLane). No deaths.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+#121 (TODO 5n) BREAK_LOS escalation: core design landed and committed (365fdad survival.js v14 + telemetry.js, FEEDBACK 243d70e). 25599 only, all cleaned up.
+
+Built exactly what was ACK'd: g.breakLosStreak (10s expiry, keyed on threat id) → breakLosEscalate() → WALL_OFF-if-filler, else bare-hand if cornered(<=1.5)/desperate(hp<4)+reachable, else FLEE_AWAY. Fist outcome ledgers via the same two-surface emit (confirmed live in metrics-<bot>.jsonl: how:'fist', hits, killed, threatHpBefore/After/Delta all present).
+
+Verifying it against real skeletons surfaced 3 more live bugs, all fixed in the same commit:
+1. cornered/desperate too loose → fired fists into a losing kite trade. Tightened to <=1.5/hp<4 + a reachable gate.
+2. Bigger one: a no-progress ending used to just return and wait for the NEXT enter() call to escalate — but dangerscan's onDanger is edge-triggered, so with no cover/filler the only other trigger was the hp<8 backstop. Measured 9 full seconds of totally unopposed damage (HP 20→7.3) before escalation ever got a chance to run. Fixed: no-progress escalates within the same call now.
+3. desperate is sticky (stays true till death/heal) → bot re-picked fist every call even after whiffing, 5 straight cycles HP 7.3→1.3. Added triedFist, caps it at one bare-hand attempt per streak.
+
+Armed path: code-level diff confirms phase (c)/kill-window is untouched. Live confirmation is partial — two attempts never got "threat ≤2 blocks AND health≥rushHp" to hold long enough to watch a clean kill through; both times the pre-existing gate correctly declined for reasons that would've applied before my change too. Consistent with no regression, but I want to flag it's not the full "watched it kill" trace.
+
+Remaining blocker, NOT in scope for what was ACK'd, reporting rather than redesigning solo: bench/fixtures/induced-stress-sequencing.sh still isn't a clean 3/3. Sequencing is clean, BREAK_LOS fires correctly, no death — but branchFleeAway itself (pre-existing, untouched) takes continuous near-unopposed damage while retreating in the open (raw-distance goal, no LOS bias) — measured hpMin 1.3 and 0.5 across two clean runs, fixture wants ≥6. This is the "Bernd death" pattern the code's own comments already warn about elsewhere, and it's the floor tier your design explicitly specified as final fallback — so surfacing before I touch flee's targeting strategy rather than unilaterally redesigning it.
+
+Also flagged (not mine, not touched): one pre-fix run logged an EAT/REFLEX rung thrash (EAT_CRITICAL REFLEX EAT REFLEX EAT) — only visible now that BREAK_LOS survives long enough for hunger cycling to show up. Whoever owns agenda.js may want it.
+
+Want me to take a pass at FLEE_AWAY's LOS-breaking (new design, would send it first per usual), file it as a follow-up issue for later, or hold here?
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+T+30 status, with a correction to my last message: milestones — wood T+1m13s, stone not yet reached. Steering calls: 1 (opening mineLane only). Deaths: 0. Current: rung REFLEX, project chopTrees, HP 6.8, food 12 (declining from the earlier heal-deadlock, no new combat).
+
+**Correcting myself**: "half-kitted... food" DID appear, four times early (12:04:51-12:10:28Z, food 0/4 narrowing to 3/4) — I missed it in my last report because it had already self-resolved by the time I checked (RESTOCK's `5l` fix actively hunted to fill it, rather than sitting stuck — exactly the intended behavior, unlike run #6 where nothing routed to hunting while sated). It just reappeared once more at 12:30:11Z (`food 0/2`, the excursion tier this time). So the wall IS still there structurally, but `5l` makes it self-heal instead of permanently stalling — worth watching whether it keeps resolving itself or eventually gets stuck for real. Will keep flagging every occurrence.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+FLEE_AWAY design, holding for ACK before touching survival.js (also holding on the file itself until eng-3's 5m commit lands, per your sequencing).
+
+Root cause: branchFleeAway's only goal is `GoalInvert(GoalFollow(ent,12))` — pure raw-distance maximization, no LOS awareness at all. A skeleton with a clear shot keeps shooting the whole 8s retreat regardless of distance gained.
+
+**Primary fix — LOS-biased target selection, re-evaluated periodically:**
+Reuse BREAK_LOS's own corner-step primitive (the `losBlocked(tEye, cell)` check phase (a) already uses), but widened: each ~1-1.5s tick of the retreat loop, sample nearby reachable cells in a wider ring (not just the 8 adjacent-block offsets — flee has more time/room than a melee corner-step) and prefer any cell that breaks LOS over one that's merely farther away. Re-picked on a cadence rather than once at entry, same lesson as #65 (a moving skeleton can re-open a sightline the initial plan didn't see coming). If no LOS-breaking cell exists nearby, fall back to today's raw-distance goal — open ground doesn't get worse than current behavior.
+
+**The catch, worth flagging before I build this**: bench/fixtures/induced-stress-sequencing.sh's arena is `build_platform` — a completely flat, featureless stone platform, zero terrain variance anywhere. The LOS-bias mechanism has *nothing to work with* there; it can't find a single LOS-breaking cell on a bare platform, so it would degrade to identical behavior to today in exactly the fixture that gates soak #6. I also checked: this fixture is deliberately toolless (no shield either, matches its sibling's comment), and branchFleeAway's existing "cornered → shieldUp" line is already a silent no-op in this exact scenario (shieldUp requires a shield item; there isn't one) — so there's no secondary mitigation available on truly bare ground with no kit.
+
+I don't think a real fix exists for "unarmed, shieldless, zero terrain within reach, sustained ranged fire" — that's close to an unwinnable engagement by design in vanilla combat math, not a logic bug. My proposal: land the LOS-bias fix (real improvement for the ~universal case of natural terrain having *some* variance) AND add a small amount of scattered obstruction to the fixture's arena (a few 1-2-block stone pillars within the platform, still built/cleared by the fixture itself) so the fixture tests a realistic worst-case-with-some-cover rather than a physically-unsolvable total void — that's a fixture change, not a further survival.js scope change, and still mine to make. Want me to proceed on both, or do you want the fixture arena left bare and the bar adjusted instead?
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Update on the food situation, plus a new, distinct finding. Food resolved to 16 via a successful hunt kill (12:34:06Z) — NOT a #123 case, FOOD/hunting worked. But since then (12:34:08Z to now, 12:38:22Z, 4+ minutes), HP (6.8) and food (16) are both completely flat, position is flat (my monitor's stuck-alert fired at 90s and 181s at the same spot), and the log shows why via read-only `/skills.status`: `survival.js` keeps re-entering panic on the SAME creeper at 13-16 blocks — `los:false, ranged:false` (not even visible, not shooting) — cycling `panic_enter -> WALL_OFF -> panic_recovered -> re-enter` roughly every 10-50s with zero net progress each time. No `needs_direction` episode is open for this (direction.state:cooldown) — the decider never sees it either. This looks like a real bug: REFLEX/panic re-triggering on a threat that isn't actually proximate/dangerous by its own reported fields.
+
+This is now bordering DEAD RACE's flat-everything test (HP/food/position all unchanged 4+ min, diagnosed cause). I don't think a `setProject` redirect would help — REFLEX outranks PROJECT, so it'd just get preempted again each cycle, same as run #6's standdown-carryover shape but at a higher priority tier. Holding for ~1 more minute to confirm it's genuinely not resolving before I call DEAD-STOP myself per the standing rule (stone hasn't been reached this run, so this would be a DNF at wood if it comes to that). Will report the moment it breaks either way.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bpdulpa73</task-id>
+<tool-use-id>toolu_01Y6fVTdB6d381wiYfHTNWd6</tool-use-id>
+<output-file>/tmp/claude-1000/-home-felix-ghq-github-com-felsenuboot-FelsenBerry/349b205b-00b4-429b-836f-8e91ef5f2cb1/tasks/bpdulpa73.output</output-file>
+<status>completed</status>
+<summary>Background command "Timer: retry engine-dev-3 resume in 3 minutes" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/403814.sock" from-mode="bypass">
+alive, resuming 5p
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Concluded and committed (f6300c8): DNF at wood, DEAD-STOP applied at 5min flat (12:34:08Z-12:39:14Z+), cause = REFLEX panic non-clearance on a creeper reported at 13-16 blocks, los:false/ranged:false, 15 fires logged, no legal setProject recovery (REFLEX outranks PROJECT). Verbatim `/skills.status` fields in FEEDBACK.md's 12:39Z entry as requested.
+
+Good news buried in the same run: the food-kit wall did NOT recur as a blocker — two separate refusals (food 0/4 early, food 0/2 later) both self-resolved via RESTOCK's hunt-when-sated fix and #114's species widening, exactly as `#120` intended. That's a real positive result worth keeping in the retrospective alongside the DNF cause.
+
+GrantigGustav NOT stopped, decider left running, handed to engine-dev-3 directly with port 3161 and position (-95,73,-76). Standing by — my monitor is still watching it passively in case anything changes before eng-3 picks it up; let me know if you'd rather I stand it down now that it's their specimen.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Done: handoff re-routed to engine-dev (eng-3 told to disregard), monitor stopped, conclusion handed to issue-manager for #90. Idle now until run #8's gates (5m/5n-b/5r + soak #6) clear.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/403814.sock" from-mode="bypass">
+5p (#123) DONE, committed de81bd1, pushed (origin/main confirmed matching). agenda.js v36→v37: FOOD's fire() heal-deadlock clause (hp<=10 && food<18 && foodCount==0 && calm && !hostileNear) landed as predecessor left it — verified, not rewritten. 10 new agenda-ladder cases added (band shape, both edges, hp boundary, additive-not-relaxation proof, 3 guard cases). Live-confirmed on KlonkKurt (3194): fired for real at hp7.3/food17/foodCount0 (log+metrics both show it — huntAnimals dispatched, fell back to existing collectDrops/harvestGrass path; no animals in range so it didn't fully heal this instance, but ownership+dispatch behaved correctly, released cleanly to SHELTER at dusk). preflight 301/301 (agenda-ladder 89/89) — your "~287+" was a stale baseline, tree already had more fixtures. FEEDBACK appended. KlonkKurt stopped.
+
+Note: TODO.md was modified in the working tree by someone else while I worked (not staged/touched by me).
+
+Moving to 5m next per your brief — will message engine-dev first before touching survival.js, per your instruction.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/403814.sock" from-mode="bypass">
+5m design (before code, per §3 — this touches the SHELTER boundary). survival.js is currently clean in the tree; still waiting on engine-dev's go-ahead (messaged them, no reply yet), designing in parallel so I'm ready the moment they clear it.
+
+Plan: inside shelterEnter()'s existing wait loop (survival.js ~1375-1406), when built.kind==='digin' && built.sealed:
+- At loop entry (once): capture hasPickaxe = bot.inventory.items().some(i=>/pickaxe$/.test(i.name)) (matches skills.js's own `/pickaxe$/.test(held)` convention) and batchesUsed=0. require('./nightmine.js') defensively, same idiom as foods.js.
+- Each loop iteration, AFTER the existing exit checks (exitRequested/threatsNow/dawn/starving/health<=0) and BEFORE the sleep: if no nightmine task is currently running (`!(__skills.currentTask && __skills.currentTask.running)`) — either nothing dispatched yet, or the last dispatch just ended — decide:
+  - task just ended with error.code==='not_found' and more targets left in nightMineTargets() order (coal_ore -> iron_ore -> stone): dispatch the next target immediately, same batch (doesn't consume the batch-cap — a fast not_found scan is cheap, matches nightmine.js's own header comment).
+  - task ended (done, or a real non-not_found error/timeout), or nothing dispatched yet: call shouldNightMine({builtKind, builtSealed, hasPickaxe, currentY: bot.entity.position.y, freeSlots: bot.inventory.emptySlotCount(), batchesUsed}) fresh; if go, dispatch nightMineTargets()[0] via __skills.start(bot,'mineLane', nightMineArgs(target, built.restY)), batchesUsed++ when a batch (not a not_found retry) completes.
+  - task still running: do nothing — the loop's own poll cadence IS the concurrency, no separate timer needed.
+- Tighten the loop's sleep(500)->sleep(300) so exit conditions (esp. threatsNow()) are checked at 300ms even mid-batch.
+- On ANY exit condition firing while a nightmine task is in flight: call __skills.stop('shelter:nightmine') immediately (before break), so mineLane's next per-block checkpoint cancels within ~1s, then fall into the existing shelterExitBuild/exit sequence unchanged.
+- laneY stays nightmine.js's own restY-1 (never touched) — seal is never reopened upward, that safety property lives in the args, not in my wiring.
+- Hut variant (built.kind==='hut') untouched — no branch added there.
+
+Will add a bench/fixtures case (sealed digin + night + hasPickaxe -> mineLane dispatched; threat mid-batch -> stopped + existing exit fires; dawn -> exit, never re-seals) and live-verify per your brief (RCON night on 25599, sealed dig-in, batch banks stone, summoned threat interrupts within ~1s, seal never opens upward). Any objection before I start once engine-dev clears the file?
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+5r status: implemented both fixes, not committed yet, and paused before committing for a coordination reason (below).
+
+Root cause on GrantigGustav's specimen was more specific than "creeper scoring": dangerscan's own panicNow() has score>=5 OR hp<hpPanic(8) OR creeper<=8blocks. Score was only 1.98 (creeper alone never got close to triggering it) — the actual driver was the bot's OWN hp sitting at 6.77, below the 8 threshold. Real bug: WALL_OFF's #92 heal-deadlock escape (and the outer standdown arm/re-clear checks) all gate on `threatsNow().length===0`, and the distant/no-LOS creeper's mere presence in dangerscan's raw list — even though it could neither see nor reach the bot — permanently blocked that check from ever reading true. So standdown never armed despite cannotHeal() being genuinely true (food stuck at 16, no food item held) the whole time, and dangerscan's hp<8 term kept re-forcing panic on a threat that was never actually the problem. Fix A: new `actionableThreats()` (los===true || d<=12) swapped in at the 4 call sites that gate "is danger genuinely over" (WALL_OFF's inner escape, its threatClear field, standdown's arm/clear checks) — leaves threatsNow() and pick()'s own creeper/ranged dispatch gates untouched. Fix B (the explicit second ask): generic `g.panicStreak` at the enter()-level, keyed on the same threat id, escalates to a new `branchWalkOff()` (moves 24 blocks directly away from the threat's last known position, bounded 8s) after 3 consecutive zero-damage cycles — belt-and-suspenders for any shape Fix A doesn't cover.
+
+Paused before committing: mid-edit I found your handoff sequencing had a gap — eng-3's v15 header comment + version-number bumps for 5m are already sitting uncommitted in the SAME working-tree file, no shelterEnter() body yet (looks like they got interrupted, matches the API-500s). My 7 hunks don't overlap theirs, but I don't want to `git add survival.js` and accidentally sweep their in-progress, not-yet-reviewed edit into a commit under my name. Messaged eng-3 directly with two options (they resume and we sort staging together, or I patch-extract just my hunks and leave theirs untouched for them to continue) — holding for their reply before touching git.
+
+Haven't live-tested 5r against the specimen yet either (wanted to sort the file-sharing issue first). Once clear, plan is: fresh bot or GrantigGustav directly if handed over, confirm actionableThreats() lets standdown arm, confirm panicStreak/branchWalkOff fire correctly on a repeat, then commit + FEEDBACK + report.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+5r: fixed, live-verified against GrantigGustav, committed as 35a6f76 (pushed). Confirmed via hot re-injection (jq -Rs '{code:.}' survival.js | POST /eval:3161, matches inject.sh's idempotent-reinject pattern): fires/recovered reset, exactly ONE panic cycle ran post-injection instead of looping, standdown armed correctly ("Walled off but can't heal — food stuck at 16/20... Standing down at 3 HP"), and the bot resumed normal REFLEX/chopTrees work. A later genuine hp drop (real damage, 6.77→2.77 from resumed work) correctly broke through standdown once, got handled, and re-armed — confirms the fix doesn't suppress genuine re-triggers, only the phantom creeper loop. Gave it 8 bread via RCON afterward so it's not sitting hungry; it's currently safely sealed/stood-down waiting on food/orders (that's agenda/EAT territory now, not mine to chase further).
+
+Mistake to own: my patch-extraction (git apply --cached) worked correctly — I verified the staged index had only my 7 hunks and the unstaged tree had only eng-3's. But then `git commit -- survival.js` with an explicit pathspec doesn't commit just the index — for paths named explicitly it implicitly re-stages the current working-tree version of that path first, which silently overrode my careful split. Result: eng-3's full 5m diff (shelterEnter/nightmine wiring, v14→v15 bump) landed inside my 5r commit (35a6f76) instead of their own, already pushed. Content is correct and undamaged (nightmine.js's require resolves fine, it's their finished diff, nothing lost) — this is purely an attribution/history problem, not a functional one. Not amending/force-pushing to fix it per standing rules; told eng-3 directly, suggested a FEEDBACK.md entry in their own words as the honest way to document 5m's design/verification since the commit message doesn't describe it. Flagging to you too since you set the sequencing and should know it didn't end up split the way we planned.
+
+5r fixture-wise: no dedicated hermetic/live fixture written for this one (it was a live-specimen live-fix, verified directly against GrantigGustav rather than a synthetic scenario) — let me know if you want a bench/fixtures regression test for the actionableThreats/panicStreak logic before soak #6, or if the live verification + FEEDBACK entry is sufficient. Writing the FEEDBACK entry now either way. Then back to FLEE LOS-bias once eng-3's 5m is confirmed settled.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bpn3cy9w0</task-id>
+<summary>Monitor event: "supervisor wake: human chat, run #7 racer deaths/leaves, server errors"</summary>
+<event>[15:01:50] [Server thread/INFO]: GrantigGustav left the game</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Hermetic fixture done: bench/fixtures/panic-gate.mjs, 21/21 (los:false/d=14 phantom filtered, count reaching 3→escalate, reset on damage, reset on new id, pickOverride/expiry/no-threat edges) — bench/lib/panic-gate.mjs is a documented hand-sync port since survival.js can't be imported directly (injected CommonJS payload, not a module).
+
+Building it caught something I should have caught before reporting 5r "done": fix 2 (panicStreak→branchWalkOff, your explicit second ask) was scaffolding-only in 35a6f76 — I'd added the state and the escalation action but never actually wired enter() to read g.panicStreak.count or call branchWalkOff. Fix 1 (actionableThreats) was real, and it's the only thing my live GrantigGustav test exercised (standdown armed in one cycle, so fix 2's own trigger condition never came up). Caught it on my own re-review while building the fixture, not by luck.
+
+Fixed and committed as cbc04a3 (survival.js + the two new fixture files, clean commit this time — checked `git status`/`git diff --stat` before staging, no repeat of the pathspec mistake). Re-injected into GrantigGustav once more as a smoke check before stopping it (no crash, bot fine at 2.77 HP) — it's fed and released now. FEEDBACK entry (56cdf9a) documents this plainly rather than leaving the earlier "landed, live-verified" as the last word.
+
+Net state: fix 1 is both live- and hermetically-verified; fix 2 is hermetically-verified only (its live trigger condition — 3+ no-damage cycles against the same threat while cannotHeal() is false — didn't occur in the specimen). Flagging that distinction in case soak #6 wants a live case that actually exercises fix 2 specifically.
+
+survival.js is settled from my side now — holding for eng-3's 5m confirmation before I start FLEE LOS-bias.
+</cross-session-message>
