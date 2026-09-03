@@ -6118,3 +6118,81 @@ combat-logic changes deserve their own focused pass, not a same-session hasty pa
 safety-critical code). Filing a new issue for it via issue-manager.
 github: felsenuboot/FelsenBerry#32 (CREEPER half closed; BREAK_LOS half becomes a new issue,
 see next message to issue-manager)
+### 2026-09-03 engine-dev-3 — #116 (TODO 5g) first real-world save: spawn-camped specimen survives via the respawn-grace SHELTER trigger
+type: verification (live ledger read, read-only against SchnoddSchorsch — the soak #5/#6
+specimen on 25600, never operated on, per standing instruction)
+status: confirmed from the specimen's own log
+
+SchnoddSchorsch died twice 11s apart while walled in patching up (`logs/SchnoddSchorsch.log`):
+`11:46:23.013Z` death at hp 0 (was mid `WALL_OFF`, a zombie reached it at hp 5.3 and it lost the
+race), respawned at (8.5,97,5.5), took damage again almost immediately (hp 20->0.8 in under 9s,
+a zombie already on it at spawn) and died a second time at `11:46:34.411Z`. On the THIRD spawn
+(-0.5,110,3.5) the log shows `Stable again (WALL_OFF, HP 20/20)` within 1.2s and no further
+`<death>` line for the rest of the session — the streak stopped at two.
+
+This is TODO 5g's (#116) own respawn-grace mechanism doing exactly the job it was built for:
+`RESPAWN_GRACE_MS` (agenda.js, 20000ms) plus SHELTER's fire() condition
+(`s.justRespawned && s.surfaceExposed && (s.isDay === false || s.hostileNear)`) gets SHELTER
+starting in the PRE-panic window right after a respawn, rather than waiting for `dangerState`
+to climb to alert/panic again the normal way — which is exactly the race a spawn-camping mob
+wins, having already reached the bot before REFLEX/SHELTER's ordinary triggers would fire. The
+two-death streak never reached `bot._spawnCamp`'s own hard-cap/`spawn_camp` escalation path
+(2 deaths is below its threshold) — this save is specifically the GRACE window closing the gap
+one level short of that, on exactly the kind of back-to-back-respawn sequence #116 was written
+against.
+fix: n/a — TODO 5g landed commit `89ab46b`, this is the first live confirmation of it actually
+saving a run rather than the fixture-level proof from when it landed.
+github: felsenuboot/FelsenBerry#116 — first real-world save, recording per lead's request
+
+### 2026-09-03 engine-dev-3 — kit-supplier audit (TODO 5l, #120, third ask): armor/shield/water are ORPHANED, same shape food was
+type: audit finding (code read only, no live test needed — the gap is structural, provable by
+inspection: `activeFloors()` in agenda.js literally never mentions these three fields, so no
+live scenario could ever reach a code path that supplies them)
+status: found, not yet fixed — reporting per the lead's explicit ask ("audit every kit table
+item for an orphaned demand... send the table before soak #6"), deferring the fix decision to
+the lead given the shape of the work involved
+
+Audited every `KIT_TIERS` item (skills.js) against every consumer: does ANY rung's fire()/act()
+actually try to supply it, or does S.kitCheck's own preflight demand something nothing ever
+provisions? Same method that found the food gap: read the demand side (S.kitCheck) against the
+supply side (RESTOCK's `activeFloors`/`needs`/withdraw/produce, TOOL's `weaponMissing`/
+`kitPickShort`), for every field across `excursion`/`excursion_short`/`hunt`/`underground`/`deep`.
+
+| kit item | tiers that demand it | supplier | verdict |
+|---|---|---|---|
+| torches | excursion, excursion_short, hunt, underground, deep | RESTOCK withdraw + produce (`torch` in PRODUCE_ORDER) | supplied |
+| foodItems | excursion, underground, deep | RESTOCK withdraw + produce (none) + **hunt (TODO 5l(a), landed today)** | supplied (was the gap; closed this session) |
+| weapon | excursion, excursion_short, hunt, underground, deep | TOOL rung, `weaponMissing`/`ensureTool` | supplied |
+| picks | underground, deep | TOOL rung, `kitPickShort`/`ensureTool` | supplied |
+| filler | underground, deep | RESTOCK withdraw + produce (`cobblestone` in PRODUCE_ORDER) | supplied |
+| sticks | underground, deep | RESTOCK withdraw + produce (`stick` in PRODUCE_ORDER) | supplied |
+| table | underground, deep | RESTOCK withdraw + produce (`crafting_table` in PRODUCE_ORDER) | supplied |
+| **armor** | deep | **none** — `activeFloors()` never reads `k.armor`; no rung's fire()/act() checks it anywhere | **ORPHANED** |
+| **shield** | deep | **none** — same, `k.shield` never read outside S.kitCheck's own preflight | **ORPHANED** |
+| **water** | deep | **none** — same, `k.water` never read outside S.kitCheck's own preflight | **ORPHANED** |
+
+`activeFloors(s)` (agenda.js) is the single chokepoint every RESTOCK need flows through, and its
+literal contents are `{ torches: k.torches, food: k.foodItems, filler: k.filler, sticks:
+k.sticks, table: k.table }` — armor/shield/water are silently dropped on the floor by that
+object literal, not merely unhandled downstream. S.kitCheck (skills.js) still demands all three
+(`req.armor`/`req.shield`/`req.water`, lines ~2485-2491) at S.start's own preflight the instant
+a project/role-work resolves to the `deep` tier (`mineLane`'s own `kit:` fn: `y<0 -> 'deep'`; the
+staircase-descend skill's `toY<0` variant too) — so a bot working below y=0 without a chestplate,
+shield, or water bucket already in inventory hits an IDENTICAL permanent stall to the food one
+soak #5 just surfaced: S.start refuses "half-kitted", and NOTHING in the entire agenda ladder
+has ever looked at these three fields to go get them. Unlike food, this has no fallback at all
+(not even a withdraw attempt) — `activeFloors` doesn't carry the fields forward far enough for
+RESTOCK's STEP 1 withdraw to even ask a depot for them.
+
+**Not fixing this in the same commit as 5l** — deliberately. The food gap had two existing
+supply mechanisms halfway there already (withdraw, PRODUCE_ORDER) and only needed the hunt
+fallback added; armor/shield/water have ZERO existing supply mechanism to extend (there is no
+"produce a chestplate/shield/water_bucket" skill yet, nor a withdraw path threaded through
+`activeFloors`), so closing this is new supply-chain work, not a fallback add — a properly-sized
+task of its own rather than something to fold into an already-landed commit. Flagging severity
+as real but narrower than the food gap's reach: `deep` (y<0) is reached only by an explicit
+below-zero mining project/toY, not by an ordinary fresh-world excursion the way `excursion`'s
+food demand was hit on soak #5's very first hour.
+fix: n/a (audit only — awaiting lead's call on priority/whether this gates soak #6 or is a
+follow-up TODO)
+github: felsenuboot/FelsenBerry#120 (TODO 5l) — third ask, reporting the table as requested
