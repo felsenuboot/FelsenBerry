@@ -78,6 +78,10 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    a branch that makes no progress for N cycles must ESCALATE, never loop — order: WALL_OFF if filler; else fists (a human punches a
    skeleton at 0.5 blocks; unarmed counter-attack allowed below some HP or when cornered); else FLEE_AWAY. Fixture = the same
    induced-stress-sequencing.sh, must PASS unarmed. Issue number from issue-manager.
+5p. **Heal-deadlock band: food 13–17, foodCount 0, low HP** (eng-3, agenda FOOD rung, HIGH — run #7 12:28Z: hp 6.8, food 15, walled in,
+   nothing routes to food): natural regen needs food ≥18, FOOD fires only at ≤12, so a hurt bot with no food items sits in the band
+   forever (run #2/#5 heal-deadlock shape, distinct from #117). Fix: FOOD also fires on (hp < some floor, e.g. ≤10) && food < 18 &&
+   foodCount==0 — "I need to heal" is a food need; keep EAT precedence; fixture in agenda-ladder; live on 25599 with RCON-set hp/food.
 5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
    (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
    can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
