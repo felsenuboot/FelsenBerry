@@ -6060,3 +6060,61 @@ position+vitals behind a throwing Proxy, `A.version` 35->36).
 `bench/fixtures/agenda-ladder.js` (+5 cases, the sated+close/hungry/far kit-demand matrix).
 github: felsenuboot/FelsenBerry#120 (TODO 5l) — both parts landed, orphaned-kit-supplier audit
 still to come per the same TODO's third ask
+### 2026-09-03 engine-dev — #32 live-verified against real mobs: CREEPER clean PASS (first ever), BREAK_LOS FAILS reproducibly (2/2 real deaths) against an unarmed close skeleton
+type: verification + bug (found live) + fixture
+status: CREEPER PASS (new fixture, clean); BREAK_LOS FAIL (existing fixture, a real death the
+fixture's own HP-polling previously under-reported as "near-death" — polling bug fixed
+separately, see below); new issue to be filed for the BREAK_LOS death itself
+
+**CREEPER — PASS, the first-ever clean confirmation.** Grepped FEEDBACK.md before starting:
+zero prior hits for `branch=CREEPER`. New fixture `bench/fixtures/induced-creeper-encounter.sh`
+(fresh --agenda bot, real shield equipped, isolated arena, a real `/summon minecraft:creeper`
+6 blocks out — inside dangerscan's own `creeperRadius=8` panic override, outside vanilla's
+~3-block fuse-ignition range) — real log: `Creeper at 6 blocks - backing off, do NOT touch it.`
+-> `Stable again (CREEPER, HP 20/20)`. Opened to **10.5 blocks** (exceeding `creeperClear`'s own
+10-block target), **zero damage taken**, never swung. Exactly the tactic #32's acceptance test
+asked for, live, real mob, not `__survival.drill()`'s fabricated threat.
+
+**BREAK_LOS — FAILS, reproducibly (2/2), against a real skeleton that closes to point-blank
+range.** Re-ran the EXISTING `induced-stress-sequencing.sh` fixture (already claimed BREAK_LOS
+coverage per its own header comment) on a fresh, correctly-configured bot. Both runs: the
+skeleton closes to and STAYS at 0.5-0.8 blocks (essentially adjacent) for 4+ continuous
+seconds, `branchBreakLOS` re-fires every ~250ms (survival's own `onHealth` listener re-
+triggering as HP keeps dropping) with the SAME "breaking line of sight" line, HP drains
+steadily (run 1: 6.3->0.0; run 2: 5.3->0.0), and **the bot dies** — server.log's own
+kill-attribution line confirms it both times: `CreeperCarl was slain by Skeleton` (twice, 3
+minutes apart, same fixture, same failure shape).
+
+**Likely mechanism** (code-read, not fully instrumented — flagged as a hypothesis, not a
+certainty): the fixture's own design is deliberately toolless (#56's stress-scenario ask), so
+`bestSword()` is null the whole encounter — `branchBreakLOS`'s phase (c) counter-attack
+(survival.js ~line 618, gated on `sword &&...`) can NEVER fire no matter how close the threat
+gets, leaving corner-step (phase a) and arrow-shadow (phase b) as the only active defenses. At
+sub-1-block range, in a confined 12x12 arena, phase (a)'s search for a LOS-blocking neighbour
+cell and phase (b)'s attempt to place a wall block BETWEEN bot and threat both plausibly have
+no valid cell available (the threat occupies the only nearby geometry) — `placed` stays 0,
+and the code's own no-filler-or-critical-HP fallback to `branchWallOff` (line 638) either has
+no cobblestone either (same toolless design) or doesn't complete before the next ~250ms
+re-trigger interrupts it. Net effect: an unarmed bot facing a skeleton that reaches melee range
+has NO working escape or defense in the current branch logic, only an imperfect directional
+shield, and dies. **This is a genuine engine gap, not a fixture artifact** — a role-less/early-
+game bot (the current unassigned-fleet shape, #88) with no sword yet is exactly the profile
+most likely to hit this live during a soak.
+
+**Fixture bug found and fixed along the way, independent of the finding above**: the existing
+poll loop only sampled raw `bot.health` every 2s, and a death-then-near-instant-respawn cycle
+(#103's fix makes respawn ~60ms) can complete ENTIRELY inside that gap — run 1 was originally
+mis-reported as "dropped to 0.33 HP", not "died", because the poll never sampled the true 0.
+Added `real_death_since()` — a ground-truth check reading the runner's own log file directly
+(byte-offset gated, no date parsing) for a `<death>` line, checked every cycle alongside (not
+instead of) the HP poll. Re-run confirmed it now correctly reports "bot died" instead of
+under-selling a real death as a near-miss — this generalizes to any future fixture in this
+directory that watches HP across a poll loop, not just this one.
+fix (this pass): `bench/fixtures/induced-stress-sequencing.sh` (real_death_since ground-truth
+death check). `bench/fixtures/induced-creeper-encounter.sh` (new — CREEPER's own live
+acceptance test, same doctrine). No survival.js changes — the BREAK_LOS death is a genuine
+engine gap, characterized here but NOT fixed (QA/verification scope per #32's own routing;
+combat-logic changes deserve their own focused pass, not a same-session hasty patch on
+safety-critical code). Filing a new issue for it via issue-manager.
+github: felsenuboot/FelsenBerry#32 (CREEPER half closed; BREAK_LOS half becomes a new issue,
+see next message to issue-manager)

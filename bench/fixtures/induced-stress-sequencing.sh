@@ -61,6 +61,22 @@ sleep 1
 rcon "summon minecraft:skeleton $((BX+4)) $BY $BZ {NoAI:0b}" >/dev/null
 
 pushLogT0=$(date +%s)
+# #32 QA pass (2026-09-03, engine-dev): live-caught a SECOND, more subtle version of the exact
+# gap #65's own comment below already documents once -- a death-then-near-instant-respawn
+# cycle (#103's own fix makes respawn ~100ms, per this file's own log) can complete ENTIRELY
+# between two 2s polls of raw `bot.health`, so the poll loop's own hpNowVal<=0 check simply
+# never samples the true 0 -- it reads a low positive number, then 20 (post-respawn), and the
+# loop silently reports "dropped to 0.33 HP" instead of "died". Confirmed live: server.log's
+# own kill line ("CreeperCarl was slain by Skeleton") landed inside a poll gap this exact
+# check would otherwise have missed. `real_death_since()` reads the runner's own log file
+# directly (byte-offset gate, same technique as any tail-from-here read -- no date parsing,
+# no timezone risk) for a ground-truth `<death>` line appended after this fixture's own
+# summon, checked every poll cycle below ALONGSIDE (not instead of) the existing HP check.
+BOT_LOG="$BENCH_DIR/../logs/$BOT_NAME.log"
+BOT_LOG_OFFSET=$( { wc -c < "$BOT_LOG" 2>/dev/null || echo 0; } )
+real_death_since() {
+  tail -c "+$((BOT_LOG_OFFSET + 1))" "$BOT_LOG" 2>/dev/null | grep -q '<death>'
+}
 
 # ---- watch the rung/branch sequence unfold ----
 # poll __agenda.snapshot() every 2s for the owning rung, and survival's own log for a
@@ -107,6 +123,13 @@ while [[ $i -lt $SEQ_TIMEOUT ]]; do
       clear_platform "$AX" "$AY" "$AZ" 12
       fail "bot died during the induced encounter -- criterion-1 AND criterion-3 both FAIL, this is the real finding"
     fi
+  fi
+  # #32 QA pass: the ground-truth check -- catches a death the poll above missed entirely
+  # because respawn landed inside the 2s gap (see real_death_since's own comment above).
+  if real_death_since; then
+    rcon "kill @e[type=minecraft:skeleton,distance=..12]" >/dev/null 2>&1 || true
+    clear_platform "$AX" "$AY" "$AZ" 12
+    fail "bot died during the induced encounter (caught via the runner log, not the HP poll -- respawn landed inside a poll gap) -- criterion-1 AND criterion-3 both FAIL, this is the real finding"
   fi
   skelAlive=$(eval_js "return Object.values(bot.entities).some(e=>e.name==='skeleton' && e.position && Math.hypot(e.position.x-($BX),e.position.z-($BZ))<16);")
   skelAliveVal=$(jget "$skelAlive" '.result')
