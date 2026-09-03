@@ -675,3 +675,17 @@ Gate files (committed ae62552, pushed): bench/gates/{humanbar4,humanbar,directio
 
 Trail5Insp stopped per your instruction; SchnoddSchorsch left running as the post-grade specimen.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Task 1 done, committed and pushed (1f6df70). `bench/lib/stall-attribution.mjs`, wired into playcheck.mjs (computed only when verdict isn't PLAYING) → threaded through humanbar.mjs/humanbar4.mjs gate files. 17/17 hermetic fixture.
+
+Two signals, kept separate (same doctrine as the latency breakdown): **episodeCauses** (each closed direction episode classified standdownCarryover > kitMissing > frozenRepeat > other, priority order — a frozen_repeat close whose root cause is visible attributes to that cause, not the dedup mechanism correctly refusing to re-dispatch it) and **rungOwnership** (from agenda.js's own `note` ledger events — already emitted on every rung transition, nobody was reading them before this — SHELTER/IDLE broken out by name, everything else rolls into `directed`).
+
+Ran on soak #5 (`--label soak5-stallattr`, canonical soak5 gates untouched — confirmed clean via git status): episodeCauses matches what I found by hand — 10/13 episodes kitMissing (3.1min), 3 other, 0 frozenRepeat (the tail frozen_repeat closes all had kit_missing visible on their own open record, so priority order correctly attributes to the root cause).
+
+**rungOwnership is the bigger finding, and it's new — decisions.jsonl alone would never have shown it**: SHELTER owned 27.7 of the 60 minutes, IDLE another 22 — only **8.2 minutes of the whole hour were an actual project rung running**. The kit_missing stall explains part of the SPARSE verdict; SHELTER (proactive night-safety, working as designed, not a bug) explains a bigger part, since SHELTER doesn't necessarily open a direction episode at all — this only surfaced because the reader now reads agenda's own rung-transition ledger. Worth knowing before soak #6: even with the kit_missing stall fixed, a bot that's correctly sheltering half the night will still read SPARSE by playcheck's own thresholds, which may be a criterion-1 calibration question, not an engine bug — flagging, not proposing a change.
+
+Full writeup in FEEDBACK.md. Moving to TODO 7f (#69 telemetry ledger gaps) now.
+</cross-session-message>
