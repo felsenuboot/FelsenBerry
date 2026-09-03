@@ -72,7 +72,15 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    argue saturation math in FEEDBACK before wiring into FOOD; ship unwired if not worth it.
 5k. **wall-off-multithreat fixture deterministic** (#119, engine-dev, before the T+55 cue): agenda ≥34 bot, controlled summons.
 6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
-7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
+7. **POST-SOAK-#5 QUEUE** (from issue-manager's 2026-09-03 tracker triage; order by blast radius on the human bar):
+   a. #74 relocateToWork false-success (reports ok with 0 m moved) — the REMEDY rung (#110) now depends on it; a lying primitive corrupts escalation + soak telemetry. eng-3.
+   b. #73 chopTrees oak-only thrash — the decider dispatches `chopTrees{types:['oak']}`; a birch/spruce spawn re-creates soak #4's wood freeze. eng-3.
+   c. #71 RESTOCK torch deadlock (no charcoal path) — same silent supply-chain class as #113/#108. eng-3.
+   d. #95 direction-episode rot follow-ups — adjacent to #109/#110/#112. eng-3 + engine-dev grader.
+   e. #67 role-default work no-ops at base — next step off #88. eng-3.
+   f. #69 telemetry ledger gaps — grading data quality. engine-dev.
+   Lanes relabelled: engine-dev-2 retired → eng-3 29 open, engine-dev 13, movement (R2/R3 ladder, UNOWNED) 6, unassigned 19 (#6/#8 = phase-2 cooperation).
+   Run #7 (GrantigGustav, world-race7) launches after soak #5's verdict + lead go. #103 done; #104 low.
 
 ## 2. Standing (unchanged)
 - Cavecrew reconnect + AFTER-playcheck of #70-75 (blocked on their server; monitor on resume).
