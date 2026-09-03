@@ -4344,3 +4344,35 @@ Respawn103's own coordinates already expected there.
 fix: `agenda.js` (`bot.on('death', ...)`, `directionCheck`'s respawn check — v28), `decider.js`
 (`SITUATIONS.respawned`). `bench/fixtures/respawn-episode.sh` (new, 3 consecutive live passes).
 github: felsenuboot/FelsenBerry#103 (closing)
+
+### 2026-09-03 engine-dev-3 — addendum: Respawn103 soak-hygiene miss (team-lead's stop order),
+precise position data for the record
+type: process note (not a code change)
+status: team-lead stopped Respawn103 directly (SIGTERM logged 08:00:21.481Z) after flagging it
+was running on the SAME server (25599) as soak #4's own hands-off window, within ~20 blocks of
+MampfManfred's early-minutes work area — a real contamination risk to the trail criterion the
+world-state note above only gestured at with a rough range
+what: the #102 and #106 fixtures both built dedicated remote test sites specifically so
+fixture-built terrain/drops could never be mistaken for a live bot's real trail — #103's own
+testing didn't need special terrain (it only needed a real death, anywhere), so it spawned at
+the DEFAULT near-home position without applying that same isolation discipline. That was the
+actual miss: "does this fixture need special terrain" is the wrong question when a live,
+hands-off soak is running on the same server at the same time — proximity to any live bot's
+own work area is its own independent reason to isolate a test bot, regardless of what the
+fixture itself requires geometrically. Not repeating it: any further live testing during an
+open soak/race window goes >=200 blocks out or to a different server, full stop.
+
+**Precise position/dig history**, all 12 logged spawn/respawn points (`logs/Respawn103.log`,
+every "spawned in world" line, 2026-09-03), sent directly to engine-dev for the trail
+exclusion zone:
+07:53:14Z (-0.5,84.0,-3.5) · 07:53:26Z (-1.5,85.0,-4.5) · 07:53:44Z (18.4,87.2,7.0) ·
+07:53:52Z (9.5,84.0,5.5) · 07:55:46Z (-4.5,84.0,2.5) · 07:56:31Z (-1.5,84.0,2.5) ·
+07:57:33Z (0.5,85.0,-4.5) · 07:58:27Z (1.5,84.0,-3.5) · 07:59:40Z (-4.5,88.0,-6.5) ·
+07:59:55Z (0.5,88.0,8.5) then (-2.3,88.0,8.5) seconds later · 08:00:07Z (-8.5,94.0,5.5) — last
+position before the stop at 08:00:21Z. Bounding box: X -8.5..18.4, Y 84.0..94.0, Z -6.5..8.5.
+A SHELTER dig-in (2 down + a sealed cap) happened at or near most of these — treat each as a
+small dig site, not just a footprint.
+fix: n/a — process note. `pids/Respawn103.meta` confirms OWNER=engine-dev-3/DECIDER_EXCLUDE=1
+were correctly set (an earlier accusation to the contrary, from team-lead, was withdrawn) — the
+finding is proximity, not a missing spawn flag.
+github: n/a
