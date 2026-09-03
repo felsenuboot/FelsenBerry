@@ -689,3 +689,12 @@ Ran on soak #5 (`--label soak5-stallattr`, canonical soak5 gates untouched — c
 
 Full writeup in FEEDBACK.md. Moving to TODO 7f (#69 telemetry ledger gaps) now.
 </cross-session-message>
+
+---
+
+<task-notification>
+<task-id>b4rbh47qv</task-id>
+<summary>Monitor event: "supervisor wake: human chat, soak-bot deaths/leaves, server errors"</summary>
+<event>[13:46:23] [Server thread/INFO]: SchnoddSchorsch was slain by Zombie</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
