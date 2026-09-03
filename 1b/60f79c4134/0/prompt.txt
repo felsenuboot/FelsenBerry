@@ -1,0 +1,11 @@
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Update, T+~16m, no stone yet:
+
+**Decider resolved cleanly**: engine-dev-3 committed TODO 4b as `2fea6d8` — sha256 matches the running daemon's loaded file byte-for-byte, so no asterisk needed anymore. Recorded in SCOREBOARD.
+
+**Live engine finding, written up in FEEDBACK.md (not my lane to fix, agenda.js/eng-3's)**: `PROJECT` rung's `standDown` backoff is keyed on the rung id, not the specific project — so a driver's `setProject()` redirect issued while `PROJECT` is under a leftover cooldown from the PREVIOUS project's failure sits inert for the remainder of that cooldown, and can then get falsely flagged with its OWN `project_stalled` episode for a delay it didn't cause. Hit this twice live (my `huntAnimals` and `come` redirects both walked into it). Corroborating evidence: one resulting episode showed 128665ms "latency" that's actually standdown carryover, not a real decision-latency regression — flagged in FEEDBACK.md so nobody misreads a future soak's numbers off it.
+
+Steering calls: 3 total (mineLane open, huntAnimals food-fallback, come barren-search-reposition). None of the decider's own dispatches (chopTrees x2) count toward my total per your ruling. Deaths: 0.
+
+**Current**: night has fallen — SHELTER rung (new this run, agenda v30) engaged correctly ("Boxing myself in for the night"), hp/food still full, no combat yet. This preempts the stalled chopTrees/food chain entirely until dawn; no driver action needed or taken (zero-defense branch is retired per Race book v2 — this is normal night-cycle behavior, not the #96 combat ladder). Will resume steering toward stone once day breaks and the food/kit picture clears.
+</cross-session-message>
