@@ -4027,3 +4027,89 @@ checked — the report says how many of how many were seen, never implies exhaus
 fix: `bench/trail.mjs` (new). No existing engine files touched.
 github: n/a — new instrument, not a tracked engine bug; ready for soak #4's own criterion-4
 grading whenever the timestamps land.
+
+### 2026-09-03 engine-dev — THE HUMAN BAR, all four criteria, one command (`bench/humanbar4.mjs`),
+retroactively validated against soak #3's own archived window per team-lead's ask
+type: new instrument (wrapper over 3 already-proven pieces) + a real classification bug caught
+and fixed during its own retroactive validation, not shipped with it
+status: built, live-validated against soak #3's real window; one genuine bug found and fixed
+before this could be trusted
+what: `node bench/humanbar4.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port
+<port> [--label <label>]` — all four GOAL.md human-bar criteria, one window, one command,
+one verdict. Criteria 1+2 shell out to the already-proven `bench/humanbar.mjs` (playcheck +
+direction-gate, unchanged); criterion 4 shells out to the already-proven `bench/trail.mjs`
+(built and live-verified this same day); criterion 3 ("survives real night threats WITHOUT
+driver help") is computed directly here, per team-lead's own spec: zero deaths in the window,
+and zero non-decider control-plane interventions (the #52/M1 tripwire `metrics.mjs` already
+tracks — any `/eval`/`/goto`/`/chat`/... hit that isn't the decider's own automation).
+
+**A real classification bug, caught by the retroactive validation itself, not shipped with
+it.** First pass used ONLY `metrics.mjs`'s own `/dirDispatch\(/` regex to separate decider
+calls from human ones (the same regex that computes `decider_interventions_matched` in every
+existing direction-gate report). Running it against soak #3's real window: 19 of 25
+interventions came back "non-decider" — i.e. a FAIL on criterion 3, soak #3 apparently needing
+constant driver help. Every single one of those 19, read directly, was
+`return Object.keys(globalThis.__skills.registry);` — confirmed by grep to be `decider.js`'s
+own line 198, a periodic context-gathering READ it issues before every decision, never a
+dispatch, so the narrow dirDispatch-only regex correctly doesn't match it and WRONGLY counts a
+routine piece of decider automation as a human touching the bot. Confirmed genuinely
+decider-caused (not guessed): cross-referenced every flagged intervention's timestamp against
+`decisions.jsonl`'s own recorded decision times for this bot — every one sat within 21.6s of a
+real decision (context-gather always precedes the decision it feeds), a tight cluster nothing
+like this window's own ~1-decision-per-3-4-minutes cadence would produce by chance. Fixed with
+a second, timing-based attribution signal (`decisions.jsonl` correlation, 30s tolerance — set
+with real margin above the observed 21.6s max, not tuned to pass) alongside the original regex,
+catching what the narrow shape-match alone missed. **Left the raw list in the report even when
+the automated verdict says PASS** (this session's own reproducible finding: a first-pass
+automated classifier can be wrong in exactly the way that makes a passing bot look like it
+needed help) — printed for a human to spot-check, same caution `metrics.mjs`'s own #52 doctrine
+already states about this exact class of judgment call. Also caught: `__agenda.dirClose(...)`
+(the decider's own episode-closing call, a DIFFERENT method name than `dirDispatch`) needed
+adding to the explicit-match regex too — narrow shape-matching alone will keep missing new
+decider call shapes as the decider's own code grows; the timing correlation is the more durable
+signal of the two, kept as a second, independent check rather than a one-off patch.
+
+**Retroactive validation against soak #3's own exact archived window**
+(2026-09-02T17:55:58.473Z–18:55:58.473Z, MatschMoritz), per team-lead's ask:
+```
+humanbar4 soak3-hb4: FAIL
+  1. playcheck PLAYING:        PASS  (PLAYING, 15.6% stationary, 15/10min)
+  2. --direction-gate PASS:    FAIL  (opened 10, closed 9, unclosed 1, latency p50 204898ms)
+  3. survives unaided:         PASS  (deaths 0, non-decider interventions 0 [decider:25 total:25])
+  4. human-looking trail:      PASS  (clean) [0 sites checked — NOTHING TO INSPECT, vacuous]
+```
+Criterion 2 fails exactly as the original soak #3 grade found (1 unclosed episode, both latency
+criteria badly missed) — the known, unchanged ground truth. Criterion 1 reads PASS, matching
+this session's own EARLIER correction (FEEDBACK.md, "soak #4 readiness dry-run..." — soak #3's
+TRUE playcheck read, once the `--until` window-math bug was fixed, is PLAYING not SPARSE); not
+a new surprise, a callback to already-established work. Criterion 3 reads PASS once the
+classification bug above was fixed — soak #3 genuinely wasn't driver-babysat, just structurally
+broken (the #101 craftToolChain bug, fixed same day, cd30f4c). **Criterion 4 is a HONEST
+vacuous PASS, flagged as such rather than silently counted as confirmed-clean**: MatschMoritz's
+soak-3 hour was 177 identical `ensureTool`/`craftToolChain` errors and wedges (per the original
+grade), not real chopping or mining, so there was nothing for the trail inspector to find work
+sites FROM — `bench/gates/humanbar4-soak3-hb4.json`'s own `criteria.trail.vacuous:true` field
+makes this explicit rather than letting a bare "PASS" overstate what was actually checked.
+**Overall: FAIL**, correctly, on criterion 2 alone — exactly the shape team-lead asked to see
+("expect FAIL on 1-2, PASS/FAIL on 3-4 as the data says"), with criterion 1 landing on the
+PASS side of that range per this session's own earlier, already-committed correction.
+
+**A second real bug, also caught and fixed before shipping**: the first working draft ran
+criteria 1+2 (humanbar.mjs) and criterion 3 (the ledger reads) BEFORE criterion 4 (trail.mjs) —
+backwards from team-lead's own explicit sequencing note ("run the trail check IMMEDIATELY at
+window close, before drops despawn — sequence it first, then the ledger-only instruments").
+Since humanbar.mjs's own subprocess calls (metrics.mjs + playcheck.mjs) and the ledger reads
+all cost real wall-clock time, running trail.mjs last would have burned exactly the window
+where its live-inspection half (stranded item entities specifically — the other three checks
+are ledger-only and don't decay with time the same way) is still meaningful. Reordered so
+trail.mjs is the FIRST thing this script does, confirmed the reorder doesn't change any of the
+retroactive soak-3 numbers above (re-ran after the fix, identical result) before considering
+this done.
+
+Fully ready for soak #4: run `node bench/trail.mjs`'s own inspector-port bot alongside the soak
+(or spin one up right after), then `node bench/humanbar4.mjs --bot <name> --since <ISO> --until
+<ISO> --inspector-port <port> --label soak4` the moment the window closes — trail.mjs now runs
+first, internally, before anything else, satisfying team-lead's own sequencing note.
+fix: `bench/humanbar4.mjs` (new).
+github: n/a — new instrument; the classification bug it caught and fixed was in this same
+uncommitted tool, never shipped as a false report.

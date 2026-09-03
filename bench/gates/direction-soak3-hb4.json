@@ -1,0 +1,26 @@
+{
+  "label": "soak3-hb4",
+  "at": "2026-09-03T07:35:56.767Z",
+  "pass": false,
+  "reasons": [
+    "1 episode(s) never closed (open-unclosed must be 0): dmtkgf01i10",
+    "latency p50 205s -- must be <=60s",
+    "latency p90 224s -- must be <120s"
+  ],
+  "opened": 10,
+  "closed": 9,
+  "unclosed": 1,
+  "latency_p50_ms": 204898,
+  "latency_p90_ms": 223926,
+  "llm_calls": 16,
+  "llm_calls_per_hr": 17,
+  "skipped_cap": 0,
+  "closedBy_decider": 6,
+  "decider_interventions_matched": 6,
+  "undirected_time_fraction_by_bot": {
+    "MatschMoritz": {
+      "opened": 10,
+      "fraction": 0.4766438868446177
+    }
+  }
+}

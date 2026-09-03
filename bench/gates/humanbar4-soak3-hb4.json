@@ -1,0 +1,42 @@
+{
+  "label": "soak3-hb4",
+  "bot": "MatschMoritz",
+  "since": "2026-09-02T17:55:58.473Z",
+  "until": "2026-09-02T18:55:58.473Z",
+  "at": "2026-09-03T07:35:56.846Z",
+  "pass": false,
+  "criteria": {
+    "playcheck": {
+      "pass": true,
+      "verdict": "PLAYING"
+    },
+    "directionGate": {
+      "pass": false,
+      "opened": 10,
+      "closed": 9,
+      "unclosed": 1
+    },
+    "survivesUnaided": {
+      "pass": true,
+      "deaths": 0,
+      "humanInterventions": 0,
+      "deciderInterventions": 25,
+      "humanInterventionDetail": []
+    },
+    "trail": {
+      "pass": true,
+      "verdict": "PASS",
+      "reasons": [],
+      "sitesChecked": 0,
+      "sitesSeen": {
+        "chopClusters": 0,
+        "digClusters": 0
+      },
+      "vacuous": true
+    }
+  },
+  "artifacts": {
+    "humanbar": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/humanbar-soak3-hb4.json",
+    "trail": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/trail-soak3-hb4.json"
+  }
+}
