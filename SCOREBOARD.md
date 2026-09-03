@@ -1658,3 +1658,55 @@ single miss is decider plumbing timing. Run #6 is GREEN-LIT. The human bar itsel
 fix + #108 FOOD + 5c escalation) is the next attempt. Also on record: the bot never held a tool all hour (every
 wood-gather froze, TODO 5c), so criterion 4 passed on a vacuously thin trail and criterion 3 passed while starving —
 both are honest PASSes by the instrument's definition and both are called out here so nobody reads 3/4 as "nearly human".
+
+## Run #7 — GrantigGustav, world-race7 — PREP, HOLD for soak #5 verdict + team-lead green light
+
+Prepped during soak #5's hour (test-driver, 2026-09-03) — 25600 is the SOAK server right now
+(world-soak5, soak #5 running), off-limits to touch or spawn against until soak #5 ends (~11:31Z per
+team-lead). This is paperwork-only prep: no world swap, no spawn, nothing execute-shaped happens
+until soak #5 concludes and team-lead flips the light. Race book v2 (unchanged in mechanics — see
+below for the two corrections that landed since run #6).
+
+**Fresh never-used name reserved: `GrantigGustav`** (13 chars, checked clean against both
+`~/minecraft/localserver/usercache.json` and `~/minecraft/localserver-race/usercache.json`, and
+`pids/*`/`logs/*` — no match on any of the three, unlike `MatschMoritz` which IS already used by an
+engine-dev-3 QA bot from earlier today).
+
+**World**: `world-race7`, fresh, same seed — swap `localserver-race/server.properties`'s
+`level-name` from `world-soak5` (soak #5's world, stays as its own archive, never deleted/reused)
+to `world-race7` AFTER soak #5 concludes and the server is confirmed free (`./list.sh` clean).
+`world-race6` (run #6's world, first stone pickaxe ever) stays archived alongside it, untouched.
+
+**Expected stack at launch: current `main`** (skills **v63**, agenda **v34**, survival **v13**,
+dangerscan **v6** as of this prep, 2026-09-03 — PLUS whatever lands during soak #5's remaining
+window; read `/state` fresh at actual spawn time and record ACTUALS, don't assume these hold,
+per the standing rule every prior run's prep note has repeated). This carries `#112`-`#117` live
+for the first time in any race run — the food-kit wall that ended run #6 should not recur, and
+night survival with an empty post-death inventory has three fresh hardening fixes to prove out for
+real (not just against run #6's ONE combat sample).
+
+**Race book v2 — mechanics unchanged, two corrections noted for run #7's driver**:
+1. **Decider latency**: with `#112`'s fix live and DRIVEN meta wired via `spawn.sh`, the decider now
+   answers a driven bot's `needs_direction` episode on the NEXT poll (~20s), not after a 60s driver
+   grace — expect the decider to beat a slow driver reaction to most stalls now. This is a genuine
+   behavior change from every run through #6 (which ran on a 60s-flat-if-owned grace, or a mid-run
+   partial fix); don't read a fast decider dispatch as a driver failure to react in time.
+2. **`huntAnimals{anyMob:true}` fix (`#114`)**: the documented food-refusal fallback
+   (`setProject(huntAnimals{anyMob:true,radius:32,repeat:true})`, no `species` argument) now
+   correctly searches `cow/pig/sheep/chicken` by default (not just cow) — the species-list
+   workaround run #6's driver had to discover live is no longer necessary; the fallback as originally
+   documented in v1/v2 now works as originally intended.
+- All other branches (barren-search reposition, sealed-pocket/ESCAPE, tool-breaking, IDLE-while-
+  project alarm, DEAD RACE = DEAD STOP, the retired zero-defense early-warning, the combat-loss-at-
+  night re-arm sequence, the wood→stone wedge watches) carry forward unchanged from v2 — nothing in
+  this prep supersedes them.
+
+**Standing law reminder for the launch checklist** (unchanged shape from runs #2-#6): confirm 25600
+is free and `world-soak5` is done being used before touching `level-name`; `./list.sh` before AND
+after spawn; `OWNER=test-driver PURPOSE=...` env vars; `gearrace.mjs` as recorder of record from the
+start; monitor armed from spawn (actionable-only filter, tuned further this run: alert on worsening
+vitals or a 10-min sustained-low heartbeat rather than every poll, per team-lead's cadence ask during
+run #6).
+
+**STATUS: prep complete, standing by for soak #5's verdict and team-lead's green light. Nothing on
+this list executes until then — 25600 is soak #5's server right now, not touched.**
