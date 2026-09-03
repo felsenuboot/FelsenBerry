@@ -663,7 +663,13 @@ building the missing surface/elevated-platform escape capability, the same patte
 OhneHoseOtto's underground case. World-race3 stays up; no new race run starts on this server until
 that's resolved or declined.
 
-## Cross-run retrospective (runs #0-#4 comparable, run #5 suspended, test-driver, 2026-09-02)
+## Cross-run retrospective (runs #0-#6, run #5 suspended/excluded, test-driver, 2026-09-02, updated 2026-09-03 post-run-#6)
+
+**2026-09-03 update, headline first: the stone wall is BROKEN.** Run #6 (GammelGerhard) reached
+stone pickaxe at **T+31m50s** — the first tier-crossing this program has ever recorded past wood.
+Everything below this note describes the OLD state (0 of 4/5 runs, wall unbroken) as it stood before
+run #6; kept intact rather than rewritten, per this file's own measurement-honesty standard, with the
+update layered on top. See "The honest trend line, updated" further down for the full picture.
 
 Written at team-lead's request, originally on the ruling that held run #4 for three gates (#97's
 paralysis fix, survival v7 aboard, the cobble-vanish mystery explained) — all three cleared (the
@@ -682,19 +688,19 @@ nor extended the failure catalog, it was stopped before either could happen.
 
 ### Comparison table
 
-| | Run #0 (shakedown) | Run #1 (baseline) | Run #2 | Run #3 | Run #4 |
-|---|---|---|---|---|---|
-| Bot / world | NacktNorbert / shared `localserver` (contaminated) | OhneHoseOtto / `world-race` | FrischFriedhelm / `world-race2` | RotzRudi / `world-race3` | SabberSepp / `world-race4` |
-| Engine at start | skills v48→v50 mid-run, agenda v19 | skills v50, agenda v19 | skills v55, agenda v22, producer v7 | skills v58, agenda v24, survival v6, producer v7, decider.js live (1st race) | skills v59, agenda v25, **survival v8** (carries `#94` + `#97` finding-3 fixes) |
-| Wooden pickaxe | T+6m19s (contaminated track — 2 failed searches) | **T+1m00s** (clean) | T+2m17s (clean) | T+3m42s (clean) | **T+59s** (clean — fastest ever, tied with run #1) |
-| Stone/iron/diamond | not reached (stopped on purpose, still working) | DNF — never reached | DNF — never reached | DNF — never reached | DNF — never reached |
-| DNF cause | n/a (no-loiter stop, not a dead end) | food-routing gap + terminal entombment (sealed pocket, y89) | WALL_OFF heal-deadlock (`#92`, 26 cycles/25m44s at 3 HP) | elevated isolated-platform stranding + REFLEX pinned by unreachable threat (`#97`) | **threat-independent panic thrash** — standalone HP<8 entry re-fires forever with zero mob involvement (`#99`, new, no freak geometry needed) |
-| Real time to conclusion | 58m26s (deliberately stopped, not dead) | ~43 min | **~80 min** (longest-lived) | ~28.5 min | **~7 min** (shortest-lived by far) |
-| Steering calls (ledger) | 5 setProject + 2 read-only (hand-tally corrected twice) | 7 setProject, 0 other (hand-tally undercounted by 1, corrected) | 7 setProject + 3 other = 10 total (hand-tally said "6," never reconciled until this retro) | 4 setProject + 15 other = 19 total (self-flagged live) | **2 setProject + 5 other = 7 total**, both setProject calls objectively correct, neither able to outrun the bug |
-| Deaths | 5 (all RCON, non-organic, exonerated) | 0 | 0 (survival kept it alive — arguably worse, see below) | 3 (all organic, Zombie) | 1 (Zombie, T+29s — the trigger, not the cause) |
-| Findings logged | 5 | 5 | 5 | 4 | 1 (but a severe one) |
-| Live specimen handed off | no | **yes — OhneHoseOtto, resolved same day** (`#89` closed) | no | **yes — RotzRudi**, `#97` finding 3 fixed+verified same day, wound down clean | **yes — SabberSepp, still live and thrashing**, handed to engine-dev (lane-corrected from an initial eng-3 offer) as the entry-gate half of their in-progress `#96` fix |
-| GitHub issue | (pre-dates per-run issue filing) | `#89` | `#92`, `#94` | `#97` | `#99` |
+| | Run #0 (shakedown) | Run #1 (baseline) | Run #2 | Run #3 | Run #4 | Run #6 |
+|---|---|---|---|---|---|---|
+| Bot / world | NacktNorbert / shared `localserver` (contaminated) | OhneHoseOtto / `world-race` | FrischFriedhelm / `world-race2` | RotzRudi / `world-race3` | SabberSepp / `world-race4` | GammelGerhard / `world-race6` |
+| Engine at start | skills v48→v50 mid-run, agenda v19 | skills v50, agenda v19 | skills v55, agenda v22, producer v7 | skills v58, agenda v24, survival v6, producer v7, decider.js live (1st race) | skills v59, agenda v25, **survival v8** (carries `#94` + `#97` finding-3 fixes) | skills v62, agenda v30, survival v11, dangerscan v6 (frozen at spawn for run comparability — main advanced past this mid-run, see below) |
+| Wooden pickaxe | T+6m19s (contaminated track — 2 failed searches) | **T+1m00s** (clean) | T+2m17s (clean) | T+3m42s (clean) | **T+59s** (clean — fastest ever, tied with run #1) | T+1m15s (clean, 2nd-fastest) |
+| Stone/iron/diamond | not reached (stopped on purpose, still working) | DNF — never reached | DNF — never reached | DNF — never reached | DNF — never reached | **STONE REACHED, T+31m50s — first ever**; iron/diamond not reached |
+| DNF cause | n/a (no-loiter stop, not a dead end) | food-routing gap + terminal entombment (sealed pocket, y89) | WALL_OFF heal-deadlock (`#92`, 26 cycles/25m44s at 3 HP) | elevated isolated-platform stranding + REFLEX pinned by unreachable threat (`#97`) | **threat-independent panic thrash** — standalone HP<8 entry re-fires forever with zero mob involvement (`#99`, new, no freak geometry needed) | hit the 90-min cap alive — structural food-kit wall (`#113`, landed mid-run but not received — frozen stack) blocked any excursion past ~T+27m |
+| Real time to conclusion | 58m26s (deliberately stopped, not dead) | ~43 min | **~80 min** (longest-lived) | ~28.5 min | **~7 min** (shortest-lived by far) | 90 min (rode to cap, alive throughout) |
+| Steering calls (ledger) | 5 setProject + 2 read-only (hand-tally corrected twice) | 7 setProject, 0 other (hand-tally undercounted by 1, corrected) | 7 setProject + 3 other = 10 total (hand-tally said "6," never reconciled until this retro) | 4 setProject + 15 other = 19 total (self-flagged live) | **2 setProject + 5 other = 7 total**, both setProject calls objectively correct, neither able to outrun the bug | 13 setProject, 0 other — ledger-tracked from the start, no hand-tally drift |
+| Deaths | 5 (all RCON, non-organic, exonerated) | 0 | 0 (survival kept it alive — arguably worse, see below) | 3 (all organic, Zombie) | 1 (Zombie, T+29s — the trigger, not the cause) | 4, all organic (Spider, then a 3-death Skeleton respawn-camp), 5th averted by driver hold + engine self-recovery |
+| Findings logged | 5 | 5 | 5 | 4 | 1 (but a severe one) | **6** (`#112`-`#117`), all fixed same-session |
+| Live specimen handed off | no | **yes — OhneHoseOtto, resolved same day** (`#89` closed) | no | **yes — RotzRudi**, `#97` finding 3 fixed+verified same day, wound down clean | **yes — SabberSepp, still live and thrashing**, handed to engine-dev (lane-corrected from an initial eng-3 offer) as the entry-gate half of their in-progress `#96` fix | no formal handoff, but the LIVE RUN ITSELF was the specimen for 6 same-session fixes — arguably the highest-density diagnostic run of the program |
+| GitHub issue | (pre-dates per-run issue filing) | `#89` | `#92`, `#94` | `#97` | `#99` | `#112`, `#113`, `#114`, `#115`, `#116`, `#117` |
 
 ### What each run's DNF forced the engine to build
 
@@ -731,6 +737,26 @@ nor extended the failure catalog, it was stopped before either could happen.
   routing gap `#97` first exposed in run #3) and `#99` turn out to be the same code region: `#99` is
   the entry-gate half of the combined fix engine-dev is now building. Run #5 holds for that combined
   fix to land.
+- **Run #5 → #6 window**: `#96`/`#99`'s combined fix (survival v9) landed and was proven live in run
+  #5 (suspended, not concluded, but the zero-defense floor fired correctly against a real zombie
+  before the operator wind-down). `#100` (post-victory WALL_OFF chat spam) fixed alongside it
+  (survival v10). Race book v2 written during the hold, folding both in.
+- **Run #6 window (the wall breaks, then a diagnostic goldmine)**: run #6 crossed wood→stone for the
+  first time in program history, then surfaced SIX separate, real engine bugs in rapid succession
+  before hitting the 90-min cap alive — all diagnosed and fixed same-session: `#112` (a rung-level
+  `standDown` backoff outliving the specific project it was set for, silently delaying driver
+  redirects — decider.js), `#113`+`#114` (two independently-drifted FOODS allowlists, one never
+  patched by `#108`'s raw-meat fix; `huntAnimals{anyMob:true}` never actually widening its species
+  search — shared `foods.js`, skills.js/agenda.js), `#115` (WALL_OFF's escalation ladder tracked one
+  visible threat while a second, untracked one landed the actual kill — survival v12), `#116` (no
+  "respawn into an already-engaged hostile → shelter before anything else" fast path, producing a
+  genuine 3-death respawn-camp in 63 seconds — agenda v33, spawn-camp detection), `#117` (EAT/
+  EAT_CRITICAL's owner-latch could dead-end at the exact moment it needed to release, the mechanism
+  behind the run's own final heal-deadlock at HP 0.33 — agenda v34). Run #6 itself never benefited
+  from any of the six (engine stack deliberately frozen at spawn version for comparability), but
+  every future race or soak bot inherits all six fixes. **The new wall, for run #7**: `#113` removes
+  the food-kit gate that ended run #6's progress; night survival with an empty post-death inventory
+  (`#115`/`#116`) is now hardened but not proven past a single race run's worth of live combat.
 
 ### The recurring measurement bug, across three separate runs
 
@@ -782,6 +808,39 @@ combined fix) in progress right now. The benchmark is doing exactly what a good 
 never yet produced a diamond pickaxe, and it has never once failed to teach the engine something it
 didn't know before the run started — run #4 taught it something the other three hadn't even
 suggested was possible.
+
+### The honest trend line, updated (test-driver, 2026-09-03, post run #6)
+
+**The wall is broken: run #6 reached stone pickaxe at T+31m50s, the first tier-crossing this program
+has ever recorded.** The paragraph above, describing "0 of 4 comparable runs" and "dying differently,
+not dying deeper," was true through run #4 and is left intact above as the honest historical record —
+this section states plainly what changed and what didn't.
+
+**What actually broke the wall**: not one dramatic fix, but the cumulative effect of `#88`, `#96`,
+`#97`, `#99`, `#100`, `#101`, `#103`, `#105`, `#108` all landing before run #6 launched — the wood→
+stone transition's OLD failure catalog (food-routing, heal-deadlock, panic-thrash, table-placement,
+frozen-movement) is now fully closed. Run #6 didn't dodge those; it simply never hit any of them. What
+it DID hit was a wall three of those fixes never touched: the food-KIT-ITEM requirement (not the
+food-ROUTING problem `#88`/`#108` solved) — a structural allowlist drift between two files that
+nobody had reason to compare until a live run's raw meat sat in inventory refusing to count.
+
+**Dying deeper, now, not just differently**: run #6's own failure catalog — the food-kit wall, the
+respawn-camp gap, the multi-threat WALL_OFF gap, the EAT owner-latch deadlock — all live PAST the
+wood→stone transition, in territory no run has ever spent real time in before (31+ minutes of
+post-stone play, two deaths, a near-third-death heal-deadlock). This is the metric worth tracking now:
+not "does a run reach stone" (answered: yes, reliably, the bootstrap is solid) but "how long and how
+far can a run survive PAST stone before something new kills it." Run #6's answer: 4 deaths and one
+near-5th across ~58 minutes of post-stone play, alive at the cap.
+
+**The new wall, precisely, for run #7**: `#113` (landed mid-run, `872aa07`) removes the food-kit gate
+that ended run #6's forward progress — run #7 should sail past ~T+27m where run #6 stalled, PROVIDED
+it launches on a stack that includes it (unlike run #6's deliberately-frozen one). Night survival with
+an empty post-death inventory is now meaningfully hardened (`#115` multi-threat WALL_OFF, `#116`
+spawn-camp detection, `#117` EAT deadlock release) but only proven against ONE race run's worth of
+live combat — not yet a settled fact the way wood-tier bootstrap speed is. **Bright number, updated**:
+wood-tier bootstrap held its speed even through all this (run #6's T+1m15s is still 2nd-fastest ever)
+— the plumbing keeps not regressing while the program's edge continues to move outward, exactly the
+pattern the pre-run-#6 trend line predicted, just one tier further out than it could see at the time.
 
 
 
