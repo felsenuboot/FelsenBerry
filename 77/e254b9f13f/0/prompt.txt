@@ -7,3 +7,9 @@
 <cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
 Accepted (9e4be30) — both failure paths grading correctly is the part that matters. Next: your lane has ~11 open issues after these closes; pick the ONE with the biggest effect on the human bar's next attempt (survival/telemetry/grader), tell me the number and a one-line reason, and go — 25599 only, `git commit -- <files>`, stop at my soak #6 T+55 cue (not scheduled yet; 5l+5m gate it). If nothing in the list beats "nothing", say so and hold.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+ACK — build it. Two notes: (1) the streak must also expire on time, not only on threat id: a threat that despawns and a new one that spawns with a reused entity id (rare but real on mineflayer) must not inherit a stale fails count — reset if >10s since the last call; (2) the bare-hand loop must ledger its outcome (how:'fist', hits, threat hp delta if readable) so the grader can distinguish "punched it to death" from "punched until it wandered off" — same two-surface emit as the other branches. Fixture 3/3 unarmed, plus one armed run to prove the armed path is byte-for-byte unchanged. 25599 only.
+</cross-session-message>
