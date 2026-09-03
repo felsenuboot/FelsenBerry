@@ -1179,15 +1179,19 @@ the standing law; (5) fresh never-used bot name, `OWNER=test-driver PURPOSE=...`
 before and after spawn, `gearrace.mjs` as recorder of record from the start. Nothing on this list is
 done yet — standing by for team-lead's green light.
 
-### Run #6 — MuffelManfred, 127.0.0.1:25600 (`world-race6`, fresh, same seed) — PREP, HOLD for green light
+### Run #6 — GammelGerhard, 127.0.0.1:25600 (`world-race6`, fresh, same seed) — PREP, HOLD for green light
 
 Prep done during the post-wind-down respawn (test-driver, 2026-09-02), ahead of soak #4's verdict
 per team-lead's queue order (soak #4 first, run #6 launches after unless told otherwise). Flying
 **Race book v2** (this file, immediately above) — v1 is superseded for this run.
 
-Fresh never-used crude name reserved: **MuffelManfred** (checked against `pids/*.meta`, both
+Fresh never-used crude name reserved: **GammelGerhard** (checked against `pids/*.meta`, both
 `usercache.json`s at `~/minecraft/localserver` and `~/minecraft/localserver-race`, and `logs/*.log` — clean on all
-three).
+three). **Renamed 2026-09-03 from the original reservation `MuffelManfred`** — team-lead ruling: two
+`*Manfred`s live at once (soak #4's `MampfManfred` on 3160/25599, run #6's on 3161/25600) is exactly
+the shared-log misread risk it looks like, and names are free to change before spawn. `GammelGerhard`
+differs from `MampfManfred` in both first letter and ending, no phonetic overlap; re-verified clean
+against the same three sources at rename time.
 
 Race server `127.0.0.1:25600` confirmed DOWN at prep time (2026-09-02, post-wind-down check) — will
 be brought up at launch time per the standing recipe (`level-name` swapped to `world-race6`, fresh
@@ -1201,7 +1205,7 @@ level up, already covered by `#95` + `#97`-item-3, both field-confirmed. Nothing
 pillar geometry, preflight 203/203). Live confirmation already in hand, no further engine-dev
 sign-off needed. (3) soak #4 verdict non-catastrophic or explicitly waived — **the only remaining
 gate**, PENDING, soak #4 not yet run. (4) world-race6 swap/regen — NOT DONE YET (do at launch);
-(5) fresh name reserved (`MuffelManfred`), `OWNER=test-driver PURPOSE=...` ready to set, `./list.sh`
+(5) fresh name reserved (`GammelGerhard`), `OWNER=test-driver PURPOSE=...` ready to set, `./list.sh`
 discipline and `gearrace.mjs` as recorder of record — ready to execute at green light.
 
 Also carrying forward per team-lead: if eng-3 lands `#102` (chopTrees fell-complete) before soak #4
@@ -1220,14 +1224,13 @@ Launch is prepped to be instant on green light:
   's/^level-name=.*/level-name=world-race6/' server.properties && setsid nohup java -Xmx1536M
   -Xms512M -jar server.jar nogui > server.log 2>&1 &` — then wait for `Done` in `server.log`.
 - **Control port**: `3161` reserved (checked via `ss -ltn`; only `3160` is currently in use, by
-  soak #4's `MampfManfred` on 25599 — noting the near-miss: `MampfManfred` (soak #4, engine-dev-3,
-  port 3160/25599) vs `MuffelManfred` (run #6, test-driver, port 3161/25600) are NOT the same string
-  — no collision by the letter of the law — but they are one-syllable-apart and could be misread at
-  a glance in a shared log tail or `./list.sh` output. Flagging for awareness, not renaming without
-  instruction since the name is already accepted.
+  soak #4's `MampfManfred` on 25599). Name resolved: original reservation `MuffelManfred` was one
+  syllable off `MampfManfred` (soak #4, 3160/25599) and team-lead ruled to rename before spawn rather
+  than run two look-alike `*Manfred`s across two ports/servers at once — `GammelGerhard`
+  (3161/25600) has no phonetic overlap with `MampfManfred`.
 - **Spawn line**: `OWNER=test-driver PURPOSE="gear-race run #6, world-race6, Race book v2, full
   move-set (skills v62/agenda v27 SHELTER/survival v11/dangerscan v6)" MC_HOST=127.0.0.1
-  MC_PORT=25600 ./spawn.sh MuffelManfred 3161 --agenda` (role-less racer, no `DECIDER_EXCLUDE` — this
+  MC_PORT=25600 ./spawn.sh GammelGerhard 3161 --agenda` (role-less racer, no `DECIDER_EXCLUDE` — this
   bot is meant to be seen by the decider's shared budget like any real racer).
 - `./list.sh` before and after, `/state` read immediately post-spawn to lock in actual versions,
   `gearrace.mjs` as recorder of record from the start.
@@ -1247,7 +1250,7 @@ team-lead 2026-09-03: skills v62, agenda v27 (SHELTER rung), survival v11, dange
 
 Steering calls: 0 so far (not launched). Deaths: 0 so far. Monitor: not armed yet — will run the
 standing 15s `/state` poll (IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus
-real-time `server.log` tail for `MuffelManfred`, per Race book v2's trigger table and branch plans
+real-time `server.log` tail for `GammelGerhard`, per Race book v2's trigger table and branch plans
 (combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
 
 **STATUS: prep complete, standing by for team-lead's green light on run #6 (gated on soak #4's
