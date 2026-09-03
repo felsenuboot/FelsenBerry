@@ -116,7 +116,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 25, enabled: true,
+  version: 26, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -278,6 +278,31 @@ const sense = (inject) => {
       const dur = max ? Math.round(((max - (it.durabilityUsed || 0)) / max) * 100) : 100;
       if (!s.tools[cls] || dur > s.tools[cls].dur) s.tools[cls] = { name: it.name, dur };
       s.toolCounts[cls] = (s.toolCounts[cls] || 0) + 1;
+    }
+
+    // Gear-progression drive (team-lead's re-eval, argued in FEEDBACK): a working LOWER-tier
+    // tool never asked "could I afford better" — S.ensureTool's bestOwned() short-circuits the
+    // moment ANYTHING satisfies the class. tierFor (S.tierFor, already durable-first-correct)
+    // is bot-state-independent for a plain class string, so it's safe to call here and belongs
+    // here, not in TOOL's fire()/clear() — same "every predicate input comes through the
+    // snapshot" rule s.tools/s.toolCounts already follow. Bounded to wooden->stone on purpose:
+    // that's tierFor's own bootstrappable boundary (iron/diamond need a furnace/ore chain
+    // craftToolChain doesn't cover).
+    s.upgrade = null;
+    {
+      const c = activeClass(s);
+      const S = globalThis.__skills;
+      if (c && S && typeof S.tierFor === 'function') {
+        let tableInReach = false;
+        try {
+          tableInReach = items.some((i) => i.name === 'crafting_table')
+            || Boolean(bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 }));
+        } catch (e) {}
+        let payable = null;
+        try { payable = S.tierFor(c, items, tableInReach); } catch (e) {}
+        const heldName = s.tools[c] && s.tools[c].name;
+        if (payable === `stone_${c}` && (!heldName || heldName.startsWith('wooden_'))) s.upgrade = { cls: c, to: payable };
+      }
     }
 
     const d = globalThis.__danger;
@@ -683,11 +708,18 @@ const RUNGS = [
       if (!c) return false;
       const b = s.tools[c];
       if (!b || b.dur <= 15) return true;
+      // gear-progression drive: lowest priority of TOOL's own triggers — a broken/missing
+      // tool always outranks a mere upgrade. s.upgrade is already gated to "payable tier is
+      // strictly better than what's held" (sense()'s job, not this predicate's).
+      if (s.upgrade) return true;
       return false;
     },
     clear: (s) => {
       if (weaponMissing(s)) return false;
       if (kitPickShort(s)) return false;
+      // an upgrade in progress must not clear just because the OLD tool is still healthy —
+      // clear()'s own health check below knows nothing about tiers.
+      if (s.upgrade) return false;
       const c = activeClass(s);
       if (!c) return true;
       const b = s.tools[c];
@@ -710,15 +742,31 @@ const RUNGS = [
       // is the case that used to leave `picks` unaimed.
       const held = (s.toolCounts || {}).pickaxe || 0;
       const classBroken = Boolean(c) && (!s.tools[c] || s.tools[c].dur <= 15);
-      let target = null, spare = false;
+      let target = null, spare = false, skipDepot = false;
       if (classBroken) target = c;
       else if (kitPickShort(s)) { target = 'pickaxe'; spare = held >= 1; }
       else if (weaponMissing(s)) target = 'sword';
+      // gear-progression drive: must come before the generic `else if (c) target = c` catch-
+      // all below, which sets no `spare` and would just re-report "held" — the exact
+      // short-circuit this whole feature exists to skip. skipDepot is load-bearing, found
+      // live: s.upgrade's whole premise is "materials to craft it are ALREADY carried" —
+      // ensureTool's normal depot-withdrawal step (opts.depot, on by default) sends the bot
+      // travelling toward the real base chests FIRST regardless, which can walk it away from
+      // whatever crafting table made the upgrade reachable in the first place. Measured: with
+      // depot left on, a bot that could afford a stone pickaxe on the spot instead wandered
+      // ~150 blocks checking empty depot chests, arrived nowhere near a table, and
+      // craftToolChain fell through to bootstrapping a WORSE (wooden) tier from scratch —
+      // the opposite of what this feature is for. depot:false keeps the craft where the
+      // opportunity was actually detected.
+      else if (s.upgrade) { target = s.upgrade.cls; spare = true; skipDepot = true; }
       else if (c) target = c;
       if (!target) return 'none';
       // spare: without it ensureTool answers "you already have one" and the rung can never
-      // clear a requirement for a SECOND.
-      const r = runSkill('ensureTool', { tool: target, spare }, 'TOOL');
+      // clear a requirement for a SECOND (or, here, a strictly BETTER one — reusing the same
+      // skip-bestOwned escape hatch for an upgrade, not just a backup).
+      const opts = { tool: target, spare };
+      if (skipDepot) opts.depot = false;
+      const r = runSkill('ensureTool', opts, 'TOOL');
       if (r.ok) return 'started';
       if (r._transient) return 'busy';
       // A genuine refusal is the handback point: the ladder cannot advance a tool-gated

@@ -4004,13 +4004,15 @@ S.define('huntAnimals', {
 // As a SKILL it gets the task mutex, telemetry, and clean stop-at-a-step-boundary preemption,
 // and the agenda's act returns immediately.
 S.define('ensureTool', {
-  description: 'Acquire a tool of the given class: equip what is owned, else withdraw from the depot, else craft one. spare:true forces acquisition even when one is already held (backup-tool kit rules).',
-  params: { tool: "class name ('pickaxe'|'axe'|'shovel'|'sword'|'hoe') or a block name to resolve one from", spare: 'bool — acquire another even if one is held (default false)' },
+  description: 'Acquire a tool of the given class: equip what is owned, else withdraw from the depot, else craft one. spare:true forces acquisition even when one is already held (backup-tool kit rules). depot:false skips the depot-withdrawal step (gear-progression drive: skip the travel when the craft is already payable right where the bot is standing).',
+  params: { tool: "class name ('pickaxe'|'axe'|'shovel'|'sword'|'hoe') or a block name to resolve one from", spare: 'bool — acquire another even if one is held (default false)', depot: 'bool — false skips depot withdrawal, straight to crafting (default true)' },
   validate: (a) => (a.tool ? null : 'need tool: a class name or a block name'),
   fn: async (ctx) => {
     const { bot, args } = ctx;
     ctx.setPhase('acquiring', `Making sure I have a ${args.tool}${args.spare ? ' (spare)' : ''}.`);
-    const r = await S.ensureTool(bot, args.tool, { spare: Boolean(args.spare) });
+    const opts = { spare: Boolean(args.spare) };
+    if (args.depot === false) opts.depot = false;
+    const r = await S.ensureTool(bot, args.tool, opts);
     if (!r.ok) {
       throw fatal(r.error || 'acquisition_failed', `could not acquire ${args.tool}: ${(r.steps || []).join(' | ')}`,
         'stock one in the depot, or give the bot materials to craft from');

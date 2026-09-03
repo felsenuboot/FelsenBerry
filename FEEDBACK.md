@@ -3789,9 +3789,8 @@ in reach -> `s.upgrade` fires, TOOL crafts+equips stone, `s.upgrade` clears on t
 against the real `__agenda.step()`/`sense()` machinery, not a hand-rolled predicate test — same
 doctrine `bench/fixtures/agenda-ladder.js`'s other cases already use. `bench/preflight.sh` must
 stay green after (a new case raises the total past 203, not break the existing 203).
-fix: proposed here; building next (agenda.js v26).
-github: n/a yet — will file/reference once built and verified, per team-lead's steer this is
-sequenced ahead of soak #4 as a benchmark-relevant engine gap, not a standalone bug report.
+fix: proposed here; built and verified in the entry below.
+github: felsenuboot/FelsenBerry#107
 
 ### 2026-09-03 engine-dev — #106 hypothesis traced against the real ledger (read-only): LIGHT
 never fires outdoors (disconfirms my own earlier guess); a real, smaller torch-over-placement
@@ -3908,3 +3907,42 @@ instruction, this is eng-3's to apply, and lands against a different underground
 originally proposed.
 github: felsenuboot/FelsenBerry#106 (fixture + the revised underground recommendation posted as
 a comment)
+
+### 2026-09-03 engine-dev-3 — gear-progression drive built and verified (agenda v26, skills.js
+v61): a live run found and fixed a real second bug the design didn't anticipate
+type: fix + fixture + live verification
+status: built exactly as argued above, live-fired end to end on a real bot, one real bug found
+and fixed along the way, bench/preflight.sh 205/205 (203 baseline + 2 new cases)
+what: built the plan from the entry above — `sense()` computes `s.upgrade` via `S.tierFor`,
+TOOL's `fire()`/`clear()`/`act()` each gained the one gated branch described there, reusing
+`spare:true` to skip `bestOwned`'s short-circuit. Dry-run wiring verified via two new
+`bench/fixtures/agenda-ladder.js` cases (upgrade fires TOOL even with an otherwise-healthy tool;
+a genuine need like EAT_CRITICAL still outranks a mere upgrade) — 27/27, up from 25/25.
+
+**Live end-to-end run found a real bug the design argument missed.** First live attempt (fresh
+bot, wooden pickaxe + 6 cobblestone + 4 sticks + a table in reach — exactly the scenario this
+feature targets): `s.upgrade` fired correctly, TOOL correctly started `ensureTool` with
+`spare:true` — but `S.ensureTool`'s normal flow checks the DEPOT before crafting regardless, and
+that step travels toward the real base chests unconditionally. The bot walked ~150 blocks
+checking empty depot chests, ended up nowhere near the table that made the upgrade possible in
+the first place, and `craftToolChain` fell through stone (no table reachable, no held one) to
+bootstrapping a WORSE tier (wooden) from scratch via its own separate wood-gathering fallback —
+the exact opposite of what this feature exists to do. Root cause: `s.upgrade`'s whole premise is
+"materials are ALREADY carried," so there was never a reason to check the depot first. Fixed by
+threading a new `depot:false` option through two layers: the `ensureTool` SKILL (skills.js) only
+ever read `args.spare`, so `args.depot` had nowhere to go — added the pass-through — then
+agenda.js's upgrade branch sets it. Re-run clean: `s.upgrade` fired, `ensureTool` crafted a stone
+pickaxe immediately without leaving the area, confirmed via inventory (`stone_pickaxe` present,
+crafted where it stood) rather than assumed from the "started" return value alone.
+
+**Scope note, stated plainly**: the depot IS occasionally the better answer (a free spare tool
+sitting there beats crafting), and `depot:false` gives that up for the upgrade path specifically
+— a deliberate trade for "don't wreck the opportunity by wandering off," not a claim that
+skipping the depot is always strictly better. Only the upgrade branch passes it; the classBroken/
+kitPickShort/weaponMissing branches (genuine NEED, not opportunistic upgrade) are unchanged and
+still check the depot first, matching existing doctrine ("the depot stays the cheap first
+answer").
+fix: `agenda.js` (`sense()`'s `s.upgrade`, TOOL's fire/clear/act — v26), `skills.js` (`ensureTool`
+skill's `depot` opt pass-through — v61 unchanged version, additive). `bench/fixtures/agenda-
+ladder.js` (2 new cases, 27/27).
+github: felsenuboot/FelsenBerry#107 (filed and closed with this fix)
