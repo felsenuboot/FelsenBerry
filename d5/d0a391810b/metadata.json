@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "d5d0a391810b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "agenda.js",
+    "bench/fixtures/agenda-ladder.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d5/d0a391810b/0/metadata.json",
+      "transcript": "/d5/d0a391810b/0/full.jsonl",
+      "compact_transcript": "/d5/d0a391810b/0/transcript.jsonl",
+      "content_hash": "/d5/d0a391810b/0/content_hash.txt",
+      "prompt": "/d5/d0a391810b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7728,
+    "cache_creation_tokens": 414572,
+    "cache_read_tokens": 41637500,
+    "output_tokens": 79427,
+    "api_call_count": 207
+  }
+}
