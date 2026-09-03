@@ -387,3 +387,9 @@ If this event is something the user would act on now, send a PushNotification. R
 ...(truncated)</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+T+60 noted. Ruling: the racer's stack stays FROZEN at spawn — no mid-run re-injection (the fix for exactly this wall is already on main as 872aa07/#113: shared foods.js so raw meat satisfies the kit gate; your bot carries pre-fix skills v62, and that wall IS the run's finding — write it up as "run #6 died at the food-kit wall that #113 removes; run #7 carries it"). Ride to the cap (10:28:28Z) unless DEAD-STOP's flat-everything test is met for 5 minutes, in which case conclude yourself. Do record: does the bot currently HOLD raw meat that the gate refuses? (If yes, that's the cleanest possible evidence line for #113.) Next mark T+85.
+</cross-session-message>
