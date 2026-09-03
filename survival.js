@@ -1,4 +1,14 @@
-// survival v11 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v12 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v12 (#115, TODO 5f, run #6 death #1): branchWallOff used to defend against exactly ONE
+// threat — whichever one dangerscan's own SCORE ranking handed pick() (a nearby creeper always
+// outranks a nearby spider regardless of which is actually landing hits) — for its whole
+// build+wait episode. A spider dangerscan had already detected the entire time landed the
+// finishing hits, unnamed and undefended-against, because nothing downstream of pick() ever
+// looked again. `nearestMeleeThreat()` (DISTANCE-sorted, not score) + branchWallOff's own
+// `activeThreat`/`rescanMelee()` now re-derive the closest threat every cycle of both the
+// placement and wait loops — see their own comments below. Live-confirmed 3x against real
+// summoned zombies (FEEDBACK.md, 2026-09-03).
 //
 // v11 (#105, NIGHT-SHELTER): every branch above is a REACTION to a threat already engaged.
 // Six survival-lane fixes in one day (#92/#94/#96/#98/#99/#100) all harden that reaction, and
@@ -162,7 +172,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 11,
+  enabled: true, version: 12,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -1460,7 +1470,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 11, boundAt: Date.now(), stale: false };
+REG.survival = { version: 12, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -1471,7 +1481,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 11, home: g.home,
+  installed: true, version: 12, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
