@@ -1203,10 +1203,20 @@ predates two closures): (1) R2-wedge fix gate — **MOOT, not a gate**. R2 was E
 level up, already covered by `#95` + `#97`-item-3, both field-confirmed. Nothing to wait for here.
 (2) `#101` craftToolChain fix — **LANDED and lead-ACCEPTED** (`cd30f4c`, fixture 10/10 at the real
 pillar geometry, preflight 203/203). Live confirmation already in hand, no further engine-dev
-sign-off needed. (3) soak #4 verdict non-catastrophic or explicitly waived — **the only remaining
-gate**, PENDING, soak #4 not yet run. (4) world-race6 swap/regen — NOT DONE YET (do at launch);
-(5) fresh name reserved (`GammelGerhard`), `OWNER=test-driver PURPOSE=...` ready to set, `./list.sh`
-discipline and `gearrace.mjs` as recorder of record — ready to execute at green light.
+sign-off needed. (3) soak #4 verdict non-catastrophic or explicitly waived — PENDING, soak #4 not yet
+concluded. (4) world-race6 swap/regen — NOT DONE YET (do at launch); (5) fresh name reserved
+(`GammelGerhard`), `OWNER=test-driver PURPOSE=...` ready to set, `./list.sh` discipline and
+`gearrace.mjs` as recorder of record — ready to execute at green light.
+
+**2026-09-03 gate added (team-lead)**: soak #4 surfaced that a role-less bot has NO food-acquisition
+path — `rules.json` has no food rule, hunter routing doesn't apply to `role:null`, and the decider
+doesn't supply one either — the bot went starvation-pinned at T+30 (food 0, HP 10), the same killer
+class that ended runs #1 and #2. **Run #6 now gates on TWO things: soak #4's verdict AND eng-3's
+food-acquisition drive (a FOOD rung + `rules.json` entry, issue TBD) actually landing.** Not
+optional, not the same as the soak-verdict gate — both must clear. My race book v2 manual food
+branch (`setProject(huntAnimals{anyMob:true,radius:32,repeat:true})`, `harvestGrass{repeat:true}`
+fallback, see "Known-failure branch plans" above) stays armed regardless, as my override if the new
+drive underperforms live — it does not substitute for the drive landing before launch.
 
 Also carrying forward per team-lead: if eng-3 lands `#102` (chopTrees fell-complete) before soak #4
 concludes, the run #6 stack will include it — record actual versions read from `/state` at spawn as
