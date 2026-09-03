@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "700649450605",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:35:17.288415764Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "bench/fixtures/latency-breakdown.mjs",
+    "bench/gates/direction-soak4-breakdown.json",
+    "bench/gates/humanbar-soak4-breakdown.json",
+    "bench/gates/humanbar4-soak4-breakdown.json",
+    "bench/gates/trail-soak4-breakdown.json",
+    "bench/humanbar.mjs",
+    "bench/lib/latency-breakdown.mjs",
+    "metrics.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "7cecb9e47796",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 5997,
+    "cache_creation_tokens": 288408,
+    "cache_read_tokens": 16103763,
+    "output_tokens": 61187,
+    "api_call_count": 115
+  },
+  "session_metrics": {
+    "turn_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T09:35:17.200595121Z",
+    "agent_lines": 576,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 576,
+    "total_lines_changed": 577,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

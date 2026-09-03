@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "700649450605",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "bench/fixtures/latency-breakdown.mjs",
+    "bench/gates/direction-soak4-breakdown.json",
+    "bench/gates/humanbar-soak4-breakdown.json",
+    "bench/gates/humanbar4-soak4-breakdown.json",
+    "bench/gates/trail-soak4-breakdown.json",
+    "bench/humanbar.mjs",
+    "bench/lib/latency-breakdown.mjs",
+    "metrics.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/70/0649450605/0/metadata.json",
+      "transcript": "/70/0649450605/0/full.jsonl",
+      "compact_transcript": "/70/0649450605/0/transcript.jsonl",
+      "content_hash": "/70/0649450605/0/content_hash.txt",
+      "prompt": "/70/0649450605/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5997,
+    "cache_creation_tokens": 288408,
+    "cache_read_tokens": 16103763,
+    "output_tokens": 61187,
+    "api_call_count": 115
+  }
+}
