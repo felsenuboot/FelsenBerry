@@ -226,3 +226,12 @@ Stone milestone recorded in TODO/memory and pushed to Felix's phone — well dri
 <event>[POLL] ALERT-VITALS hp=3.333332061767578 food=17 pos=(6,95,-4)</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bkpap079p</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: actionable-only (milestone/death/needs_direction/errors from log; hp&lt;8 or food&lt;6 or rung-stuck&gt;90s from poll)"</summary>
+<event>[POLL] ALERT-VITALS hp=6.333334922790527 food=16 pos=(25,88,-9)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
