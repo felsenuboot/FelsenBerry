@@ -42,7 +42,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    engine-dev spawns the inspector bot at ~T+55: DECIDER_EXCLUDE=1, no --agenda, parked far away). Lead holds the timer. Pass = /goal met.
 5. **#106 stuck `.light` field** (engine-dev): block light reads constant 0 day/night; dangerscan's field may be the same →
    LIGHT/POSTURE may run on a false "always dark". Investigate, propose fix (isDay + skyLight geometry composite).
-5b. **FOOD-ACQUISITION DRIVE** (eng-3, GATES run #6): soak #4's role:null bot hit food 0 / HP 10 at T+30 — rules.json has
+5b. ~~FOOD-ACQUISITION DRIVE~~ DONE (#108, e4a2cca+42ba208 — FOOD rung prio 6.5, role/project-independent; hunt kit gate force:true; raw-meat allowlist; 216/216). Original note: soak #4's role:null bot hit food 0 / HP 10 at T+30 — rules.json has
    no food rule, ROLE_WORK.hunter doesn't apply to role:null (#88 residual), Andy didn't supply it. Build a FOOD rung
    (foodItems==0 && hunger ≤ ~12 → huntAnimals w/ widening radius → harvest/farm fallback → backoff) + a zero-token
    rules.json entry. Starvation ended runs #1/#2 too.
@@ -51,7 +51,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    tick but never progresses is invisible to the episode layer (no stall opens because TOOL reads as busy). Propose
    `tool_stalled` (N consecutive identical TOOL failures → episode) — composition-rot at the rung/episode boundary.
    Likely trigger: stick exhaustion from the durability-not-tier recraft bug (fixed af5d009) — verify from ledger.
-6. **Gear-race run #6** (test-driver, GammelGerhard reserved, world-race6, Race book v2) after soak #4's verdict AND 5b.
+6. **Gear-race run #6** (test-driver, GammelGerhard reserved, world-race6, Race book v2) after soak #4's verdict (5b landed).
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
 ## 2. Standing (unchanged)

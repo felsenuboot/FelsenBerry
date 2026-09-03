@@ -16,6 +16,9 @@ Milestones, curated. Everything else: `git log`. Engine payload versions live in
 - **#106 fixed** (c3149b3): raw block light is permanently 0 underground even beside a torch, so it is never truth — surface
   now reads isDay·skyLight, underground scans tracked torch positions; ctx.autoTorch's raw-light early trigger removed.
   LIGHT-rung torch-spam hypothesis disconfirmed by 435 ledger firings.
+- **#108 FOOD rung** (agenda): fires on foodCount==0 && hunger ≤12 independent of role/project — the gap that starved
+  soak #4's role-less bot; hunts with widening radius, harvest fallback; fixed the hunt gate's torch demand and a raw-meat
+  food-count blind spot found live.
 - **#103** death/respawn opens a needs_direction episode immediately (a re-injection race that could silently lose
   the episode was found and fixed; 3 consecutive live passes).
 - **Instruments**: `bench/trail.mjs` (criterion-4 human-trail inspector: floating logs, stranded drops, naked shafts,
