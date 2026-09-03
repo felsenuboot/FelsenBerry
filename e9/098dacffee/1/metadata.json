@@ -1,0 +1,83 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "e9098dacffee",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T12:32:16.75679612Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "add8f49b5277",
+  "checkpoint_transcript_start": 2188,
+  "transcript_lines_at_start": 2188,
+  "compact_transcript_start": 563,
+  "token_usage": {
+    "input_tokens": 238,
+    "cache_creation_tokens": 6638,
+    "cache_read_tokens": 3701325,
+    "output_tokens": 3351,
+    "api_call_count": 8
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01NhY1heffRJgusfa8B3ii2b",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "update-config"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d5e3ecb5c8bd",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 976,
+        "end": 977,
+        "entry_ids": [
+          "3af9ed8b-f505-4f9c-bcbb-f6ab9144130f"
+        ],
+        "tool_use_id": "toolu_01NhY1heffRJgusfa8B3ii2b"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01NhY1heffRJgusfa8B3ii2b"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: update-config",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 172
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 1,
+      "user_lines_removed": 1,
+      "agent_lines_added": 288,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        "agenda.js": 1
+      },
+      "user_removed_per_file": {
+        "agenda.js": 1
+      }
+    }
+  ]
+}
