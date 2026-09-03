@@ -1433,11 +1433,21 @@ Bot's own flee, unassisted, DID cover real ground afterward: (-8.5,103,0.5) -> (
 next ~90s, ~16 blocks of descent and real horizontal distance, HP stabilizing around 6-8 rather than
 continuing to 0 — first sign this specific spawn-camp cycle may be breaking on its own.
 
-Steering calls: 11 total (see full list above; none issued during the held window). Deaths: 4 — #1
+**Hold lifted 09:42Z**: ~2m20s of stable survival with zero further damage (last hit 09:40:03Z) AND
+dawn confirmed (`bot.time.isDay:true`, `timeOfDay:4779`) — both of the team-lead's release conditions
+met. Bot self-fled the camp entirely under its own `FLEE_AWAY` (no driver input): (-8.5,103,0.5) ->
+(26.5,88,-8.5), ~35 blocks and 15y of descent, before standing down on its own (`Walled off but can't
+heal — food stuck at 16/20 with nothing to eat. Standing down at 6 HP.` — the same natural-regen-needs-
+hunger-18 heal-deadlock shape run #2's writeup already named, not a new finding). (12)
+`setProject({skill:'huntAnimals',args:{species:[...],radius:32,repeat:true}})` at 09:42:24.661Z —
+food first, since healing is gated on it and HP is still low (6.3) with the camp behind but not
+forgotten.
+
+Steering calls: 12 total (see full list above; none issued during the held window). Deaths: 4 — #1
 creeper blast + an untracked spider's finishing hits (`slain by Spider` per server.log, organic); #2,
 #3, #4 all `shot by Skeleton`, a genuine 63-second respawn-camp with zero filler blocks throughout
-(see live finding above) — all organic, no driver error, DEAD-STOP will apply if a 5th death occurs
-before the bot escapes the camp with no further legal recovery. Monitor: armed —
+(see live finding above) — all organic, no driver error. Bot self-escaped the camp; DEAD-STOP did not
+apply. Monitor: armed —
 actionable-only filter (milestone first-seen, death/damage, hp<8/food<6, rung-stuck>90s,
 `needs_direction` opened, server errors) per team-lead's tightened cadence, plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans.
