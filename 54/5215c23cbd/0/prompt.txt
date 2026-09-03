@@ -580,3 +580,12 @@ bench/fixtures/producer-cook.js (new, self-calibrating like assert-produce.js, 2
 
 Holding for the next task or the soak window closing, whichever comes first.
 </cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bk1alyyvk</task-id>
+<summary>Monitor event: "soak #5 wall-clock marks T+30/T+55 inspector cue/T+60 close (11:30:54Z)"</summary>
+<event>SOAK #5 T+30min (11:01:06Z) — window 10:30:54.879Z → 11:30:54.879Z</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
