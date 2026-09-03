@@ -1,0 +1,64 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "1adb54728767",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:29:21.316984227Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 3,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "667fb306f291",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 5311,
+    "cache_creation_tokens": 269444,
+    "cache_read_tokens": 12300837,
+    "output_tokens": 52760,
+    "api_call_count": 95
+  },
+  "session_metrics": {
+    "turn_count": 13
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 310,
+      "user_lines_removed": 0,
+      "agent_lines_added": 821,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "bench/fixtures/vitals-floor.mjs": 98,
+        "bench/gates/direction-soak4-c3floor.json": 25,
+        "bench/gates/humanbar-soak4-c3floor.json": 30,
+        "bench/gates/humanbar4-soak4-c3floor.json": 64,
+        "bench/gates/trail-soak4-c3floor.json": 37,
+        "bench/lib/vitals-floor.mjs": 56
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 310,
+      "user_lines_removed": 0,
+      "agent_lines_added": 821,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "bench/fixtures/vitals-floor.mjs": 98,
+        "bench/gates/direction-soak4-c3floor.json": 25,
+        "bench/gates/humanbar-soak4-c3floor.json": 30,
+        "bench/gates/humanbar4-soak4-c3floor.json": 64,
+        "bench/gates/trail-soak4-c3floor.json": 37,
+        "bench/lib/vitals-floor.mjs": 56
+      }
+    }
+  ]
+}
