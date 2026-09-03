@@ -5532,3 +5532,89 @@ fix: `bench/fixtures/wall-off-multithreat.sh` (NoAI:1b, chat-log source fix, wid
 `bench/lib/latency-breakdown.mjs` + `bench/fixtures/latency-breakdown.mjs` (`selfRecoveredStallMs`,
 26/26). `metrics.mjs` (console line for the new bucket).
 github: felsenuboot/FelsenBerry#119 (TODO 5k); #117 (bucket names the stall this file already found)
+
+---
+### 2026-09-03 engine-dev-3 — cook/smelt follow-up (TODO 5e's flagged gap): built, tested,
+argued against auto-wiring into FOOD (producer v8)
+type: fix + fixture, argued decision (ship unwired)
+status: built, live-verified (real furnace, real smelt cycle, real bug found and fixed mid-
+verification), `bench/fixtures/producer-cook.js` (new, 2/2 — self-calibrating, skips what the
+bot's current inventory can't honestly set up), `bench/fixtures/agenda-ladder.js` +1 case
+(72/72), `bench/preflight.sh` 264/264 on a fresh throwaway bot (KochKuno/KochKuno2/KochKuno3
+across debugging, RatzRolf for final preflight — 25599 only, DECIDER_EXCLUDE=1, all stopped,
+world scratch blocks (RCON-set furnace/table) cleaned up after). No bots near 25600 (soak #5)
+throughout.
+
+**Built**: `producer.js` gains `cooked_meat` as a `produce()` resource (`S.produce(bot,
+'cooked_meat', count)` / `runSkill('produce', {resource:'cooked_meat', count})`) — cooks
+whatever raw meat is ALREADY held (beef/porkchop/mutton/chicken/rabbit — deliberately including
+chicken: raw chicken is excluded from FOODS for #108's own argued poison-risk reason, but
+COOKED chicken is completely safe, so cooking is literally how a human neutralizes that risk,
+not just a saturation upgrade for the other four), one species per furnace input slot, up to a
+target total. Reuses `smeltCharcoal`'s own shape (factored a shared `findOrMakeFurnace` helper
+out of it — find a furnace within 24 blocks, else craft+place one from 8 cobblestone, verbatim
+behaviour, no change). Fuel priority coal > charcoal > planks, per the ask; deliberately does
+NOT gather/produce fuel on its own (unlike `smeltCharcoal`, which gathers logs) — this is meant
+to be a cheap finishing step on food already in hand, not another multi-minute acquisition
+chain stacked under FOOD's own already-multi-step hunt.
+
+**Real bug found and fixed while live-verifying (not a pre-existing issue — introduced by this
+feature, caught before it shipped)**: the first working version reported `made:0` on every
+successful cook — raw meat genuinely consumed, cooked item genuinely present in the bag
+afterward, but the function's own return value said nothing happened. Root cause: `bot.
+inventory.items()` counts items sitting in an OPEN container's own slots too — a cooked item
+that had just landed in the furnace's OUTPUT slot already read as "in inventory" well before
+`takeOutput()` ever moved it into the player's true slots, so a before/after count taken while
+the furnace window stayed open measured a zero delta on every real, successful cook (isolated
+via a step-by-step `/eval` probe: `beforeTake` already read the post-cook count before
+`takeOutput()` was even called). Not a settle-delay issue (tried that first, still zero) — a
+genuine wrong-window bug. Fixed by snapshotting cooked-item counts BEFORE opening the furnace
+and reading the final count only AFTER `furnace.close()`. Also found live, unrelated and
+PRE-EXISTING (inherited verbatim from `smeltCharcoal`'s own furnace-crafting path, not
+introduced here): `findOrMakeFurnace`'s auto-craft branch calls `S.craftSafe(bot, 'furnace',
+1)` with no `opts.table`, which only succeeds if a crafting table is ALREADY placed within 4
+blocks — it never places one from inventory first, so "no furnace, no table, but cobblestone
+in hand" still reports `no_furnace` today. Not fixing here (same shared code path
+`smeltCharcoal` has relied on this whole time; a real gap, but outside this task's scope) —
+flagging so whoever eventually touches furnace auto-placement knows both callers share it.
+
+**Saturation math (why cooking would matter, if it could be wired in)**: vanilla's own numbers
+— cooked meat restores roughly 2-3x the hunger and 5-7x the saturation of the same item raw
+(porkchop: 3 hunger/1.8 sat raw vs 8 hunger/12.8 sat cooked; mutton 2/1.2 vs 6/9.6; chicken
+2/1.2 vs 6/7.2; rabbit 3/1.8 vs 5/6.0). A bot that eats raw needs to hunt again far sooner —
+and hunting is the expensive part of this whole chain (FOOD's own widening-radius/fallback
+logic exists precisely because fauna is sometimes scarce). For a bot already at/near a base
+(the common case for a RESTOCK/PROJECT-anchored bot), the cooking detour costs tens of seconds;
+skipping it costs a WHOLE EXTRA HUNT, likely minutes, sooner than it otherwise would. On pure
+saturation math, cooking is clearly worth it when the bot can afford the stop.
+
+**Argued AGAINST auto-wiring into FOOD's post-hunt sequence — two real architectural
+obstacles, not a preference call**: (1) mineflayer-auto-eat's own background watcher
+(`checkOnItemPickup:true`, `startAt:16` — already documented in TODO's own runbook law from
+5h) eats a raw meat item the instant it's picked up, independent of the agenda ladder — a
+hunted item can be GONE, eaten raw, before FOOD's own harvest-grading code (where a
+"cook before eating" hook would naturally live) ever sees it. Suppressing this for the
+hunt+cook window is possible (toggle `bot.autoEat.options.startAt` to 0, restore after) but is
+its own new failure surface. (2) Even past that: the moment a raw kill lands in inventory,
+`s.foodCount` counts it (FOODS includes raw beef/porkchop/mutton/rabbit) and EAT's own `fire()`
+(`food<=17 && foodCount>0`) goes true — EAT (prio 4) unconditionally outranks FOOD (prio 6.5),
+so `choose()` hands the body to EAT on the VERY NEXT tick regardless of whatever FOOD's own
+`act()` might still want to do next, including starting a cook. This is a genuine priority-
+inversion, not a hookup detail — proven in `bench/fixtures/agenda-ladder.js` (new case: owner
+FOOD, raw meat just landed, `foodCount>0` → demanded resolves to EAT, not FOOD). Solving it
+properly would need a real design (e.g. a dedicated priority slot for "cooking in progress" that
+also gates EAT, or changing what counts toward `foodCount` for raw-but-cookable meat — a
+semantic change with its own ripple effects on RESTOCK's floor logic) — genuinely out of
+proportion to a same-session soak-hour task, and exactly the kind of rung-priority-interaction
+risk this whole session's other findings (5c/5d/5g/5h) all turned out to be. **Shipping the
+skill unwired**: fully built, tested, directly usable
+(`runSkill('produce',{resource:'cooked_meat',count})`) by a driver, the decider, or a future
+dedicated rung — not wiring the specific "after a successful hunt" hook this pass.
+
+fix: `producer.js` (`findOrMakeFurnace` factored out of `smeltCharcoal`; `cookFuelItem`/
+`cookMeat` new; `cooked_meat` resource in `S.produce`'s dispatcher; version 7->8).
+`bench/fixtures/producer-cook.js` (new, self-calibrating, 2/2). `bench/fixtures/agenda-
+ladder.js` (+1 case, the priority-inversion proof). `bench/preflight.sh` (added
+`producer-cook` to the fixture list).
+github: n/a (soak-hour follow-up, not separately filed — flagged as an open design question
+in this entry if a future TODO item wants to solve the priority-inversion properly)

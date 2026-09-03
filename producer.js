@@ -193,20 +193,10 @@ async function ensureSticks(bot, wantSticks, steps, chk) {
   return inv(bot, 'stick') >= wantSticks;
 }
 
-// #71: smelt logs -> charcoal (torch fuel) when there's no coal. A bot with logs and a furnace
-// can always make torches, where MINING coal at a treeline base cannot — so this is what lets
-// RESTOCK close a torch shortfall instead of parking one torch short (FurzFriedrich: 7 torches,
-// 0 coal, 233 logs, furnace nearby, deadlocked forever). `want` is a TOTAL charcoal target.
-// Bounded (need*~12s smelt) and cancellable via chk().
-async function smeltCharcoal(bot, want, steps, chk) {
-  if (inv(bot, 'charcoal') >= want) return true;
-  const need = Math.max(1, want - inv(bot, 'charcoal'));
-  // logs for INPUT (1 log -> 1 charcoal) and FUEL (a log burns ~1.5 items)
-  const wantLogs = need + Math.ceil(need / 1.5) + 1;
-  if (invRe(bot, /_log$/) < wantLogs) await gatherLogs(bot, wantLogs, steps, chk);
-  if (invRe(bot, /_log$/) < 2) { steps.push('smelt:no_logs'); return false; }
-
-  // reuse a nearby furnace, else craft + place one from cobblestone
+// TODO 5e follow-up (cook/smelt): shared furnace lookup, factored out of smeltCharcoal (below)
+// so cookMeat (also below) doesn't duplicate the find-or-craft-and-place dance. Same behaviour
+// as smeltCharcoal had inline: reuse one within 24 blocks, else craft+place from 8 cobblestone.
+async function findOrMakeFurnace(bot, steps, tag) {
   let fblk = bot.findBlock({ matching: idsOf(bot, ['furnace', 'blast_furnace']), maxDistance: 24 });
   if (!fblk && inv(bot, 'cobblestone') >= 8) {
     if ((await S.craftSafe(bot, 'furnace', 1)).made) {
@@ -223,7 +213,25 @@ async function smeltCharcoal(bot, want, steps, chk) {
       fblk = bot.findBlock({ matching: idsOf(bot, ['furnace', 'blast_furnace']), maxDistance: 6 });
     }
   }
-  if (!fblk) { steps.push('smelt:no_furnace'); return false; }
+  if (!fblk) { steps.push((tag || 'smelt') + ':no_furnace'); return null; }
+  return fblk;
+}
+
+// #71: smelt logs -> charcoal (torch fuel) when there's no coal. A bot with logs and a furnace
+// can always make torches, where MINING coal at a treeline base cannot — so this is what lets
+// RESTOCK close a torch shortfall instead of parking one torch short (FurzFriedrich: 7 torches,
+// 0 coal, 233 logs, furnace nearby, deadlocked forever). `want` is a TOTAL charcoal target.
+// Bounded (need*~12s smelt) and cancellable via chk().
+async function smeltCharcoal(bot, want, steps, chk) {
+  if (inv(bot, 'charcoal') >= want) return true;
+  const need = Math.max(1, want - inv(bot, 'charcoal'));
+  // logs for INPUT (1 log -> 1 charcoal) and FUEL (a log burns ~1.5 items)
+  const wantLogs = need + Math.ceil(need / 1.5) + 1;
+  if (invRe(bot, /_log$/) < wantLogs) await gatherLogs(bot, wantLogs, steps, chk);
+  if (invRe(bot, /_log$/) < 2) { steps.push('smelt:no_logs'); return false; }
+
+  const fblk = await findOrMakeFurnace(bot, steps, 'smelt');
+  if (!fblk) return false;
   if (!await gotoT(bot, fblk.position.x, fblk.position.y, fblk.position.z, 2, 20000)) { steps.push('smelt:unreachable'); return false; }
 
   let furnace;
@@ -250,6 +258,87 @@ async function smeltCharcoal(bot, want, steps, chk) {
   } finally { try { furnace.close(); } catch (_) {} }
   steps.push('smelt:charcoal=' + inv(bot, 'charcoal'));
   return inv(bot, 'charcoal') >= 1;
+}
+
+// TODO 5e follow-up: cook/smelt, flagged as an unbuilt gap when #113 shipped ("a role-less
+// racer that hunts its way to raw meat still cannot satisfy a COOKED-food gate by any legal
+// path — no cook/smelt skill exists"). Cooks whatever raw meat the bot is ALREADY holding
+// (RAW_MEATS below), one species at a time (a vanilla furnace only smelts one input item type
+// per input slot), up to `want` TOTAL cooked items across however many species are held —
+// mirrors smeltCharcoal's own shape (find/craft a furnace, feed input+fuel, wait, collect).
+// Deliberately covers `chicken`: raw chicken is excluded from FOODS (#108's own argued
+// poison-risk call) but COOKED chicken is completely safe — cooking is literally how a human
+// neutralizes that risk, not just a saturation upgrade for the other four.
+const RAW_MEATS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit'];
+// coal > charcoal > planks, per the ask ("fuel (coal/charcoal/planks from inventory, planks as
+// fallback)") — deliberately does NOT gather/produce fuel on its own the way smeltCharcoal
+// gathers logs: cookMeat is meant to be a CHEAP finishing step on food already in hand, not
+// another multi-minute acquisition chain layered under FOOD's own already-multi-step hunt.
+// No fuel on hand -> `no_fuel`, same honest-partial doctrine as every other branch here.
+function cookFuelItem(bot) {
+  return bot.inventory.items().find((i) => i.name === 'coal')
+    || bot.inventory.items().find((i) => i.name === 'charcoal')
+    || bot.inventory.items().find((i) => /_planks$/.test(i.name));
+}
+async function cookMeat(bot, want, steps, chk) {
+  const heldRaw = () => RAW_MEATS.filter((m) => inv(bot, m) > 0);
+  if (!heldRaw().length) { steps.push('cook:no_raw_meat'); return 0; }
+  if (!cookFuelItem(bot)) { steps.push('cook:no_fuel'); return 0; }
+  const fblk = await findOrMakeFurnace(bot, steps, 'cook');
+  if (!fblk) return 0;
+  if (!await gotoT(bot, fblk.position.x, fblk.position.y, fblk.position.z, 2, 20000)) { steps.push('cook:unreachable'); return 0; }
+
+  // Snapshot BEFORE opening the furnace window. Live-caught building this: `bot.inventory.
+  // items()` counts items sitting in an OPEN container's own slots too — a cooked item that
+  // just landed in the furnace's output slot already read as "in inventory" well before
+  // takeOutput() ever moved it into the player's true slots, so comparing a before/after count
+  // taken WHILE the window stayed open always measured a zero delta, even on a real,
+  // successful cook (confirmed live: raw meat consumed, cooked item genuinely present a
+  // moment later, `made` still reported 0). Snapshotting before open + reading the final
+  // count only after `furnace.close()` (below) is the fix — not a settle delay, an actual
+  // wrong-window bug.
+  const beforeCooked = {};
+  for (const meat of heldRaw()) beforeCooked[meat] = inv(bot, 'cooked_' + meat);
+
+  let furnace;
+  try { furnace = await bot.openFurnace(fblk); } catch (_) { steps.push('cook:open_failed'); return 0; }
+  try {
+    for (const meat of Object.keys(beforeCooked)) {
+      chk();
+      const count = inv(bot, meat);
+      if (!count) continue;
+      const it = bot.inventory.items().find((i) => i.name === meat);
+      if (!it) continue;
+      if (!furnace.fuelItem()) {
+        const f = cookFuelItem(bot);
+        if (!f) break;   // ran out of fuel mid-batch — stop, don't stall on an empty furnace
+        await furnace.putFuel(f.type, null, Math.max(1, Math.ceil(count / 1.5)));
+      }
+      await furnace.putInput(it.type, null, count);
+      const t0 = Date.now(), budget = count * 12000 + 15000;
+      while (Date.now() - t0 < budget) {
+        chk();
+        const out = furnace.outputItem();
+        if (out && out.count >= count) break;
+        if (!furnace.fuelItem()) {
+          const f = cookFuelItem(bot);
+          if (!f) break;
+          await furnace.putFuel(f.type, null, 2);
+        }
+        await sleep(1000);
+      }
+      if (furnace.outputItem()) await furnace.takeOutput();
+      if (furnace.inputItem()) { try { await furnace.takeInput(); } catch (_) {} }   // reclaim unsmelted raw
+    }
+    if (furnace.fuelItem()) { try { await furnace.takeFuel(); } catch (_) {} }
+  } catch (e) {
+    if (e && (e.cancelled || e.fatal)) throw e;
+  } finally { try { furnace.close(); } catch (_) {} }
+  // Read the TRUE final count only now the window is closed (see the snapshot comment above).
+  let madeTotal = 0;
+  for (const meat of Object.keys(beforeCooked)) madeTotal += inv(bot, 'cooked_' + meat) - beforeCooked[meat];
+  steps.push('cook:made=' + madeTotal);
+  return madeTotal;
 }
 
 // ---- the public method ----
@@ -307,6 +396,15 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
       return { ok: made > 0, made, how: 'crafted', reason: made >= want ? undefined : (made > 0 ? 'partial' : 'craft_failed'), steps };
     }
 
+    // COOKED_MEAT: TODO 5e follow-up. Cooks whatever raw meat is ALREADY held (see cookMeat's
+    // own header) — never gathers/hunts on its own, that is FOOD's own job one layer up.
+    if (R === 'cooked_meat') {
+      const made = await cookMeat(bot, want, steps, chk);
+      return { ok: made > 0, made, how: made > 0 ? 'smelted' : null,
+        reason: made >= want ? undefined : (made > 0 ? 'partial' : (steps[steps.length - 1] || 'unproduceable').replace(/^cook:/, '')),
+        steps };
+    }
+
     // CRAFTING_TABLE (4 planks -> 1 table; 2x2, no table needed). Team-lead greenlit this as the
     // enabler for #43 item(1) (promoted to phase-1): the deep kit now carries the makings of an
     // in-place tool re-craft, and RESTOCK's floor calls produce('crafting_table',1) to self-heal it
@@ -354,7 +452,7 @@ S.produce = async function (bot, resource, wantCount, opts = {}) {
 // thing that can 'finish' with made<count, a textbook yield), and clean preemption via ctx.step.
 S.define('produce', {
   description: 'Acquire a consumable by MAKING it (mine/chop/craft) rather than withdrawing — the agenda RESTOCK produce-fallback. resource is an item name; result carries {ok, made, how, reason}.',
-  params: { resource: 'item name: torch | cobblestone | coal | stick | *_planks | crafting_table', count: 'how many (default 16)' },
+  params: { resource: 'item name: torch | cobblestone | coal | stick | *_planks | crafting_table | cooked_meat', count: 'how many (default 16)' },
   tool: null,
   validate: (a) => (a.resource && typeof a.resource === 'string') ? null : 'need resource (item name string)',
   fn: async (ctx) => {
@@ -372,15 +470,15 @@ S.define('produce', {
 
 // ---- bookkeeping (mirror the other payloads) ----
 globalThis.__producer = {
-  version: 7,
+  version: 8,
   restore() { try { delete S.produce; } catch (_) {} try { delete S.registry.produce; } catch (_) {} },
 };
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.producer = { version: 7, boundAt: Date.now(), stale: false };
+REG.producer = { version: 8, boundAt: Date.now(), stale: false };
 try { bot.once('end', () => { try { REG.producer.stale = true; } catch (_) {} }); } catch (_) {}
 
-return { installed: true, version: 7,
+return { installed: true, version: 8,
   method: '__skills.produce(bot, resource, count, opts)',
   skill: "runSkill('produce', {resource, count})  // agenda RESTOCK fallback shape",
-  resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table'],
-  reasons: ['no_pickaxe', 'no_coal_nearby', 'no_fuel', 'no_ore_nearby', 'no_wood', 'no_space', 'partial', 'unproduceable'] };
+  resources: ['torch', 'cobblestone', 'coal', 'stick', '*_planks', 'crafting_table', 'cooked_meat'],
+  reasons: ['no_pickaxe', 'no_coal_nearby', 'no_fuel', 'no_ore_nearby', 'no_wood', 'no_space', 'no_raw_meat', 'no_furnace', 'unreachable', 'open_failed', 'partial', 'unproduceable'] };

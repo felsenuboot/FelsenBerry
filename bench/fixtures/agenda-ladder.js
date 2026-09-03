@@ -285,6 +285,18 @@ try {
   A.project.restockFloor = savedFloor;
   A.owner = null;
 
+  // Cook/smelt soak-hour task (producer.js's new cookMeat/'cooked_meat', NOT wired into FOOD —
+  // see FEEDBACK.md's argument). This case is the EVIDENCE for that call, not a test of a fix:
+  // a post-hunt bot holding raw (uncooked) meat has foodCount>0 the instant the item lands in
+  // inventory (FOODS counts raw beef/porkchop/mutton/rabbit), and EAT (prio 4) outranks FOOD
+  // (prio 6.5) — choose() hands the body to EAT on the VERY NEXT tick no matter what FOOD's own
+  // act() might still want to do next (like start cooking). Proves the priority-inversion a
+  // "cook before eating" wire-up would need solving first, rather than just asserting it.
+  A.owner = A.rung('FOOD');
+  T('post-hunt: raw meat now held (foodCount>0) -> EAT already outranks FOOD, no room left to cook first',
+    { food: 12, foodCount: 1 }, 'EAT');
+  A.owner = null;
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.rung}`);
   return out;
