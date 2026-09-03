@@ -1,0 +1,147 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "fa476c0ec3a6",
+  "session_id": "84e92e28-accf-4788-8150-54b0242cfc06",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:58:48.598929015Z",
+  "branch": "main",
+  "checkpoints_count": 17,
+  "save_step_count": 9,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "5d9e3e65d246",
+  "checkpoint_transcript_start": 1802,
+  "transcript_lines_at_start": 1802,
+  "compact_transcript_start": 335,
+  "token_usage": {
+    "input_tokens": 134,
+    "cache_creation_tokens": 42087,
+    "cache_read_tokens": 27016443,
+    "output_tokens": 19778,
+    "api_call_count": 67
+  },
+  "session_metrics": {
+    "turn_count": 18
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 32,
+      "user_lines_removed": 0,
+      "agent_lines_added": 266,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 32
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 349,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 83,
+        "infra.js": 265,
+        "server.log": 1
+      },
+      "user_removed_per_file": {
+        "agenda.js": 3
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 374,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 108,
+        "infra.js": 265,
+        "server.log": 1
+      },
+      "user_removed_per_file": {
+        "agenda.js": 3
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 389,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agenda.js": 123,
+        "infra.js": 265,
+        "server.log": 1
+      },
+      "user_removed_per_file": {
+        "agenda.js": 3
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 59,
+      "user_lines_removed": 0,
+      "agent_lines_added": 389,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        "bench/fixtures/agenda-ladder.js": 59
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 40,
+      "user_lines_removed": 4,
+      "agent_lines_added": 466,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        "survival.js": 40
+      },
+      "user_removed_per_file": {
+        "survival.js": 4
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 13,
+      "user_lines_removed": 6,
+      "agent_lines_added": 510,
+      "agent_lines_removed": 7,
+      "user_added_per_file": {
+        "agenda.js": 13
+      },
+      "user_removed_per_file": {
+        "agenda.js": 6
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 4,
+      "user_lines_removed": 4,
+      "agent_lines_added": 519,
+      "agent_lines_removed": 7,
+      "user_added_per_file": {
+        "bench/fixtures/agenda-ladder.js": 4
+      },
+      "user_removed_per_file": {
+        "bench/fixtures/agenda-ladder.js": 4
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 519,
+      "agent_lines_removed": 7
+    }
+  ]
+}
