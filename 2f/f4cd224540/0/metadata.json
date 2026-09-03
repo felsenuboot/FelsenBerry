@@ -1,0 +1,77 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "2ff4cd224540",
+  "session_id": "349b205b-00b4-429b-836f-8e91ef5f2cb1",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:41:35.657531865Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "save_step_count": 4,
+  "files_touched": [
+    "FEEDBACK.md",
+    "SCOREBOARD.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "462c258c1eee",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 6742,
+    "cache_creation_tokens": 302678,
+    "cache_read_tokens": 21267081,
+    "output_tokens": 67182,
+    "api_call_count": 140
+  },
+  "session_metrics": {
+    "turn_count": 34
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T09:41:35.5620657Z",
+    "agent_lines": 56,
+    "agent_removed": 23,
+    "human_added": 43,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 99,
+    "total_lines_changed": 122,
+    "agent_percentage": 64.75409836065575,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 35,
+      "user_lines_removed": 0,
+      "agent_lines_added": 338,
+      "agent_lines_removed": 22,
+      "user_added_per_file": {
+        "foods.js": 35
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 140,
+      "user_lines_removed": 1,
+      "agent_lines_added": 338,
+      "agent_lines_removed": 22,
+      "user_added_per_file": {
+        "FEEDBACK.md": 43,
+        "agenda.js": 1,
+        "bench/fixtures/foods-huntspecies.js": 58,
+        "bench/preflight.sh": 1,
+        "foods.js": 35,
+        "skills.js": 2
+      },
+      "user_removed_per_file": {
+        "bench/preflight.sh": 1
+      }
+    }
+  ]
+}
