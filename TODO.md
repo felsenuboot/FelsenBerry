@@ -60,7 +60,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    lane; run #6 death #1 09:30:17–21Z, test-driver f50f6b7): -10 HP co-timed with "Creeper at 2.8 blocks", then three -2 bite drops with
    NO dangerscan mention of a spider. Threat tracking must hold N threats (nearest-first) and WALL_OFF must not run mid-build with an
    unseen melee attacker landing hits — re-scan on damage-without-named-source. Fixture against real mobs on 25599 (RCON summon OK there).
-5g. **Respawn camp: respawned at night with an empty inventory → walks → shot again** (eng-3, agenda/survival, from run #6:
+5g. **Respawn camp: respawned at night with an empty inventory → walks → shot again** (#116, eng-3, agenda/survival, from run #6:
    server.log deaths 09:37:16 / 09:37:52 / 09:38:19Z — three in 63s at world spawn, the last 3s after a re-arm). #103 opens an
    episode on respawn but nothing says "it is night and I have nothing: dig in FIRST". Design: on respawn at night (or hostile within
    16 blocks), SHELTER runs before any project/kit work, with dirt-dig fallback when there is no filler; also a spawn-camp counter
