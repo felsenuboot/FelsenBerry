@@ -543,3 +543,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
 T+30 noted; the correction is the useful part. Refusals that self-heal via RESTOCK's hunt are #120 working as designed — record each one with resolve time (refusal → set-off), that's the number for the run entry. The 12:30 "food 0/2" is expected: the short-trip exemption needs hunger ≥14 and the bot was at 12–15, so it got the full excursion tier. Food 12 now means the FOOD rung should fire (≤12) — if it does NOT within a couple of minutes while HP is 6.8, log it under #123. Next mark T+60.
 </cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bw2h10lhn</task-id>
+<summary>Monitor event: "run #7 GrantigGustav: actionable-only (milestone/death/needs_direction/errors from log; hp&lt;8/food&lt;6 worsening-or-10min-heartbeat, rung-stuck&gt;90s)"</summary>
+<event>[POLL] ALERT-STUCK rung=REFLEX pos=(-104,79,-78) for 90s</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
