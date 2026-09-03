@@ -6489,3 +6489,39 @@ functions
 commit: 35a6f76 (also carries engine-dev-3's 5m work, see the mistake noted above)
 github: felsenuboot/FelsenBerry#121 (TODO 5r) — landed, live-verified against the real
 specimen
+
+---
+### 2026-09-03 engine-dev — #121 (TODO 5r) follow-up: fix 2 was scaffolding-only, wired up + hermetic fixture added
+
+Second correction on the same task, found on my own re-review rather than by a teammate:
+`g.panicStreak` and `branchWalkOff` (the lead's explicit second ask, "N panic re-entries on
+the same threat id with zero damage taken must escalate") were added and committed in 35a6f76,
+but nothing inside `enter()` ever actually READ `g.panicStreak.count` or CALLED
+`branchWalkOff()` — the state and the escalation action both existed, wired to nothing. Fix 1
+(actionableThreats gating) was real and is what my live verification against GrantigGustav
+actually exercised (standdown armed in one cycle, which is why the gap in fix 2 didn't surface
+during that test at all). Reporting this plainly rather than letting "landed, live-verified"
+stand as the last word on it.
+
+Fixed in cbc04a3: `enter()` now checks the incoming streak before dispatch (never overriding
+an explicit `drill()`/`pickOverride` call) and runs `branchWalkOff()` once the same threat id
+has gone 3 consecutive cycles with zero damage taken; the streak itself advances after every
+cycle (real damage or a different threat id resets it, a stale streak past 5 minutes is treated
+as dead). Also added `bench/lib/panic-gate.mjs` + `bench/fixtures/panic-gate.mjs` (21/21 pass)
+— a hermetic port of both the actionableThreats() filter and the panicStreak update/escalate
+rule, hand-synced with survival.js's own inline implementation (survival.js is an injected
+CommonJS payload, not importable, so this is a documented manual port, not a shared import).
+Covers the lead's own named cases directly: the los:false/d=14 phantom filtered out, count
+reaching 3 escalating to walk-off, reset on real damage, reset on a new threat id, plus
+pickOverride/expiry/no-threat edges. Re-injected the fixed payload into GrantigGustav once
+more as a smoke check (no crash, bot still safe at 2.77 HP, standdown intact) before stopping
+it per the lead's instruction — it's fed and released now.
+
+fix: survival.js (enter()'s actual panicStreak check/update), bench/lib/panic-gate.mjs (new),
+bench/fixtures/panic-gate.mjs (new, 21/21)
+commit: cbc04a3
+github: felsenuboot/FelsenBerry#121 (TODO 5r) — both fixes now actually wired and hermetically
+tested; live verification of fix 1 stands from the previous entry, fix 2 verified only
+hermetically (its own trigger condition — 3+ consecutive no-damage cycles against the same
+threat id while cannotHeal() is false — didn't occur in the live specimen, which resolved via
+standdown on the first cycle)
