@@ -3,7 +3,7 @@
   "checkpoint_id": "2a6bf5a31be6",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 12,
+  "checkpoints_count": 15,
   "files_touched": [
     "bench/fixtures/wall-off-multithreat.sh",
     "survival.js"
@@ -22,13 +22,20 @@
       "compact_transcript": "/2a/6bf5a31be6/1/transcript.jsonl",
       "content_hash": "/2a/6bf5a31be6/1/content_hash.txt",
       "prompt": "/2a/6bf5a31be6/1/prompt.txt"
+    },
+    {
+      "metadata": "/2a/6bf5a31be6/2/metadata.json",
+      "transcript": "/2a/6bf5a31be6/2/full.jsonl",
+      "compact_transcript": "/2a/6bf5a31be6/2/transcript.jsonl",
+      "content_hash": "/2a/6bf5a31be6/2/content_hash.txt",
+      "prompt": "/2a/6bf5a31be6/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 8018,
-    "cache_creation_tokens": 432315,
-    "cache_read_tokens": 53028602,
-    "output_tokens": 86823,
-    "api_call_count": 236
+    "input_tokens": 8180,
+    "cache_creation_tokens": 498806,
+    "cache_read_tokens": 102113665,
+    "output_tokens": 132163,
+    "api_call_count": 317
   }
 }
