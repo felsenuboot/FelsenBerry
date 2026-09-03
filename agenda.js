@@ -128,6 +128,9 @@ const A = {
   // was learned, and which resources produce has just failed to make.
   _restockShort: null, _restockShortAt: 0, _restockShortTtl: 0, _restockNeeds: null, _produceCooldown: {},
   activeTaskRung: null, activeTaskName: null,
+  // 5c: same-remedy-repeats-across-positions escalation (TODO 5c, soak #4). remedyClass ->
+  // {n, firstAt, escalatedAt}. See the REMEDY rung + remedyFail/remedyOk below.
+  remedy: {},
   metrics: { ticks: 0, transitions: 0, acts: 0, errors: 0, byRung: {} },
   log: [],
   // Direction Episodes (research/IDLE_TRIGGER_SPEC.md, agenda v21->v22 — #68's trigger half).
@@ -606,6 +609,70 @@ const idleWorkOutcome = (skill, result, error) => {
   return did ? 'worked' : 'barren';
 };
 A._idleWorkOutcome = idleWorkOutcome;   // exposed for bench/fixtures/agenda-idlework.js
+
+// ---------------- 5c: same-remedy-repeats-across-positions escalation ----------------
+// Soak #4 (2026-09-03): a repeated remedy kept getting redispatched from a fresh position
+// every time it failed, forever. Two separate live specimens, R2-diagnosed on the persisted
+// world (bench/decider-latency-replay.js's sibling investigation, see FEEDBACK.md):
+//  (1) RESTOCK's own depot withdrawal failed 3x in a row (physics wedge x2, reached:0 a
+//      third time — "the depot is unreachable from here, not empty", restock's own words)
+//      while the ladder's GENERIC standDown() backoff (30s->60s->120s->300s CEILING, then
+//      repeats forever at the ceiling) kept retrying the identical "walk to the depot chest"
+//      remedy from wherever RESTOCK's own retry cadence happened to place the bot next — the
+//      depot itself never got any closer or more reachable.
+//  (2) A decider-dispatched chopTrees PROJECT resets `p.attempts` to 0 on every fresh
+//      dirDispatch (A.setProject always builds a brand-new project object — see its own
+//      comment), so the EXISTING 3-strikes project_blocked escalation (below, in the harvest
+//      block) never accumulates across the direction-episode boundary the decider reopens
+//      after each single failure. TOOL's ensureTool hit the identical wall trying to gather
+//      wood for a sword (`gather:wood(0/11 reached)`, repeated many times, no escalation).
+// Neither is a position-keyed repeat decider.js's frozen_repeat dedup (or a bespoke local
+// fix) could have caught: RESTOCK isn't decider-driven at all, and the PROJECT case's
+// dispatch positions genuinely differ tick to tick. The shared invariant across BOTH: the
+// SAME remedy, tried again and again, never succeeding, regardless of exactly where the bot
+// stood when it tried. So failures are tracked by REMEDY CLASS (what the bot was actually
+// trying to accomplish), not by rung id or task name — restock's depot walk, TOOL's wood
+// search and a decider-dispatched chopTrees project are three different callers, but at most
+// two remedy classes below, and each of the three counts against its class's shared total,
+// not its own (team-lead's note: "else the three callers each get their own N").
+const REMEDY_ESCALATE_N = 2;        // 2nd same-class failure -> tier 1; 3rd+ -> tier 2
+const REMEDY_FAIL_WINDOW_MS = 20 * 60000;   // stale failures don't stack against an unrelated later problem
+const REMEDY_HOP_BIG = 64;          // relocateToWork's own cap — bigger than its 40-block default
+const REMEDY_FIND_RADIUS = 128;     // tier 2's wide findBlocks scan for a REAL, currently-visible target
+// depot_reach has no "block to walk toward" (the depot IS the target and RESTOCK is already
+// aimed at it) — only classes with an actual searchable block get a tier-2 directed move;
+// everything else's tier 2 is tier 1 again, just re-tried (still counts, still logged).
+const REMEDY_TARGET_BLOCKS = {
+  wood_gather: ['oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'cherry_log', 'pale_oak_log', 'mangrove_log'],
+};
+const REMEDY_RELOCATE_SKILL = { wood_gather: 'chopTrees', ore_gather: 'mineLane' };   // relocateToWork's own 'skill' param picks wood/dig/ground terrain
+// Static, not content-sniffed: chopTrees/harvestGrass ARE the wood remedy by definition.
+// ensureTool/restock report their OWN class from what they were actually trying to do (see
+// the three call sites below) since one task name covers many different underlying needs.
+const REMEDY_CLASS_OF_SKILL = { chopTrees: 'wood_gather', harvestGrass: 'wood_gather', mineLane: 'ore_gather' };
+const remedyEmit = (fields) => {
+  try { console.log(new Date().toISOString() + ' AGENDA_EVENT ' + JSON.stringify(Object.assign({ ev: 'remedy' }, fields))); } catch (e) {}
+  try { const m = M(); if (m && m.emit) m.emit('remedy_escalate', fields); } catch (e) {}
+};
+const remedyFail = (cls, s) => {
+  if (!cls) return;
+  const r = A.remedy[cls] || { n: 0, firstAt: s.now, escalatedAt: 0 };
+  if (s.now - r.firstAt > REMEDY_FAIL_WINDOW_MS) { r.n = 0; r.firstAt = s.now; r.escalatedAt = 0; }
+  r.n += 1;
+  A.remedy[cls] = r;
+  if (r.n >= REMEDY_ESCALATE_N) remedyEmit({ op: 'fail', cls, n: r.n, pos: (s.pos && [Math.round(s.pos.x), Math.round(s.pos.y), Math.round(s.pos.z)]) || null });
+};
+const remedyOk = (cls) => { if (cls) delete A.remedy[cls]; };
+// The one class currently escalatable, deterministic by insertion order (Object.keys order
+// for string keys is insertion order in JS — no separate priority list needed here; there
+// are at most two classes today and neither out-ranks the other).
+const pendingRemedyClass = () => {
+  for (const [cls, r] of Object.entries(A.remedy)) {
+    if (r.n >= REMEDY_ESCALATE_N && r.escalatedAt !== r.n) return cls;
+  }
+  return null;
+};
+
 const RELOCATE_BACKOFF_MS = 5 * 60000;
 const RELOCATE_WANDER_CAP = 5;          // hops without finding work before we settle and sweep
 // Grade the IDLE work run we last started, exactly once, the tick it is found finished.
@@ -840,6 +907,50 @@ const RUNGS = [
     fire: (s) => s.food <= 17 && s.foodCount > 0,
     clear: (s) => s.food >= 19,
     act: async () => { await eatInline(); return 'ate'; } },
+
+  // 5c: same-remedy-repeats-across-positions escalation. Prio 4.8 — above TOOL/RESTOCK/
+  // PROJECT (the three callers that can accumulate a remedy-class failure, see the helpers
+  // above) so it can actually preempt whichever of them is stuck, below EAT/SHELTER/DEPOSIT
+  // (a starving or unsafe bot's own needs still come first). Fires AT MOST ONCE per distinct
+  // failure count (escalatedAt guards it — see pendingRemedyClass), so it makes exactly one
+  // move then hands the body straight back to the rung that was actually stuck, from
+  // wherever that move landed. If the underlying remedy still fails, that rung's own harvest
+  // branch bumps the SAME class's counter again, and this rung fires again at the next tier
+  // — no bespoke retry/backoff of its own; a REMEDY move that itself accomplishes nothing
+  // (relocateToWork finds no reachable spot, or 'come' can't get in range) is caught by the
+  // file's own GENERIC "completed but did not achieve" unproductive detector exactly like
+  // any other rung, standing REMEDY itself down rather than looping forever.
+  { id: 'REMEDY', prio: 4.8,
+    fire: (s) => pendingRemedyClass() !== null,
+    clear: (s) => pendingRemedyClass() === null,
+    act: async (s) => {
+      if (oursRunning(s)) return 'running';
+      const cls = pendingRemedyClass();
+      if (!cls) return 'none';
+      const r = A.remedy[cls];
+      r.escalatedAt = r.n;   // mark THIS failure count escalated before dispatch, so a refusal can't re-fire-storm
+      const tier = r.n >= REMEDY_ESCALATE_N + 1 ? 2 : 1;
+      remedyEmit({ op: 'escalate', cls, n: r.n, tier, pos: (s.pos && [Math.round(s.pos.x), Math.round(s.pos.y), Math.round(s.pos.z)]) || null });
+      note(`REMEDY: ${cls} failed ${r.n}x — tier ${tier} escalation`);
+      if (tier >= 2 && REMEDY_TARGET_BLOCKS[cls]) {
+        // A human who can SEE the trees on the far hill walks toward them — not another blind
+        // relocate heading. bot.findBlock over a WIDE radius for a real, currently-visible
+        // target of the right kind; only if one actually exists does this branch fire.
+        try {
+          const ids = REMEDY_TARGET_BLOCKS[cls].map((n) => bot.registry.blocksByName[n] && bot.registry.blocksByName[n].id).filter((x) => x != null);
+          const found = ids.length ? bot.findBlock({ matching: ids, maxDistance: REMEDY_FIND_RADIUS }) : null;
+          if (found) {
+            const p = found.position;
+            const rr = runSkill('come', { x: p.x, y: p.y, z: p.z, range: 3 }, 'REMEDY');
+            if (rr.ok) return 'started';
+            if (rr._transient) return 'busy';
+            // refused — fall through to the tier-1 relocate below rather than giving up outright
+          }
+        } catch (e) {}
+      }
+      const rr2 = runSkill('relocateToWork', { skill: REMEDY_RELOCATE_SKILL[cls] || null, hops: REMEDY_HOP_BIG }, 'REMEDY');
+      return rr2.ok ? 'started' : (rr2._transient ? 'busy' : 'refused');
+    } },
 
   { id: 'TOOL', prio: 5,
     // "a broken tool outranks the job", made mechanical
@@ -1295,6 +1406,7 @@ const tick = () => {
       const finished = claimed && !refuted && (!res || !p.totalWanted || (p.progress || 0) >= p.totalWanted);
       if (finished) {
         p.completedOnce = true; p.attempts = 0;
+        remedyOk(REMEDY_CLASS_OF_SKILL[p.skill]);   // 5c: a real verified completion clears the class's fail count
         note(`project VERIFIED done (${p.skill}${verdict ? ', ' + verdict.rule : ''})`);
         markProductive(s, 'project_done');
         // #68 (g): zero-gap promotion. Runs HERE — inside the harvest block, before choose(s)
@@ -1335,6 +1447,12 @@ const tick = () => {
         const repairable = p.lastError === 'kit_missing' || p.lastError === 'no_tool';
         if (!repairable && p.attempts >= 5) { p.blocked = p.lastError; note(`project blocked after 5 unverified runs: ${p.lastError}`); }
         else if (repairable) { p.attempts = 0; }
+        // 5c: kit_missing/no_tool are TOOL/RESTOCK's own repair job, not a failure of THIS
+        // remedy — only a genuine attempt-and-fail (stuck, no_path, not_found, timed out
+        // unverified, ...) counts against the class's shared total, surviving the very
+        // p.attempts reset that setProject's fresh-project-per-dispatch makes worthless as an
+        // escalation signal on its own (see this rung's own header comment).
+        if (!repairable) remedyFail(REMEDY_CLASS_OF_SKILL[p.skill], s);
       }
       // #68 (f): repeat-project yield grading — resolves the OhneHoseOtto class (a repeat
       // harvestGrass finding nothing forever still "completes" every pass, so `finished`
@@ -1344,8 +1462,8 @@ const tick = () => {
       // own role-work uses, not on whether it claimed completion.
       if (p.repeat) {
         const out = idleWorkOutcome(p.skill, raw && raw.result, s.task.error);
-        if (out === 'worked') { p.barrenRuns = 0; markProductive(s, 'repeat_project'); }
-        else if (out === 'barren') p.barrenRuns = (p.barrenRuns || 0) + 1;
+        if (out === 'worked') { p.barrenRuns = 0; markProductive(s, 'repeat_project'); remedyOk(REMEDY_CLASS_OF_SKILL[p.skill]); }
+        else if (out === 'barren') { p.barrenRuns = (p.barrenRuns || 0) + 1; remedyFail(REMEDY_CLASS_OF_SKILL[p.skill], s); }
         // 'other' (kit_missing, no_tool, busy) untouched — the maintenance rungs own it,
         // same doctrine as gradeIdleWork's own barren counter.
       }
@@ -1359,6 +1477,10 @@ const tick = () => {
         // route does not improve because someone restocked the depot. Believe it far longer.
         const reached = raw.result && typeof raw.result.reached === 'number' ? raw.result.reached : 0;
         A._restockShortTtl = reached > 0 ? DEPOT_SHORT_TTL_MS : DEPOT_UNREACHABLE_TTL_MS;
+        // 5c: "reached NO chest of N" is the depot_reach remedy failing — a route problem,
+        // not a stock problem (restock's own comment above this line makes exactly that
+        // distinction). Any real reach, even a still-short one, is the depot walk WORKING.
+        if (reached === 0) remedyFail('depot_reach', s); else remedyOk('depot_reach');
         if (short && Object.keys(short).length) { A._restockShort = short; A._restockShortAt = s.now; }
         else if (raw.error) {
           // A restock that ERRORED withdrew nothing, and it carries no result to read. Judging
@@ -1391,7 +1513,17 @@ const tick = () => {
       // ensureTool with no error means the maintenance chain actually fixed something, which
       // is exactly the kind of progress that should reset the stall clock even though it
       // never touches p.progress (TOOL isn't the project).
-      if (raw && raw.name === 'ensureTool' && !raw.error) markProductive(s, 'ensure_tool');
+      if (raw && raw.name === 'ensureTool') {
+        if (!raw.error) { markProductive(s, 'ensure_tool'); remedyOk('wood_gather'); }
+        // 5c: ensureTool's own acquisition_failed message embeds its internal step log
+        // (skills.js: `could not acquire ${tool}: ${steps.join(' | ')}`) — 'gather:wood(0/N
+        // reached)' is the SAME underlying "no wood in range" failure chopTrees hits directly,
+        // just reached through the tool-acquisition chain instead. Only a GENUINE zero-reached
+        // wood search counts; a short-but-nonzero gather, or a failure with no wood step at
+        // all (e.g. an ore tool, or planks/sticks short with wood already in hand), is not
+        // this remedy failing.
+        else if (/gather:wood\(0\//.test(raw.error.message || '')) remedyFail('wood_gather', s);
+      }
       // food-acquisition drive: track hunt outcome for FOOD's own widening-radius/fallback
       // logic (A._foodHuntFails). A real kill is real progress — same doctrine as produce's
       // partial-batch case above, judged by outcome, not by "did the task complete".

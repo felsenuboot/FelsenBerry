@@ -4645,3 +4645,219 @@ started ticking while `come` was still inert under the inherited `PROJECT` stand
 measures the standdown carryover, not decision time. Flagging in case anyone reads soak #5 or a future race's
 latency numbers and wonders why one episode spikes for no LLM-side reason — check for a rung standdown inherited
 from the prior project before assuming a fresh regression.
+### 2026-09-03 engine-dev — soak #4 grade audit: byte-equivalent, plus criterion-4 vacuous-verdict threshold + window-truncation annotation (bench/trail.mjs, bench/humanbar4.mjs)
+type: audit + fix + fixture
+status: built, verified (bench/fixtures/trail-vacuous.mjs 13/13, hermetic — no live bot), live-verified against Trail4Insp2 (3171, team-lead's soak4 inspector, read-only, stopped after)
+what: three sub-items from the lead's post-host-reboot respawn brief, task 1.
+
+**(1) Audit — byte-equivalent.** Re-ran the exact staged command (`node bench/humanbar4.mjs
+--bot MampfManfred --since 2026-09-03T07:49:42.327Z --until 2026-09-03T08:49:42.327Z
+--inspector-port 3171 --exclude-zones "-3,5,30" --label soak4-audit`) against the fresh
+inspector. `diff` of every gate file (humanbar4/humanbar/trail/direction, all four numeric
+fields, `del(.label,.at,.since,.until,.artifacts)`) against the lead's original soak4 gate
+files: zero differences. The post-hoc grade is confirmed correct, not just plausible.
+
+**(2) Criterion 4 — "1 site is a vacuous PASS, not a confirmed-clean trail."** Argued and
+implemented, not unilaterally redefined: trail.mjs's own findings thresholds already encode a
+"how many is a pattern, not an anecdote" line for DIRTY samples (>=3 floating-log SITES fails
+outright; a single one only warns — the file's own stated doctrine is "a bounded sample can't
+claim it's a pattern" at n=1). `MIN_SITES_FOR_VERDICT = 3` reuses that exact n=3 line with the
+sign flipped: a CLEAN read below it cannot claim more confidence than a dirty read gets at the
+same sample size. This does NOT change `verdict` — a real WARN/FAIL finding on a thin sample is
+still a real finding — it only qualifies a PASS with a new `vacuous`/`vacuousReasons` pair on
+the trail gate file (and a distinct callout when one whole category — chop or dig — saw zero
+clusters, since a verdict built from only the other category says nothing about the empty one).
+Re-run against soak #4's real data: `trail soak4: PASS (VACUOUS — not a confirmed-clean trail)`
+— "only 1 site(s) checked ... below the 3-site floor"; "0 chop clusters seen — this verdict
+says nothing about chop cleanliness specifically." humanbar4.mjs's own pre-existing (but
+narrower, `sitesChecked===0`-only) vacuous flag now reads `trail.vacuous` from the gate file
+instead of recomputing a stricter special case — same field, generalized threshold, single
+source of truth. Required splitting trail.mjs's pure verdict math (`computeVerdict()`,
+exported) from its CLI/network path (`main()`, gated behind `import.meta.url` isMain, same
+idiom used to make decider.js's handleBot() replay-testable per eng-3's 4b entry above) so it
+is importable hermetically — `bench/fixtures/trail-vacuous.mjs` (pure node, no live bot/RCON,
+same doctrine as telemetry-sinks.js) covers: soak-4's own shape (1 site, 0 chop clusters ->
+PASS+vacuous, 2 reasons), the floor itself (3 sites, both categories -> not vacuous), a thin
+sample that still finds a real scar (vacuous flag never upgrades/downgrades a WARN), a healthy
+5-site FAIL (not vacuous), and 0/0 sites (only the sample-size reason fires, no spurious
+category callout). 13/13. Byte-diff re-confirmed after the change: every pre-existing numeric
+field is unchanged, only the new opt-in fields appear.
+
+**(3) Criterion 3 — hp10/food0 vitals floor: PROPOSED to the lead, not built.** Sent as a
+proposal via SendMessage per the lead's own instruction ("propose, don't unilaterally change
+GOAL.md") — see the proposal text there. Summary: GOAL.md's "survives real night threats
+without driver help" currently has no vitals floor, so a bot pinned at hp10/food0 for the whole
+window (soak #4's actual state at the last logged reading) passes criterion 3 exactly as
+cleanly as a bot that was never threatened at all — "zero deaths, zero human help" is real but
+narrow, exactly the caveat humanbar4.mjs's own console/JSON output already prints (unchanged
+this pass, per the lead's earlier explicit instruction not to flip the c3 boolean without
+sign-off). Proposed floor: "never below hp 6 OR food 0 for >10 continuous minutes" — argued,
+not yet adopted; see the SendMessage to team-lead for the full reasoning (independent of #108's
+FOOD rung landing, which is a behaviour fix; this is a GRADING-criterion question).
+
+**(4) Window truncation — implemented (opt-in `--ledger-end`).** Soak #4's window was
+pre-registered 07:49:42.327Z -> 08:49:42.327Z; the host rebooted at 08:46:12Z (SCOREBOARD "SOAK
+#4"), so the grade's own `--until` bound was never actually reached by the data, and nothing on
+any of the four gate files said so. Added `--ledger-end <ISO>` to humanbar4.mjs: when given and
+earlier than `--until`, the gate file gets a `windowTruncated: {declaredUntil, ledgerEnd,
+truncatedByMs, note}` block and the console prints it first, before the four criteria. Made
+this OPT-IN rather than auto-detected off the ledger's own last record on purpose: a bot going
+quiet for a few minutes mid-soak is normal (metrics.mjs's own decisions.jsonl window guard
+makes exactly this point for the LLM/hr cap) and would false-trigger a heuristic built on
+"gap since the last record"; the true external cutoff (a reboot timestamp, a crash log) is
+something the grader KNOWS and states, the same way `--since`/`--until` themselves are
+pre-registered rather than inferred from the data. Omitting the flag leaves every gate file
+byte-identical to before (confirmed: re-diffed the non-truncated re-run against the original
+soak4 gate files again after this change, zero new keys). Demonstrated against soak #4's real
+timestamps (`--ledger-end 2026-09-03T08:46:12.000Z`): `WINDOW TRUNCATED: window truncated at
+2026-09-03T08:46:12.000Z — the pre-registered --until (...08:49:42.327Z) was never reached;
+this grade covers the actual ~56 minutes observed, not the full pre-registered window` —
+artifacts at bench/gates/*-soak4-audit-truncated.json (not the canonical soak4 record; a demo).
+Scope note, argued rather than silently skipped: did not thread `--ledger-end` through
+trail.mjs or metrics.mjs's --direction-gate itself — trail.mjs's own signal is live-world
+truth, not time-series, so truncation doesn't corrupt it the way it could corrupt an
+"unclosed episode" read near the cutoff; metrics.mjs's direction-gate has no `--until` concept
+of its own today (it grades whatever's already in the ledger it's given, which is why
+humanbar.mjs pre-filters into a scratch dir instead). If a future truncated soak has unclosed
+episodes near the cutoff worth annotating specifically, that is a real follow-up, not built here.
+fix: `bench/trail.mjs` (MIN_SITES_FOR_VERDICT=3, `computeVerdict()` exported + vacuous/
+vacuousReasons, CLI moved into `main()` behind an isMain guard). `bench/humanbar4.mjs`
+(`--ledger-end`, `windowTruncated` block, criterion-4 vacuous plumbing reads trail's own field).
+`bench/fixtures/trail-vacuous.mjs` (new, 13/13, hermetic).
+github: n/a (instrument-only; no tracker item filed — flag if the lead wants one for the
+vacuous-threshold doctrine specifically)
+### 2026-09-03 engine-dev — GOAL.md criterion 3 vitals floor built into humanbar4.mjs (hard fail, not a caveat), HP-anchor note, soak #4 re-graded for the record
+type: fix + fixture
+status: built, verified (bench/fixtures/vitals-floor.mjs 16/16, hermetic), re-run against soak
+#4's real ledger with `--label soak4-c3floor` (does NOT overwrite the canonical soak4 gate
+files — confirmed via `git status`, zero diff on humanbar4/humanbar/trail/direction-soak4.json)
+
+what: per the lead's adoption of the task-1 proposal (GOAL.md commit f4138d6: criterion 3 now
+reads "...without driver help, and without sustained critical vitals — never hp <=6 or food 0
+for more than 10 continuous minutes"), this DOES flip humanbar4.mjs's c3 boolean — unlike
+criterion 4's vacuous flag (which only annotates a PASS, per the lead's own earlier
+instruction), the GOAL TEXT itself changed, so grading it correctly now means reading the new
+text, not preserving old behaviour under new cover.
+
+New shared module `bench/lib/vitals-floor.mjs`: `detectSustainedCriticalVitals(vitalsSeries)`
+walks the bot's own {t,hp,food} ledger samples (already read by humanbar4.mjs for the
+pre-existing single-reading CAVEAT) and finds every maximal run of CONSECUTIVE samples where
+hp<=6 OR food===0, reporting the longest run's start/end/duration. Sustained = strictly more
+than 10 minutes (matches GOAL.md's "more than 10", not "at least 10" — verified at the exact
+boundary in the fixture: 10:00 flat does not fail, 10:30 does). Duration is measured strictly
+between a streak's first and last SAMPLE — never extrapolated past the data even when the
+streak is still open at the window's own end (same doctrine as this file's pre-existing
+single-reading caveat and trail.mjs's vacuous flag: never claim more than the data shows).
+Streaks split by ledger cadence do NOT sum across a real recovery — two 6-minute dips separated
+by a healthy reading is NOT sustained even though 6+6>10, because GOAL.md says "continuous" —
+covered explicitly in the fixture (case 4) since it's exactly the kind of thing a naive
+"total time spent critical" implementation would get wrong.
+
+**HP-anchor note, as asked**: survival.js does NOT have one "critical HP" number to align
+hp<=6 against — it has TWO, for two unrelated subsystems: `CRIT = 4` (survival.js:717, the
+BREAK_LOS search-deadline shortcut) and `hpPanic: 8` (survival.js:172, the dangerscan-absent
+reflex backstop's default trigger). GOAL.md's hp<=6 sits between them and matches neither — it
+traces back to humanbar4.mjs's own PRE-EXISTING CAVEAT threshold (line 159 before this change:
+`lastVitals.food <= 6 || lastVitals.hp <= 6`), which was itself never derived from survival.js
+in the first place. Not resolved here, flagged as asked: a GRADING criterion ("should this run
+count as safe, after the fact") and an in-engine REFLEX trigger ("should the bot itself react
+right now") answer different questions, so exact numeric alignment between them isn't obviously
+the correct fix even now that it's visible — the lead's call whether hp<=6 should move to
+either 4 or 8, or stay independent.
+
+**Soak #4 re-graded for the record** (`--label soak4-c3floor`, per the lead's instruction —
+canonical soak4.json files untouched, soak #4's pre-registered grade stands as graded):
+criterion 3 now reads **FAIL** — `hp<=6 or food=0 held continuously for 32.5 min
+(2026-09-03T08:13:32.519Z -> 2026-09-03T08:46:01.118Z)`, i.e. from the ledger's own first
+food=0 sample straight through to the LAST logged reading in the window (08:46:01Z, the same
+reading soak #4's original CAVEAT already cited — the bot never recovered before the reboot
+cut the run off). **Correction to the lead's own ballpark**: the dispatch instruction estimated
+"~26 min"; the measured figure is 32.5 min (computed strictly between the first and last
+food=0 sample, no extrapolation to either the pre-registered --until 08:49:42Z or the actual
+08:46:12Z reboot instant — both would push it even higher, to ~36 min and ~32.6 min
+respectively). Under this new criterion, soak #4's retroactive verdict would be 2/4 (playcheck
++ trail only), not 3/4 — recorded here as "what the bar would have said," not applied to the
+frozen soak-4 grade.
+fix: `bench/lib/vitals-floor.mjs` (new — CRITICAL_HP=6, CRITICAL_SUSTAIN_MS=10min,
+`detectSustainedCriticalVitals`). `bench/humanbar4.mjs` (c3 now `&& !vitalsFloor.sustained`;
+console + gate-file detail: `criteria.survivesUnaided.vitalsFloor`).
+`bench/fixtures/vitals-floor.mjs` (new, 16/16, hermetic).
+github: n/a (instrument-only, GOAL.md's own criterion change already tracked via its commit)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5c: same-remedy-repeats-across-positions escalation
+(agenda v31) + R2 diagnosis of MampfManfred's soak-4 freeze sites
+type: fix + fixture + diagnosis
+status: built, live-verified (real tick loop, not just dry-run — see below), `bench/fixtures/
+agenda-ladder.js` 46/46 (up from 38/38, 8 new cases), `bench/preflight.sh` 224/224 on a fresh
+throwaway bot (SchlappSchlonz, DECIDER_EXCLUDE=1, stopped after).
+
+**R2 diagnosis (reported to team lead before building, confirmed the design unchanged)**:
+spawned a throwaway bot (KnautschKuno, DECIDER_EXCLUDE=1) on the persisted 25599 world and
+RCON-teleported to MampfManfred's exact ledger wedge coordinates. The soak-4 brief's framing
+("every wood-gather attempt froze") was half right — the ledger has TWO distinct clusters, not
+one:
+- (-21,108,-3) and (-18,109,3): three `restock` task_end events, outcome `wedge` (2-4 unsticks
+  each), phase `restocking`, `reached:0` — RESTOCK physically stuck trying to WALK TO THE
+  DEPOT CHEST (crow-flight 17-70 blocks), never a wood search at all. restock's own skill
+  (skills.js) only withdraws from configured depot chests or crafts from held materials; it
+  never wanders the wild.
+- (-46,114,*): repeated `ensureTool` failures (sword acquisition), all clean
+  `acquisition_failed` (0 wedges) — `gather:wood(0/11 reached)`, a genuine "this neighbourhood
+  has no wood in range" search failure, separate from the physics wedge above.
+Live reproduction (chopTrees(force:true) x3 from the exact wedge coords): 2/3 wandered
+25-40 blocks and failed clean (`tool_missing`); one landed almost exactly on the second real
+site (-45,114,7). Terrain check: only ONE real tree within 32 blocks of (-21,108,-3) (an
+acacia at -36,116,-3, ~9-12 blocks of climb) — the area is genuinely picked clean after an
+hour of chopping. Read: this is a probabilistic pathfinder stall during a long blind search
+over sparse/uneven terrain, not a single fixable block-class bug (the AABB around the wedge
+site held nothing but short_grass, which _unstick already digs fine) — confirming the
+escalation design as the right lever rather than a targeted terrain fix.
+
+**Root mechanism (why nothing already escalated)**: `A.setProject` (agenda.js) builds a BRAND
+NEW project object with `attempts:0` on every call — so a decider-dispatched chopTrees project
+resets its own 3-strikes `project_blocked` counter on every fresh `dirDispatch`, and since the
+decider reopens a fresh direction episode after each single failure, that counter never
+accumulates across episodes. RESTOCK isn't decider-driven at all — its own retries ride the
+ladder's generic `standDown()` backoff, which grows to a 300s CEILING and then repeats the
+IDENTICAL "walk to the depot" remedy forever with no escalation. Neither the project's own
+3-strikes counter nor decider.js's `frozen_repeat` position dedup (scoped to decider-answered
+direction episodes only) could ever have caught either shape.
+
+**Fix**: a remedy-CLASS failure counter (`A.remedy`, survives across `setProject`/episode
+resets, keyed on what the bot was actually trying to accomplish — not on rung id or task name,
+per team lead's note: restock's depot walk, TOOL's ensureTool wood search and a decider-
+dispatched chopTrees project are three different callers but at most two remedy classes,
+`wood_gather` and `depot_reach`, and each counts against its class's shared total). A new
+`REMEDY` rung (prio 4.8, between EAT and TOOL/RESTOCK/PROJECT — high enough to actually preempt
+whichever of them is stuck, below every real emergency) fires at most once per DISTINCT failure
+count (`escalatedAt` guard) so it makes exactly one corrective move then hands the body straight
+back to the rung that was actually stuck, letting that rung's own harvest branch re-grade from
+the new position — no bespoke backoff of its own; a REMEDY move that itself accomplishes
+nothing is caught by the file's own existing GENERIC "completed but did not achieve" detector,
+same as any other rung. Tier scales with N (team lead's note): the 2nd same-class failure gets
+`relocateToWork`'s own bigger-hop search (64 vs its 40 default — "walk further, the ground here
+is picked clean," which is literally relocateToWork's job, just given a longer leash); the 3rd+
+gets a DIRECTED move — a wide (128-block) `bot.findBlock` scan for a real, currently-visible
+resource, then `come` straight to it — "a human who can see the trees on the far hill walks
+toward them, they don't guess a new random heading." depot_reach has no searchable block (the
+depot itself is the fixed target restock is already aimed at), so its tier 2 falls back to
+tier 1's bigger relocate again — still counted, still logged, no dead branch.
+Live-verified against the REAL tick loop, not just the dry-run fixture: injected
+`A.remedy.wood_gather.n=2` on a live bot — REMEDY took ownership, dispatched
+`relocateToWork({skill:'chopTrees',hops:64})`, got `boxed_in` (a small test area), correctly
+released the body (no re-fire, no loop) rather than retrying forever. Bumped to n=3 —
+dispatched `come` straight to a real found log block, confirmed via `escalatedAt` tracking
+n=3 afterward.
+Ledger event `remedy_escalate` (op:'fail'|'escalate', cls, n, tier, pos) recorded via the same
+two-surface `M.emit` discipline `dirEmit` already uses, for soak #5's grader to count
+(grading logic itself is engine-dev's metrics.mjs lane, not built here — the raw signal is
+now in metrics-*.jsonl for whoever writes it).
+fix: `agenda.js` (`A.remedy`, `REMEDY_ESCALATE_N`/`REMEDY_HOP_BIG`/`REMEDY_FIND_RADIUS`/
+`REMEDY_TARGET_BLOCKS`/`REMEDY_CLASS_OF_SKILL` constants, `remedyFail`/`remedyOk`/
+`pendingRemedyClass`/`remedyEmit` helpers, new `REMEDY` rung prio 4.8, three call-site hooks
+— PROJECT's harvest branch (one-shot + repeat grading), ensureTool's and restock's own
+outcome blocks — v31). `bench/fixtures/agenda-ladder.js` (8 new cases: threshold, precedence
+against EAT_CRITICAL/SHELTER, the escalatedAt no-re-fire-storm guard, and a non-wood
+`depot_reach` class proving the mechanism is remedy-class-generic).
+github: felsenuboot/FelsenBerry (TODO 5c)

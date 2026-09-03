@@ -14,6 +14,7 @@
 const A = globalThis.__agenda;
 const savedProject = A.project, savedOwner = A.owner, savedBlocked = A.blocked;
 const savedSD = A.standDown, savedShort = A._restockShort, savedAt = A._restockShortAt;
+const savedRemedy = A.remedy;
 const out = { version: A.version, cases: [] };
 
 // a "healthy at work" baseline; each case overrides only what it is testing
@@ -147,10 +148,38 @@ try {
   T('blocked no_tool -> PROJECT does not fire', {}, 'IDLE');
   A.blocked = null;
 
+  // 5c: same-remedy-repeats-across-positions escalation (TODO 5c, soak #4). REMEDY (prio
+  // 4.8) reads A.remedy directly, not the injected snapshot -- same split as SHELTER's
+  // latching cases above (a rung whose trigger is module state, not a sense() field).
+  A.remedy = {};
+  T('no remedy failures on record -> PROJECT, untouched', {}, 'PROJECT');
+  A.remedy = { wood_gather: { n: 1, firstAt: Date.now(), escalatedAt: 0 } };
+  T('a SINGLE wood_gather failure -> below threshold, PROJECT still runs', {}, 'PROJECT');
+  A.remedy = { wood_gather: { n: 2, firstAt: Date.now(), escalatedAt: 0 } };
+  T('2nd same-class failure -> REMEDY preempts TOOL/RESTOCK/PROJECT (tier 1: bigger relocate)', { torches: 4 }, 'REMEDY');
+  T('a starving bot still outranks REMEDY -> EAT_CRITICAL wins', { food: 5 }, 'EAT_CRITICAL');
+  T('SHELTER still outranks REMEDY -> SHELTER wins', { shelterShould: true }, 'SHELTER');
+  // escalatedAt guard: once THIS failure count has been escalated (act() stamps escalatedAt
+  // = n before dispatching, see the rung's own comment), REMEDY must not re-fire for the
+  // SAME n every tick -- it hands the body back to the rung that was actually stuck so that
+  // rung gets its retry from the new position. Only a FRESH failure (n increases again)
+  // re-arms it.
+  A.remedy = { wood_gather: { n: 2, firstAt: Date.now(), escalatedAt: 2 } };
+  T('same failure count already escalated -> does not re-fire, PROJECT resumes', {}, 'PROJECT');
+  A.remedy = { wood_gather: { n: 3, firstAt: Date.now(), escalatedAt: 2 } };
+  T('a FRESH failure (n advanced past the already-escalated count) -> REMEDY fires again', {}, 'REMEDY');
+  // depot_reach: RESTOCK's own remedy class, unified with TOOL/PROJECT's wood_gather under
+  // the SAME rung/threshold -- proves the escalation mechanism is remedy-class-generic, not
+  // wood-specific plumbing with depot_reach bolted on separately.
+  A.remedy = { depot_reach: { n: 2, firstAt: Date.now(), escalatedAt: 0 } };
+  T('2nd depot_reach failure -> REMEDY fires for a non-wood class too', {}, 'REMEDY');
+  A.remedy = {};
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.rung}`);
   return out;
 } finally {
   A.project = savedProject; A.owner = savedOwner; A.blocked = savedBlocked;
   A.standDown = savedSD; A._restockShort = savedShort; A._restockShortAt = savedAt;
+  A.remedy = savedRemedy;
 }
