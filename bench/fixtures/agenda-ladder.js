@@ -17,6 +17,7 @@ const savedSD = A.standDown, savedShort = A._restockShort, savedAt = A._restockS
 const savedRemedy = A.remedy;
 const savedSDCount = A.standDownCount, savedUnproductive = A.unproductive;
 const savedLastProductiveAt = A.direction.lastProductiveAt;
+const savedReflexClearSince = A.reflexClearSince;   // TODO 5q — real A state, not part of `over`
 const savedSpawnCamp = bot._spawnCamp;   // TODO 5g: lives on `bot`, not `A` — see agenda.js's own comment
 const out = { version: A.version, cases: [] };
 
@@ -82,6 +83,34 @@ try {
   A.owner = null;
   T('freeSlots 1 -> DEPOSIT', { freeSlots: 1 }, 'DEPOSIT');
   T('food 15 -> EAT', { food: 15 }, 'EAT');
+
+  // ---- TODO 5q (#125): EAT_REFLEX_DWELL_MS — EAT/REFLEX ownership thrash ----
+  // A.reflexClearSince is real A state (tick()-side, not part of `over`/`base`) — set it
+  // directly as a precondition, same doctrine as A.owner/A.calmSince elsewhere in this file.
+  // `now` is injected explicitly so the dwell math is deterministic rather than racing the
+  // wall clock.
+  A.reflexClearSince = 0;
+  T('reflexClearSince 0 (never in REFLEX) -> EAT completely unaffected, same as the baseline above',
+    { food: 15 }, 'EAT');
+  A.reflexClearSince = 1000000;
+  T('500ms after REFLEX cleared (well inside the 4000ms dwell) -> EAT gated, falls through to PROJECT',
+    { food: 15, now: 1000500 }, 'PROJECT');
+  T('exactly at the dwell boundary (now - reflexClearSince === EAT_REFLEX_DWELL_MS) -> fires (>=, inclusive)',
+    { food: 15, now: 1004000 }, 'EAT');
+  T('one ms short of the boundary -> still gated', { food: 15, now: 1003999 }, 'PROJECT');
+  T('well past the dwell (10s later) -> EAT fires normally again', { food: 15, now: 1010000 }, 'EAT');
+  // the gate is scoped to EAT (prio 4) only — EAT_CRITICAL (prio 2, the true emergency) must
+  // never be delayed by it, per #117's "no engine-internal escape" doctrine for a starving bot.
+  T('same dwell window, but food 5 (EAT_CRITICAL territory) -> fires immediately, gate does not apply',
+    { food: 5, now: 1000500 }, 'EAT_CRITICAL');
+  // owner-latch interaction: EAT already holding ownership from BEFORE reflexClearSince was
+  // stamped must not be yanked away mid-latch by a gate that only governs fire(), not clear() —
+  // choose()'s latch only re-checks safeClear(owner,s), never re-runs owner's own fire().
+  A.owner = A.rung('EAT');
+  T('owner already EAT when the dwell becomes active -> stays latched (fire() gate never re-checked on an existing owner)',
+    { food: 15, foodCount: 3, now: 1000500 }, 'EAT');
+  A.reflexClearSince = savedReflexClearSince;
+  A.owner = null;
   T('pickaxe at 10% durability -> TOOL', { tools: { pickaxe: { name: 'iron_pickaxe', dur: 10 } } }, 'TOOL');
   T('only ONE pickaxe but kit wants 2 -> TOOL (spare)', { toolCounts: { pickaxe: 1, sword: 1 } }, 'TOOL');
   // ...and the same must hold when NOTHING resolves the project to a tool class. This case is
@@ -378,5 +407,6 @@ try {
   A.remedy = savedRemedy;
   A.standDownCount = savedSDCount; A.unproductive = savedUnproductive;
   A.direction.lastProductiveAt = savedLastProductiveAt;
+  A.reflexClearSince = savedReflexClearSince;
   bot._spawnCamp = savedSpawnCamp;
 }

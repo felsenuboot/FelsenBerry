@@ -6617,3 +6617,68 @@ new to commit for the file itself)
 commit: this entry (FEEDBACK.md only)
 github: felsenuboot/FelsenBerry (TODO 5m, #120 follow-up) — dispatch/poll/cancel landed and
 live-verified; two findings above await the lead's/engine-dev's call on priority
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5q (#125): EAT/REFLEX ownership thrash — hysteresis landed, hermetically verified
+
+engine-dev's own #121/5n FEEDBACK entry flagged a rung-sequence THRASH — "EAT_CRITICAL REFLEX
+EAT REFLEX EAT" — surfaced once BREAK_LOS survived long enough for hunger-driven EAT cycling to
+manifest during a sustained encounter. Root cause, read from `choose()`/REFLEX's own fire()/
+clear(): REFLEX's `fire()` (`survivalActive || (dangerState==='panic' && !panicStale)`) and
+`clear()` are exact logical complements, so the instant `survivalActive` drops false between two
+panic runs (survival.js's own "driver decides resume vs abort" gap), REFLEX releases INSTANTLY
+that same tick — and since `choose()`'s owner-latch only re-checks the CURRENT owner's clear(),
+never re-runs a lower rung's own fire() while latched, a hungry bot's EAT rung grabs ownership
+the moment that gap opens, only to lose it again just as instantly the next tick REFLEX's fire()
+flips back true (prio 0 always preempts unconditionally, by design — confirmed correct and NOT
+touched here, see below). The EXISTING anti-flap floor (`MIN_SWITCH_MS`, `choose()`'s own
+comment "anti-flap floor, safety rungs exempt") does not cover this: it keys off how long the
+CURRENT owner has held the body, and a real REFLEX episode easily exceeds MIN_SWITCH_MS before
+it finally clears, so the floor is already satisfied by the time EAT would grab it, and the
+reverse direction (EAT->REFLEX) is deliberately never floored (REFLEX must always win instantly
+— multiple prior FEEDBACK entries argue this hard, not reopening it).
+
+Fix, scoped narrowly: `A.reflexClearSince` (agenda.js v37->v38) timestamps the last REAL tick()
+transition OFF a REFLEX owner (stamped in `tick()`, same convention as the existing `A.calmSince`
+— real A state, not part of the injected dry-run snapshot). EAT's (prio 4, food<=17, a routine
+top-up) `fire()` gains `&& (A.reflexClearSince === 0 || (s.now - A.reflexClearSince) >=
+EAT_REFLEX_DWELL_MS)`. **EAT_CRITICAL (prio 2, food<=6) is deliberately NOT touched** — it is the
+food ladder's one true emergency rung (#117's own doctrine: "no engine-internal escape... only
+REFLEX/POSTURE may ever preempt it"), and delaying it risks real starvation harm in exchange for
+a smoother-looking log line. The observed live trace mixed EAT_CRITICAL into the thrash too, so
+this fix does not eliminate every hop in that exact sequence — it targets the hop that is safe to
+suppress (EAT) and leaves the emergency hop (EAT_CRITICAL) exactly as aggressive as #117 made it,
+by design, not as an oversight.
+
+One real gotcha caught before landing: `TICK_MS` is 2000 and `choose()` only runs once per tick
+— a dwell SHORTER than one tick interval can never actually suppress anything, since by the next
+`choose()` call at least `TICK_MS` has already elapsed regardless of the dwell's own value. First
+draft used 1500ms (matching `MIN_SWITCH_MS`'s existing magnitude) and would have been a complete
+no-op against real tick cadence — caught by reasoning through the tick loop, not by the fixture
+(a hermetic dry-run with injected `now` values can make ANY dwell number "pass" since it never
+exercises the real tick interval). Settled on `EAT_REFLEX_DWELL_MS = 4000` (two full ticks,
+margin against timing jitter) — long enough to bridge a recover/re-enter gap tick, short enough
+that a genuinely calm bot is never meaningfully slower to eat in absolute terms.
+
+`bench/fixtures/agenda-ladder.js`: 7 new cases (reflexClearSince=0 unaffected/matches the
+pre-existing baseline, gated mid-dwell falls through to PROJECT, the `>=` boundary is inclusive,
+one ms short of the boundary still gates, well-past-dwell fires normally, EAT_CRITICAL explicitly
+unaffected by the same dwell window, and an owner ALREADY latched as EAT before the dwell went
+active stays latched — proving the gate lives in fire(), never re-checked on an existing owner,
+consistent with this file's own "fire()/clear() gap IS the hysteresis, never a blanket re-check"
+doctrine cited in the #117 comment). Live-run via `bench/preflight.sh` against a fresh --agenda
+bot (WuppDitwald, 25599): `agenda-ladder 96/96`, full preflight `303/303`.
+
+No live reproduction of the actual thrash sequence attempted — reproducing a sustained BREAK_LOS
+encounter with engineered hunger cycling is real setup effort or a many-minute wait on a genuine
+encounter, and the TODO's own deliverable was explicitly "fixture in agenda-ladder", not a live
+proof; same split this file already uses elsewhere for wiring-only rungs (SHELTER's own dry-run
+cases, "this proves fire()/clear()/priority ordering react correctly to the snapshot fields... a
+live fixture proves sense() sets it correctly" — the sense()-side computation here is trivial
+(A.reflexClearSince is stamped directly in tick(), not derived from any live read) so there is no
+separate live-computation half left to prove the way SHELTER's shelterShould/shelterActive had.
+
+fix: agenda.js v37->v38 (EAT_REFLEX_DWELL_MS, A.reflexClearSince, EAT fire() gate), bench/
+fixtures/agenda-ladder.js (+7 cases, 96/96)
+commit: (this entry's own commit, immediately following)
+github: felsenuboot/FelsenBerry#125 (TODO 5q) — landed, hermetically verified

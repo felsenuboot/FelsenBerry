@@ -40,6 +40,27 @@ const TICK_MS = 2000;              // deliberative only — safety never depends
 const MIN_SWITCH_MS = 1500;        // anti-flap floor (safety rungs exempt)
 const PREEMPT_DEBOUNCE = 2;        // ticks a non-safety rung must hold to preempt a running task
 const POSTURE_DWELL_MS = 3000;
+// TODO 5q (#125): EAT/REFLEX ownership thrash. Not the same shape MIN_SWITCH_MS's anti-flap
+// floor already guards -- that floor keys off how long the CURRENT owner has held the body and
+// is exempt for safety rungs on BOTH sides of a switch, so a REFLEX (safety) owner that has
+// already held for a while (any real encounter easily clears MIN_SWITCH_MS) hands off to EAT
+// with no floor at all, and EAT->REFLEX is (correctly, by design) never floored either since
+// REFLEX must always win instantly. The gap: once a genuinely sustained encounter (BREAK_LOS
+// surviving multiple recover/re-enter cycles, engine-dev's #121/5n trace) opens a brief window
+// where `survivalActive` is momentarily false between panic runs, EAT can grab ownership for
+// exactly one tick before the next dangerscan cycle (250ms, independent of this file's own tick
+// cadence) re-fires REFLEX and reclaims it -- observed live: "EAT_CRITICAL REFLEX EAT REFLEX
+// EAT". EAT_CRITICAL is deliberately NOT covered by this dwell (see its own comment) -- it is
+// the food ladder's one true emergency rung (food<=6, "no engine-internal escape" per #117's
+// doctrine, only REFLEX/POSTURE may ever preempt it) and delaying it risks real starvation harm
+// in exchange for smoothing out a rung-sequence log line. Scoped to EAT (prio 4, food<=17, a
+// routine top-up, not an emergency) only.
+// MUST exceed TICK_MS (2000): choose() only runs once per tick, so a dwell shorter than one
+// tick interval can never actually suppress a re-entry -- by the time the NEXT tick evaluates
+// EAT's fire() again, at least TICK_MS has already elapsed regardless. 4000 spans two full
+// ticks (comfortable margin against tick-timing jitter), long enough to bridge a recover/
+// re-enter gap, short enough that a genuinely calm bot is never meaningfully slower to eat.
+const EAT_REFLEX_DWELL_MS = 4000;
 // #97: a threat dangerscan can SEE (raycast LOS, no obstruction) but that cannot actually
 // PATH to the bot (e.g. a zombie 3+ blocks straight down from an isolated platform, unable to
 // climb) keeps danger.state pinned at 'panic' forever -- dangerscan's score is LOS-based, not
@@ -128,10 +149,13 @@ const A = {
   // chopTrees can drop its food demand on a short/sated trip (see skills.js chopTrees kit fn).
   // v36 -> v37: TODO 5p — FOOD also fires on the hp<=10/food<18/foodCount==0 heal-deadlock
   // band (natural regen needs food>=18), guarded calm-and-no-hostile.
-  version: 37, enabled: true,
+  // v37 -> v38: TODO 5q (#125) — EAT/REFLEX ownership thrash. `A.reflexClearSince` timestamps
+  // the last real tick() transition off a REFLEX owner (stamped in tick(), same convention as
+  // calmSince); EAT's fire() gates on it (EAT_REFLEX_DWELL_MS). EAT_CRITICAL untouched.
+  version: 38, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
-  lastSense: null, blocked: null, calmSince: 0,
+  lastSense: null, blocked: null, calmSince: 0, reflexClearSince: 0,
   // #97: unbroken "panic, survival.js not engaging" streak tracking (see PANIC_STALE_MS)
   _panicIdleSince: 0, _panicIdleDamaged: false, _panicIdleLastHp: null,
   standDown: {}, standDownCount: {}, unproductive: {},
@@ -1091,8 +1115,18 @@ const RUNGS = [
   // which is ALSO fixed here (defense in depth: if the instant clear()-release above is ever
   // bypassed for any reason, act() honesty is the second, independent release path — the same
   // NO_PROGRESS/standDown mechanism LIGHT/RESTOCK already rely on, no new machinery).
+  // TODO 5q (#125): the EAT_REFLEX_DWELL_MS gate — see its own top-of-file comment for the full
+  // reasoning (a sustained REFLEX encounter's own recover/re-enter gap ticks let EAT grab
+  // ownership for exactly one tick before REFLEX reclaims it, observed live as a rung-sequence
+  // thrash). `A.reflexClearSince === 0` (never been in REFLEX, or stamped so long ago it has
+  // since been reset — it never resets except on a fresh REFLEX->other transition, so this is
+  // really "no recent REFLEX activity at all") keeps an ordinary hungry bot's fire() completely
+  // unaffected; only a tick landing within EAT_REFLEX_DWELL_MS of REFLEX's own most recent
+  // release is gated. EAT_CRITICAL (prio 2, the genuine emergency) deliberately has NO such
+  // gate — see its own comment above.
   { id: 'EAT', prio: 4,
-    fire: (s) => s.food <= 17 && s.foodCount > 0,
+    fire: (s) => s.food <= 17 && s.foodCount > 0
+      && (A.reflexClearSince === 0 || (s.now - A.reflexClearSince) >= EAT_REFLEX_DWELL_MS),
     clear: (s) => s.food >= 19 || s.foodCount === 0,
     act: async () => ((await eatInline()) ? 'ate' : 'none') },
 
@@ -1866,6 +1900,10 @@ const tick = () => {
     // anti-flap floor, safety rungs exempt
     if (owner && !target.safety && (s.now - A.ownerSince) < MIN_SWITCH_MS && target.prio > owner.prio) return;
     if (owner) A.unproductive[owner.id] = 0;
+    // TODO 5q: stamp the moment ownership genuinely leaves REFLEX, real transitions only (this
+    // runs inside tick(), never inside A.step()'s dry-run choose() call — same convention as
+    // calmSince just above; fixtures set A.reflexClearSince directly as a precondition instead).
+    if (owner && owner.id === 'REFLEX' && target.id !== 'REFLEX') A.reflexClearSince = s.now;
     A.owner = target; A.ownerSince = s.now;
     A.metrics.transitions++;
     A.metrics.byRung[target.id] = (A.metrics.byRung[target.id] || 0) + 1;
