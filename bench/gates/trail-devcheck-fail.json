@@ -1,0 +1,59 @@
+{
+  "label": "devcheck-fail",
+  "bot": "FurzFriedrich",
+  "since": "2026-09-01T07:00:00.000Z",
+  "until": "2026-09-01T16:00:00.000Z",
+  "at": "2026-09-03T07:28:36.747Z",
+  "verdict": "FAIL",
+  "reasons": [
+    "1 site(s) with a floating log — spot-checked, not exhaustive",
+    "93 stranded drops reported by the engine itself across the window (0 confirmed live)"
+  ],
+  "findings": {
+    "floatingLogs": [
+      {
+        "site": [
+          76,
+          108,
+          41
+        ],
+        "ledgerStranded": 3,
+        "logs": [
+          {
+            "pos": [
+              72,
+              117,
+              38
+            ],
+            "name": "acacia_log"
+          },
+          {
+            "pos": [
+              73,
+              116,
+              38
+            ],
+            "name": "acacia_log"
+          },
+          {
+            "pos": [
+              75,
+              117,
+              38
+            ],
+            "name": "acacia_log"
+          }
+        ]
+      }
+    ],
+    "strandedDrops": [],
+    "nakedShafts": [],
+    "sitesChecked": 3
+  },
+  "ledgerStrandedTotal": 93,
+  "torchRate": 0,
+  "sitesSeen": {
+    "chopClusters": 21,
+    "digClusters": 0
+  }
+}

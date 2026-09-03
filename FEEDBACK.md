@@ -3946,3 +3946,84 @@ fix: `agenda.js` (`sense()`'s `s.upgrade`, TOOL's fire/clear/act — v26), `skil
 skill's `depot` opt pass-through — v61 unchanged version, additive). `bench/fixtures/agenda-
 ladder.js` (2 new cases, 27/27).
 github: felsenuboot/FelsenBerry#107 (filed and closed with this fix)
+
+### 2026-09-03 engine-dev — criterion-4 trail inspector built (`bench/trail.mjs`), live-verified
+against real fleet data (both a clean PASS and a real FAIL, not just a happy-path demo)
+type: new instrument (my QA/telemetry lane)
+status: built, live-verified, no regression (no existing code touched — new tool only)
+what: GOAL.md's human-bar criterion 4 ("no half-felled trees, no stranded drops, no naked
+scars") has been a manual walk until now. Built the instrument team-lead asked for: `node
+bench/trail.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port <port>
+[--max-sites N] [--json]`.
+
+**Design: two data sources, deliberately not conflated.** (1) The LEDGER finds WHERE the bot
+worked and pulls whatever the engine already self-reports there — `chopTrees`'s own
+`result.stranded` count turned out to already exist (I didn't know this going in; found it
+reading real `task_end` records while designing the site-extraction step) — cheap and exact,
+but self-reported. (2) The WORLD, read live through an already-connected, read-only inspector
+bot, teleported (RCON) to a bounded sample of sites (ledger-flagged ones first, e.g. any
+`stranded>0` chop site, then a spread of the rest) to CONFIRM rather than just trust the
+self-report — same "verify a fallback before deferring" doctrine this session has applied
+repeatedly elsewhere (#94/#98/#105). The inspector never digs or places anything (no
+`bot.dig`/`bot.placeBlock` call anywhere in the script) — read-only by construction, matching
+the ask.
+
+**The four checks:**
+- **(a) floating logs (half-felled trees)**: at a chop site, scan a small box for `_log$`
+  blocks with air directly below AND two below (disconnected from the ground) — the exact
+  geometric signature of a partially-felled trunk left standing.
+- **(b) stranded drops**: ledger's own `result.stranded` count (chopTrees) is the primary
+  number (exact, self-reported); live-inspection lists real `item`-type entities near the site
+  as a spot-check. **Time-sensitive, argued honestly**: vanilla despawns dropped items after 5
+  minutes, so live confirmation only means something run PROMPTLY after a soak (exactly the
+  intended use — team-lead's own framing, "so soak #4's verdict can be all four criteria from
+  one command"), not days later. Tested against 2-day-old data on purpose to prove the ledger
+  number still reports correctly even when live confirmation naturally reads zero (structural
+  world changes — logs, shafts — persist; item entities don't).
+- **(c) naked shafts/scars**: at a dig site (`safeDescend`/`mineLane`/`produce`, filtered to
+  `digs>0` — `produce`'s own smelt/craft tasks correctly fall out of this, they don't dig),
+  walk up from the site to find a plausible "surface" (4+ consecutive open cells), then check
+  whether the column down from there is a bare, uncapped, ≥3-deep 1-wide hole with no ladder.
+  Deliberately conservative (only flags something open at the top, not an internal cave void).
+- **(d) torch density**: ledger-only for now (same run-scoped, sanity-capped delta tracking
+  #106 already built and validated) — reports torches-consumed-per-dig against the 1-per-8
+  design target. Not live-confirmed this round: a live "count nearby torch blocks" scan is a
+  natural extension but wasn't needed to answer team-lead's ask and would have doubled the
+  live-inspection budget for a number the ledger already answers reasonably well.
+
+**Thresholds, argued rather than picked at random**: a human player leaves ZERO of these as a
+matter of course, so PASS is reserved for zero found in the checked sample. WARN acknowledges
+the live sample is BOUNDED (`--max-sites`, default 15) — a single incident could be an honest
+one-off, not proof of a pattern. FAIL is reserved for either a genuine multi-site pattern (3+
+floating-log sites, 2+ open shafts, 6+ total stranded per the ledger) or the single tightest
+case: even ONE open, uncapped shaft is already WARN-worthy on its own (the single most visually
+obvious scar of the four — nobody mistakes an open pit for tidy work), never silently passed.
+
+**Live-verified, both directions, real fleet data (not synthetic)**: FurzFriedrich (lumberjack,
+2026-09-01, heavy chopTrees activity, the exact #102-era window) — `FAIL`, 1 floating-log site
+confirmed live (3 disconnected `acacia_log` blocks at slightly different positions/heights, a
+credible partially-felled-canopy shape, not an obvious false positive), 93 stranded reported by
+the ledger across the window (0 confirmed live — 2 days old, exactly the despawn-timing
+limitation named above, reported honestly rather than silently treated as "not stranded after
+all"). SoloSauhund (miner, real safeDescend digging) — clean `PASS`, 7 dig clusters found, 4
+inspected live, zero open shafts, torch rate 0.164/dig consistent with #106's own independent
+measurement of the same bot (0.155-0.163 depending on window bounds) — good cross-check that
+the two tools agree on the same underlying ledger fact computed two different ways.
+
+**Fixture-hygiene reuse**: same `stop_survival()`-equivalent disarm as #106's fixture (called
+once at the top, via the inspector's own `/eval`, before any teleport) — the exact hazard
+#106's fixture found the hard way (a bare QA bot's live reflex dying mid-inspection) applies
+here just as much, maybe more, given this tool visits many more sites per run.
+
+**Known limitations, stated plainly rather than glossed over**: (1) site clustering is a flat
+±6-block grid snap, not a real spatial cluster — adjacent-but-distinct work sites could merge
+or a single site could get double-counted at a cluster boundary; (2) the naked-shaft "find the
+surface" heuristic is a single vertical column scan from the task's END position, which may
+miss a shaft whose actual surface entry is elsewhere (a staircase that doglegs, or branch
+mining) — it will under-report, not over-report, scars of this shape; (3) torch density has no
+live confirmation this round (see above); (4) `--max-sites` is a real-time budget (each site
+costs one RCON teleport + ~1.2s settle + a few /eval round-trips), not a claim every site was
+checked — the report says how many of how many were seen, never implies exhaustiveness.
+fix: `bench/trail.mjs` (new). No existing engine files touched.
+github: n/a — new instrument, not a tracked engine bug; ready for soak #4's own criterion-4
+grading whenever the timestamps land.
