@@ -38,11 +38,11 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
 2. ~~Gear-progression drive~~ DONE (#107, fc6cef5 — TOOL rung upgrades wooden→stone when payable; depot-walk inversion fixed).
 3. ~~SHELTER rung~~ DONE (51b39d0; #105 primitives 79e0e1e with all four exits live-fired e51744b).
 3b. ~~#106 light composite~~ DONE (c3149b3 — surface isDay·skyLight; underground = torch-position scan; autoTorch raw-light trigger removed; 210/210).
-4. ~~SOAK #4 = first formal HUMAN-BAR attempt~~ GRADED 08:53Z post-hoc (host rebooted 08:46Z at T+56): **FAIL 3/4** — playcheck
+4. ~~SOAK #4 = first formal HUMAN-BAR attempt~~ GRADED 08:53Z post-hoc (host rebooted 08:46Z at T+56, #111): **FAIL 3/4** — playcheck
    PLAYING, survives unaided (starving: hp10/food0), trail clean (thin: 0 chops), **direction-gate FAIL on latency p50 76s/p90 215s**.
    Attributed (SCOREBOARD "SOAK #4"): decider DRIVER_GRACE_MS keyed on OWNER label (every bot has one now) + 120s retry gap after
    Andy parse-misses — plumbing timing, not behaviour. Verdict NON-CATASTROPHIC → run #6 green. Next attempt = soak #5 after 4b+5c.
-4b. **Decider latency fix** (eng-3, decider.js, GATES soak #5): (a) driver grace only for an ACTUAL driver (explicit meta flag /
+4b. **Decider latency fix** (#109, eng-3, decider.js, GATES soak #5): (a) driver grace only for an ACTUAL driver (explicit meta flag /
    driver-registered signal), never for the OWNER label — driverless bots answer on the next poll; (b) an `unmapped_or_unparsed`
    retry rides the next POLL_MS, not PER_BOT_MIN_GAP_MS; (c) consider POLL_MS 20→10s for SOAK_BOT. Fixture: decisions replay with
    synthetic episodes asserting close latency < 30s on the rule path. Then metrics.mjs --direction-gate on a 20-min dry soak.
@@ -52,7 +52,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    no food rule, ROLE_WORK.hunter doesn't apply to role:null (#88 residual), Andy didn't supply it. Build a FOOD rung
    (foodItems==0 && hunger ≤ ~12 → huntAnimals w/ widening radius → harvest/farm fallback → backoff) + a zero-token
    rules.json entry. Starvation ended runs #1/#2 too.
-5c. **Same-remedy-repeats-across-positions escalation** (eng-3, from soak #4 — CORRECTED finding): the soak bot never
+5c. **Same-remedy-repeats-across-positions escalation** (#110, eng-3, from soak #4 — CORRECTED finding): the soak bot never
    held a tool; every wood-gather attempt FROZE (ledger `frozen` wedge events), the direction layer worked (episodes
    opened/closed) but the decider kept reassigning chopTrees from each new position and the bot re-froze. The
    frozen-repeat dedup keys on position so it can't catch it. Design: N same-remedy failures across positions →
