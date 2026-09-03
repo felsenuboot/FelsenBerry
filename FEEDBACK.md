@@ -4954,3 +4954,54 @@ fix: `agenda.js` (`A.setProject`'s reset block; promotion branch's duplicate 3 l
 v32). `bench/fixtures/agenda-ladder.js` (+6 cases, a new `TF` direct-field-assertion helper
 alongside the existing rung-outcome `T`).
 github: felsenuboot/FelsenBerry#112 (TODO 5d)
+### 2026-09-03 engine-dev — task 2: direction-gate latency breakdown (metrics.mjs), coordinated with engine-dev-3 before relying on new fields
+type: fix + fixture
+status: built, verified (bench/fixtures/latency-breakdown.mjs 19/19, hermetic), re-run against
+soak #4's real ledger — reproduces the lead's own hand attribution exactly
+
+what: metrics.mjs's `--direction-gate` latency was a single open->close number — exactly why
+soak #4's attribution (driver-grace bug vs Andy slowness) had to be done by hand, reading
+AGENDA_EVENT lines against decisions.jsonl. New shared `bench/lib/latency-breakdown.mjs`
+(`aggregateLatencyBreakdown`/`computeEpisodeBreakdown`) joins each CLOSED episode's direction
+open/close ledger records to every decisions.jsonl record sharing its eid and splits the total
+into buckets: `timeToFirstAttemptMs` (open -> the first decider attempt of any kind, including
+skips — driver-grace + poll-interval + per-bot-gap wait BEFORE the decider ever looked),
+`deciderComputeMs` (sum of every attempt's own `latency_ms`, already in the existing schema),
+`interAttemptGapMs` (wall-clock time between attempts not covered by any attempt's own recorded
+busy time — the rate-gate retry wait), and two FORWARD-LOOKING buckets — `dispatchMs`,
+`standDownCarryoverMs` — that report `null` (not 0) until decider.js/agenda.js emit the fields
+they need. `unattributedMs` catches whatever the other buckets don't explain, so the report
+never silently over-claims coverage.
+
+**Re-run against soak #4's real ledger, `--label soak4-breakdown`**: `timeToFirstAttempt` p50 =
+**76456ms — byte-identical to the graded `latency_p50_ms`**. Confirms the entire soak-4 p50
+floor was structural wait-before-first-attempt (the driver-grace-on-OWNER bug), zero decider
+compute — matching the lead's own hand attribution exactly, now produced by the instrument
+instead of a manual read. `interAttemptGap` p90 = 130187ms, the rate-gate retry wait behind the
+graded p90 (215s). `unattributed` ~0ms at both ends — the buckets fully explain the total.
+
+**Coordination, done before relying on either new field** (SendMessage to engine-dev-3):
+proposed `dispatch_ms` on decider.js's `appendDecision` (timing the `dirDispatch` eval call
+separately from decision-compute time, currently folded invisibly into `interAttemptGapMs`) and
+`standDown` on agenda.js's `open`-event `dirEmit` (whether the episode's own rung inherited an
+active standDown from a previous project — TODO 5d / test-driver's run-#6 finding, a 128665ms
+"latency" that was standdown carryover, not decider slowness). Engine-dev-3 landed 5d
+(`#112`, commit 3c7c3b7) with a stronger fix — resetting standDown/lastProductiveAt inside
+`setProject()` itself rather than exposing it for grading, which prevents the carryover instead
+of just measuring it — and independently added `dispatch_ms` to their own working-tree copy of
+decider.js using the exact field name proposed here, picked up automatically by this code the
+moment they commit it (no metrics.mjs change needed — verified the field name/shape match by
+reading their diff directly rather than assuming). Neither addition was required to ship this
+task: both buckets degrade gracefully to `null` today and the breakdown is fully useful without
+them (as the soak-4 re-run above shows).
+
+**Side fix required**: `bench/humanbar.mjs` runs metrics.mjs from a scratch-dir COPY (its own
+pre-existing window-bounding technique) but only copied the single `metrics.mjs` file — now
+that metrics.mjs has a real relative ESM import (`./bench/lib/latency-breakdown.mjs`), the copy
+failed to even start. Fixed by mirroring `bench/lib/*.mjs` into the scratch dir alongside it.
+Caught by actually re-running the tool end-to-end after the refactor, not just `node --check`.
+fix: `bench/lib/latency-breakdown.mjs` (new). `metrics.mjs` (`--direction-gate` report gains
+`latency_breakdown`, informational, not gated on — the existing `latency_p50_ms`/`p90_ms`
+remain the graded numbers). `bench/humanbar.mjs` (scratch-dir copy mirrors `bench/lib/`).
+`bench/fixtures/latency-breakdown.mjs` (new, 19/19, hermetic).
+github: n/a (instrument-only)
