@@ -3,7 +3,7 @@
   "checkpoint_id": "d589bbeb9e57",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 3,
+  "checkpoints_count": 5,
   "files_touched": [
     "agenda.js",
     "bench/fixtures/agenda-ladder.js"
@@ -15,13 +15,20 @@
       "compact_transcript": "/d5/89bbeb9e57/0/transcript.jsonl",
       "content_hash": "/d5/89bbeb9e57/0/content_hash.txt",
       "prompt": "/d5/89bbeb9e57/0/prompt.txt"
+    },
+    {
+      "metadata": "/d5/89bbeb9e57/1/metadata.json",
+      "transcript": "/d5/89bbeb9e57/1/full.jsonl",
+      "compact_transcript": "/d5/89bbeb9e57/1/transcript.jsonl",
+      "content_hash": "/d5/89bbeb9e57/1/content_hash.txt",
+      "prompt": "/d5/89bbeb9e57/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 13851,
-    "cache_creation_tokens": 566948,
-    "cache_read_tokens": 129853107,
-    "output_tokens": 150213,
-    "api_call_count": 422
+    "input_tokens": 13873,
+    "cache_creation_tokens": 575354,
+    "cache_read_tokens": 136004020,
+    "output_tokens": 154473,
+    "api_call_count": 433
   }
 }
