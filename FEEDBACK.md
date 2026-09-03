@@ -6420,3 +6420,72 @@ fix: agenda.js v36->v37 (predecessor's diff, verified+committed by respawn), ben
 agenda-ladder.js (+10 cases)
 commit: (this entry's own commit, immediately following)
 github: felsenuboot/FelsenBerry#123 (TODO 5p) — landed, live-verified
+
+---
+### 2026-09-03 engine-dev — #121 (TODO 5r) panic re-entry loop on a never-actionable threat: fixed, live-verified against the specimen; a git-attribution mistake noted honestly
+
+New HIGH item from the lead, gates soak #6: test-driver's run #7 racer (GrantigGustav) stuck
+6.5+ minutes in panic_enter -> WALL_OFF -> panic_recovered -> re-enter on a creeper at 13-16
+blocks, los:false, ranged:false — not visible, not shooting, doing nothing. HP pinned at 6.77
+the entire time; no direction episode ever opened because WALL_OFF kept reporting "recovered",
+so the driver never saw a stall to escalate.
+
+Root cause, confirmed by reading dangerscan.js directly (not guessed): `panicNow()` is
+`score>=5 OR hp<hpPanic(8) OR creeper<=8blocks`. The creeper's own score (1.98) never came
+close to 5 — the actual trigger was the bot's OWN hp sitting below 8, a separate OR'd
+condition unrelated to the creeper at all. The real bug: every "is danger genuinely over"
+check in survival.js (#92's heal-deadlock escape inside branchWallOff's own wait loop, its
+`threatClear` return field, and standdown's arm/re-clear checks in `enter()`) gates on
+`threatsNow().length === 0` — and the distant, unseen creeper's mere PRESENCE in dangerscan's
+raw list permanently blocked every one of them from ever reading true, even though it could
+neither see nor reach the bot. So standdown never armed despite `cannotHeal()` being genuinely
+true the whole time (food stuck at 16, no food item held), and dangerscan's hp<8 term kept
+re-forcing panic on a threat that was never actually the problem.
+
+Two fixes landed, both explicitly requested:
+1. New `actionableThreats()` (`los===true || d<=12`) swapped into the four "is it genuinely
+   over" call sites above. `threatsNow()` itself and `pick()`'s own creeper(d<=8)/ranged(&&los)
+   dispatch gates are untouched — already tighter, unaffected.
+2. Generic `g.panicStreak`, keyed on dangerscan's raw top threat id, independent of which
+   branch handles it: 3 consecutive panic cycles against the same threat id with zero damage
+   taken escalates to a new `branchWalkOff()` (moves 24 blocks directly away from the threat's
+   last known position, bounded 8s) instead of repeating. Belt-and-suspenders alongside fix 1.
+
+Live-verified against the real specimen, not a drill: hot re-injected the fixed survival.js
+via `jq -Rs '{code:.}' survival.js | POST /eval` (same idempotent-reinject pattern as
+inject.sh, just applied to survival.js instead of skills.js) into GrantigGustav (port 3161,
+25600). Confirmed: fires/recovered reset on injection, exactly ONE panic cycle ran afterward
+(not a repeat), standdown armed correctly with the honest message ("Walled off but can't
+heal — food stuck at 16/20 with nothing to eat. Standing down at 3 HP. Need food or new
+orders."), and the bot resumed its normal REFLEX/chopTrees agenda work instead of looping.
+A later GENUINE new hp drop (6.77->2.77, real damage from the resumed work) correctly broke
+through standdown once, was handled, and re-armed — confirms the fix suppresses only the
+phantom loop, not real re-triggers. Gave the specimen 8 bread via RCON afterward so it isn't
+left hungry; it's currently safely sealed/stood-down waiting on food or orders (getting it to
+actually eat while stood down is agenda/EAT-rung territory, not survival.js's — not chased
+further, out of lane).
+
+No dedicated hermetic/live fixture written for this one — verified directly against the real
+specimen rather than a synthetic scenario, per the lead's explicit ask to test on it before
+committing. Flagging in case soak #6 wants a regression fixture for actionableThreats/
+panicStreak before it gates further work.
+
+**Process mistake, owned rather than glossed over**: mid-fix, discovered engine-dev-3's 5m
+work (shelterEnter() night-mining wiring) was ALSO uncommitted in the same survival.js working
+tree. Split it correctly with `git apply --cached` (verified via `git diff --cached`/`git diff`
+that the index held only my 7 hunks and the tree held only theirs) — but then ran
+`git commit -- survival.js` with an explicit pathspec, not realizing `git commit <path>`
+implicitly re-stages the CURRENT WORKING TREE version of a named path before committing,
+which silently discarded my partial staging. Result: eng-3's full 5m diff landed inside my
+5r commit (35a6f76, already pushed) instead of their own. Content is correct and undamaged —
+it's exactly the combined working tree, nothing lost, nightmine.js's require() resolves fine
+(d15f71d was already committed separately) — this is a git-history/attribution problem, not
+a functional one. Not amending or force-pushing to fix it (against standing rules); told
+eng-3 directly and suggested their own FEEDBACK.md entry as the honest way to document 5m's
+design/verification in their own words, since the commit message doesn't describe their work.
+
+fix: survival.js (actionableThreats, g.panicStreak, branchWalkOff) — 4 call-site swaps + 2 new
+functions
+commit: 35a6f76 (also carries engine-dev-3's 5m work, see the mistake noted above)
+github: felsenuboot/FelsenBerry#121 (TODO 5r) — landed, live-verified against the real
+specimen
