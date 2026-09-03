@@ -65,10 +65,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    trail PASS (3 sites, non-vacuous); **playcheck FAIL (SPARSE, 86.9% stationary)**: back half of the hour stalled on chopTrees' kit gate
    `food 0/2` while hunger was 20/20 — FOOD rung never fires when sated, RESTOCK can't produce food, frozen-repeat dedup correctly refuses
    the re-dispatch → nothing fetches KIT food. SCOREBOARD "SOAK #5". Specimen SchnoddSchorsch left running on 25600.
-5l. **Kit-food acquisition while sated** (#120, eng-3, GATES soak #6, HIGH): (a) kit-completion routes a food-KIT shortfall (foodCount < kit need)
-   to huntAnimals regardless of hunger, widening radius + backoff, honest shortfall when no fauna; (b) chopTrees/short surface excursions
-   drop the food demand when hunger ≥14 and the target is within ~48 blocks (argue thresholds in FEEDBACK); fixtures in agenda-ladder,
-   live on 25599. Then SOAK #6 on 25600/world-soak6 (fresh), preflight on a THROWAWAY, join timestamp after preflight.
+5l. ~~Kit-food acquisition while sated~~ DONE (#120, 7f52d32 — (a) RESTOCK step 2.5 hunts kit food regardless of hunger (own counter); (b) kit functions may read position+vitals behind a Proxy that throws on anything else; chopTrees kit → `excursion_short` (no food) when food ≥14 and maxDist ≤48; mineLane untouched; agenda v36, skills v65, preflight 287/287, both parts live-verified composing on one sated foodless bot). Kit-supplier audit table pending before soak #6.
 5m. **Night productivity inside SHELTER** (eng-3, after 5l, GATES soak #6 with 5l): engine-dev's stall attribution (1f6df70) shows
    SHELTER owned 27.7 of soak #5's 60 minutes and IDLE 22 — only 8.2 minutes were a project rung. A human who digs in at dusk MINES
    until dawn; they do not stand in a dirt hole. Once sealed (dig-in variant), SHELTER should hand the body to a safe underground
