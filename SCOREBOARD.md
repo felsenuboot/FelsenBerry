@@ -1208,10 +1208,34 @@ Also carrying forward per team-lead: if eng-3 lands `#102` (chopTrees fell-compl
 concludes, the run #6 stack will include it — record actual versions read from `/state` at spawn as
 always, don't assume the wind-down numbers below still hold.
 
+**2026-09-03 update (team-lead)**: soak #4 went live 07:49:42Z on 25599, verdict expected ~08:55Z;
+run #6's green light follows that verdict (or an explicit waiver). Expected stack for run #6 is now
+the full move-set: skills **v62** (gear-progression drive, fell-complete), agenda **v27** (SHELTER
+rung), survival **v11**, dangerscan **v6** — supersedes the v60/v10/v25/v5 wind-down numbers above.
+Still TBD-at-spawn per the standing rule (read `/state` fresh, don't assume).
+
+Launch is prepped to be instant on green light:
+- **World bring-up** (`~/minecraft/localserver-race`, absolute path — ghq move means no more
+  `../localserver-race` sibling shortcut): `cd ~/minecraft/localserver-race && sed -i
+  's/^level-name=.*/level-name=world-race6/' server.properties && setsid nohup java -Xmx1536M
+  -Xms512M -jar server.jar nogui > server.log 2>&1 &` — then wait for `Done` in `server.log`.
+- **Control port**: `3161` reserved (checked via `ss -ltn`; only `3160` is currently in use, by
+  soak #4's `MampfManfred` on 25599 — noting the near-miss: `MampfManfred` (soak #4, engine-dev-3,
+  port 3160/25599) vs `MuffelManfred` (run #6, test-driver, port 3161/25600) are NOT the same string
+  — no collision by the letter of the law — but they are one-syllable-apart and could be misread at
+  a glance in a shared log tail or `./list.sh` output. Flagging for awareness, not renaming without
+  instruction since the name is already accepted.
+- **Spawn line**: `OWNER=test-driver PURPOSE="gear-race run #6, world-race6, Race book v2, full
+  move-set (skills v62/agenda v27 SHELTER/survival v11/dangerscan v6)" MC_HOST=127.0.0.1
+  MC_PORT=25600 ./spawn.sh MuffelManfred 3161 --agenda` (role-less racer, no `DECIDER_EXCLUDE` — this
+  bot is meant to be seen by the decider's shared budget like any real racer).
+- `./list.sh` before and after, `/state` read immediately post-spawn to lock in actual versions,
+  `gearrace.mjs` as recorder of record from the start.
+
 Engine versions at run start: **TBD at spawn** (`/state` read immediately after spawn is the
-source of truth — do not assume the wind-down stack numbers still hold without checking; last known
-at wind-down: skills v60, survival v10, agenda v25, producer v7, dangerscan v5, possibly `#102`
-folded in if landed by then).
+source of truth — do not assume any stack numbers still hold without checking; expected per
+team-lead 2026-09-03: skills v62, agenda v27 (SHELTER rung), survival v11, dangerscan v6, possibly
+`#102` folded in if landed by then).
 
 | Tier | Time from join | Notes |
 |---|---|---|
