@@ -73,12 +73,13 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    could not seal a 4/6-open corridor. Fix: on interrupt, retreat INTO the chamber (≤8 blocks) and plug the lane mouth with one block of
    the cobblestone it just mined, BEFORE yielding to REFLEX; or mine with the lane mouth plugged behind it each batch. Fixture: threat
    mid-batch → bot ends inside a re-sealed chamber, alive.
-5n. **BREAK_LOS no-progress loop** (#121, engine-dev) — CORE LANDED 365fdad (survival v14): per-threat streak (10s expiry) → same-call
-   escalation WALL_OFF-if-filler → one bare-hand attempt when cornered ≤1.5 / hp<4 and reachable → FLEE_AWAY; fist outcome ledgered.
-   Three more live bugs fixed en route (9s of unopposed damage before escalation; sticky "desperate" re-picking fists 5×). **Still gates
-   soak #6:** induced-stress-sequencing.sh not yet 3/3 — no deaths, but FLEE_AWAY (pre-existing) retreats in the open on raw distance
-   and takes near-unopposed damage (hpMin 1.3 / 0.5 vs ≥6 wanted). 5n-b (#124): FLEE_AWAY gets LOS-biased retreat (design first). Armed path
-   diff-unchanged, live kill trace not yet re-watched.
+5n. ~~BREAK_LOS no-progress loop + FLEE LOS-bias~~ DONE (#121/#124: 365fdad core, cbc04a3 fixture+fix-B wiring, 757bd0c FLEE distance-primary + forced sprint (0/5 deaths live, 3–12 blocks gained/cycle), 6f80b2b enter()-level level-triggered re-entry (≤500 ms poll while actionableThreats() non-empty, ledger op:reenter/gap_ms) — induced-stress-sequencing.sh 3/3 pillared (hpMin 19.2/17.7/16.3), bare variant logged informational; survival v16; FEEDBACK f83b80c). The dig-down escape tier remains a noted follow-up.
+5m-c. **WALL_OFF must use the known sealed chamber when night-mining** (engine-dev, survival WALL_OFF, GATES soak #6 with 5m-b): eng-3's
+   5m-b trials (4 live, deaths 4/4 → last one survived the first wave) show the residual: when a threat interrupts a batch, REFLEX wins
+   the race and WALL_OFF tries to box the bot in the 1-wide lane (2–6 open faces) instead of stepping ≤2 blocks back into the chamber
+   and plugging the 2-cell mouth. Design: nightmine publishes g.shelter.nightMining = {chamberPos, lanePos, mouthCells}; branchWallOff
+   checks it first and, if the chamber is within ~3 blocks, retreats there and plugs the mouth (2 placements) instead of the 8-face box.
+   Fixture: eng-3's 5m-b live protocol, 3/3 alive.
 5q. ~~EAT/REFLEX rung thrash~~ DONE (#125, 5573e06 — agenda v38: A.reflexClearSince gates EAT (prio 4) with a 4000 ms dwell after a REFLEX exit; EAT_CRITICAL untouched; a 1500 ms dwell would have been a no-op vs TICK_MS=2000 — caught by reasoning, not the fixture; agenda-ladder 96/96, preflight 303/303).
 5r. ~~Panic re-entry loop on a non-proximate creeper~~ DONE (#126, 35a6f76 — root cause: dangerscan's hp<8 term re-forced panic while a never-actionable creeper in the raw threat list blocked every `threatsNow().length===0` "danger over" gate, so standdown never armed; fix A `actionableThreats()` (los || d≤12) at the four gate sites; fix B generic panicStreak → branchWalkOff (24 blocks off after 3 zero-damage cycles); live-verified by hot re-injection on the specimen — one cycle then standdown armed; genuine re-triggers still break through). NOTE: eng-3's 5m shelterEnter wiring landed INSIDE this commit by the pathspec-commit gotcha above — unverified live; eng-3 verifies + writes 5m's FEEDBACK. Fixture landed cbc04a3 (bench/fixtures/panic-gate.mjs 21/21, hand-sync port) — and it caught that fix B was scaffolding-only in 35a6f76; wired in cbc04a3. Fix A live+hermetic; fix B hermetic only (its live trigger never occurred).
 5p. ~~Heal-deadlock band~~ DONE (#123, de81bd1 — agenda v37: FOOD also fires on hp≤10 && food<18 && foodCount==0 && calm && !hostileNear; +10 ladder cases; live-fired at hp 7.3/food 17; preflight 301/301).
