@@ -176,7 +176,11 @@ const out = {
     latency_p50_ms: gate.latency_p50_ms, latency_p90_ms: gate.latency_p90_ms, llm_calls_per_hr: gate.llm_calls_per_hr },
   playcheck: summary ? { verdict: playVerdict, stationaryPct: summary.stationaryPct,
     productiveActionsPer10Min: summary.productiveActionsPer10Min, noOpFraction: summary.noOpFraction,
-    distanceTraveled: summary.distanceTraveled, deaths: summary.deaths, panics: summary.panics }
+    distanceTraveled: summary.distanceTraveled, deaths: summary.deaths, panics: summary.panics,
+    // soak #5 follow-up: playcheck.mjs itself only computes this when its own verdict isn't
+    // PLAYING (see its own stallAttribution comment) -- passed through here untouched, same
+    // "read each tool's own finished verdict" discipline as the rest of this file.
+    stallAttribution: summary.stallAttribution || null }
     : { verdict: playVerdict, note: 'no playcheck ledger data in window' },
 };
 fs.mkdirSync(path.join(ROOT, 'bench', 'gates'), { recursive: true });
@@ -185,6 +189,12 @@ fs.writeFileSync(path.join(ROOT, 'bench', 'gates', `humanbar-${LABEL}.json`), JS
 console.log(`humanbar ${LABEL}: ${humanPass ? 'PASS' : 'FAIL'}`);
 console.log(`  direction-gate: ${gate.pass ? 'pass' : 'FAIL'} (opened ${gate.opened}, closed ${gate.closed}, unclosed ${gate.unclosed}, latency p50 ${gate.latency_p50_ms}ms / p90 ${gate.latency_p90_ms}ms)`);
 console.log(`  playcheck: ${playVerdict}${summary ? ` (${summary.stationaryPct}% stationary, ${summary.productiveActionsPer10Min} productive actions/10min)` : ' (no ledger data)'}`);
+if (summary && summary.stallAttribution) {
+  const ec = summary.stallAttribution.episodeCauses, ro = summary.stallAttribution.rungOwnership;
+  const fmtMs = (ms) => `${Math.round(ms / 60000 * 10) / 10}min`;
+  console.log(`    stall attribution — episodes (n=${ec.n}, ${fmtMs(ec.totalMs)}): standdown ${fmtMs(ec.standdownCarryover.ms)} | kit_missing ${fmtMs(ec.kitMissing.ms)} | frozen_repeat ${fmtMs(ec.frozenRepeat.ms)} | other ${fmtMs(ec.other.ms)}`);
+  console.log(`    stall attribution — rung ownership: SHELTER ${fmtMs(ro.SHELTER)} | IDLE ${fmtMs(ro.IDLE)} | directed ${fmtMs(ro.directed)} | unknown ${fmtMs(ro.unknown)}`);
+}
 if (!humanPass) { console.log('  reasons: ' + reasons.join('; ')); }
 console.log(`  written -> bench/gates/humanbar-${LABEL}.json (and direction-${LABEL}.json)`);
 process.exit(humanPass ? 0 : 1);

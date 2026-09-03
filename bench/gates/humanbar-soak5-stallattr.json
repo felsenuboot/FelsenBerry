@@ -1,0 +1,151 @@
+{
+  "label": "soak5-stallattr",
+  "bot": "SchnoddSchorsch",
+  "since": "2026-09-03T10:31:20Z",
+  "until": "2026-09-03T11:31:20Z",
+  "at": "2026-09-03T11:39:51.296Z",
+  "pass": false,
+  "reasons": [
+    "playcheck verdict is SPARSE, not PLAYING"
+  ],
+  "direction": {
+    "pass": true,
+    "opened": 13,
+    "closed": 13,
+    "unclosed": 0,
+    "latency_p50_ms": 18794,
+    "latency_p90_ms": 29883,
+    "llm_calls_per_hr": 6.6
+  },
+  "playcheck": {
+    "verdict": "SPARSE",
+    "stationaryPct": 86.9,
+    "productiveActionsPer10Min": 0.8,
+    "noOpFraction": 0.929,
+    "distanceTraveled": 129.1,
+    "deaths": 0,
+    "panics": 0,
+    "stallAttribution": {
+      "windowMs": 3600000,
+      "episodeCauses": {
+        "standdownCarryover": {
+          "ms": 0,
+          "n": 0
+        },
+        "kitMissing": {
+          "ms": 185964,
+          "n": 10
+        },
+        "frozenRepeat": {
+          "ms": 0,
+          "n": 0
+        },
+        "other": {
+          "ms": 65243,
+          "n": 3
+        },
+        "totalMs": 251207,
+        "n": 13
+      },
+      "rungOwnership": {
+        "SHELTER": 1660064,
+        "IDLE": 1318179,
+        "directed": 494767,
+        "unknown": 126990
+      },
+      "perEpisode": [
+        {
+          "eid": "dmtldzoa212",
+          "why": "unproductive_idle",
+          "closedBy": "decider",
+          "cause": "other",
+          "durationMs": 19256
+        },
+        {
+          "eid": "dmtle51ha13",
+          "why": "project_stalled",
+          "closedBy": "decider_exhausted",
+          "cause": "other",
+          "durationMs": 29883
+        },
+        {
+          "eid": "dmtledkvk14",
+          "why": "project_stalled",
+          "closedBy": "decider",
+          "cause": "kitMissing",
+          "durationMs": 14465
+        },
+        {
+          "eid": "dmtlehs4015",
+          "why": "project_stalled",
+          "closedBy": "decider",
+          "cause": "other",
+          "durationMs": 16104
+        },
+        {
+          "eid": "dmtleqb8016",
+          "why": "project_stalled",
+          "closedBy": "decider",
+          "cause": "kitMissing",
+          "durationMs": 38325
+        },
+        {
+          "eid": "dmtlev0zq17",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 17619
+        },
+        {
+          "eid": "dmtlewp6l18",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 19665
+        },
+        {
+          "eid": "dmtlezp7k19",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 19775
+        },
+        {
+          "eid": "dmtlf6k4j20",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 20006
+        },
+        {
+          "eid": "dmtlfdf2521",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 214
+        },
+        {
+          "eid": "dmtlfjw3i22",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 18481
+        },
+        {
+          "eid": "dmtlfqr1523",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 18620
+        },
+        {
+          "eid": "dmtlfxlys24",
+          "why": "project_stalled",
+          "closedBy": "frozen_repeat",
+          "cause": "kitMissing",
+          "durationMs": 18794
+        }
+      ]
+    }
+  }
+}

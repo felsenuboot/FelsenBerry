@@ -5852,3 +5852,55 @@ Lesson: a kit gate is a promise that SOME rung can satisfy every item it demands
 rung unless starving. Every gate item needs a named supplier rung (torches→produce, tools→TOOL, food→?) — audit the kit tables for
 other orphaned demands (TODO 5l).
 gates: bench/gates/*-soak5.json (ae62552)
+### 2026-09-03 engine-dev — criterion 1 stall attribution (bench/lib/stall-attribution.mjs), run on soak #5 (--label soak5-stallattr)
+type: fix + fixture
+status: built, verified (bench/fixtures/stall-attribution.mjs 17/17, hermetic), run against the
+real soak #5 ledger with the correctly-bounded window (via humanbar.mjs's own scratch-dir copy,
+same technique the direction-gate side already uses — a standalone playcheck.mjs call against
+the live, still-growing SchnoddSchorsch ledger gave inflated numbers, caught before using them)
+
+what: same treatment task 2's latency breakdown already gave criterion 2 — playcheck.mjs's own
+SPARSE/IDLE verdict is a single number (stationaryPct); soak #5's own attribution (7 of the
+last 8 episodes stuck on `project_stalled|none|kit_missing|0`) had to be read by hand out of
+decisions.jsonl. `bench/lib/stall-attribution.mjs` turns "the number was bad" into "here is
+why", computed automatically whenever playcheck's own verdict isn't PLAYING (a healthy hour has
+nothing to attribute — computing this unconditionally would print a wall of zeros for the
+common case).
+
+**Two independent signals, deliberately NOT merged into one timeline** (same "two witnesses"
+doctrine as this file's own induced-stress-sequencing.sh):
+- `episodeCauses`: each CLOSED direction episode classified by cause and summed by duration.
+  Priority order (an episode is only ever ONE thing): `standdownCarryover` (open.standDown
+  present, #112's shape) > `kitMissing` (open.detail.lastError==='kit_missing', soak #5's own
+  finding) > `frozenRepeat` (closedBy:'frozen_repeat' as the FALLBACK label — a symptom of some
+  OTHER stall repeating, checked last on purpose so a frozen_repeat close whose root cause IS
+  visible gets attributed to that root cause, not to the dedup mechanism that's just correctly
+  refusing to re-dispatch it) > `other` (named by its own why/closedBy, never silently dropped).
+- `rungOwnership`: reconstructed from agenda.js's own `note` ledger events (`ev:'note',
+  agenda:<rungId>`, already emitted on every rung transition, just never read by any grader
+  before this) — a timeline of which rung owned the body, with SHELTER and IDLE broken out by
+  name (the lead's own "shelter-night"/"genuine idle" asks: both are legitimate non-failure
+  reasons for low output) and everything else (PROJECT/RESTOCK/TOOL/...) rolled into `directed`.
+
+**Run on soak #5** (`--label soak5-stallattr`, canonical soak5 gate files untouched — confirmed
+via `git status`): `episodeCauses` — 10 of 13 episodes (185964ms, ~3.1min) were `kitMissing`,
+3 (65243ms, ~1.1min) were `other` (a `decider_exhausted` and an `unproductive_idle` close, plus
+one `project_stalled` whose lastError wasn't kit_missing at that particular open), 0
+`frozenRepeat` (the tail-of-window frozen_repeat closes I'd already found by hand all had
+kit_missing visible on their OWN open record, so they correctly attribute to the root cause,
+not the dedup symptom — exactly the priority-order design working as intended). `rungOwnership`
+is the bigger story, genuinely new: **SHELTER owned 27.7 of the 60 minutes, IDLE another 22 —
+"directed" (an actual project rung running) was only 8.2 minutes of the whole hour.** The
+kit_missing stall explains part of the SPARSE verdict; SHELTER (the proactive night-safety
+primitive, working as designed, not a bug) explains a larger part that decisions.jsonl alone
+would never have shown, since SHELTER episodes don't necessarily open a direction episode at
+all — this reader only surfaced it because it's now reading agenda's OWN rung-transition
+ledger, not just the decider's.
+fix: `bench/lib/stall-attribution.mjs` (new — `classifyEpisode`, `attributeEpisodeCauses`,
+`attributeRungOwnership`, `attributeStalls`). `bench/playcheck.mjs` (collects direction/note
+records in its existing single ledger pass, computes `stallAttribution` when verdict != PLAYING,
+console line). `bench/humanbar.mjs`/`bench/humanbar4.mjs` (thread `stallAttribution` through
+into their own gate files + console lines, read-only pass-through, same discipline as every
+other cross-instrument field in this codebase). `bench/fixtures/stall-attribution.mjs` (new,
+17/17, hermetic).
+github: n/a (instrument-only)

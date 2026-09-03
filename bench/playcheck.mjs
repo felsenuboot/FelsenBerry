@@ -38,6 +38,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { attributeStalls } from './lib/stall-attribution.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(DIR, '..');
@@ -152,11 +153,17 @@ function summarize(botName) {
   let productiveTasks = 0;
   let activeMs = 0;                    // sum of task durations — the ledger's only direct
                                         // "something was running" signal (see GAPS below)
+  // soak #5 follow-up (2026-09-03): the raw material for stallAttribution() below, collected
+  // here alongside everything else this loop already reads (one pass, no second ledger scan).
+  const dirOpens = [], dirCloses = [], notes = [];
 
   for (const r of recs) {
     if (r.ev === 'dig_batch') blocksMined += r.digs || 0;
     if (r.ev === 'death') deaths++;
     if (r.ev === 'panic' && r.phase === 'enter') panics++;
+    if (r.ev === 'direction' && r.op === 'open') dirOpens.push(r);
+    if (r.ev === 'direction' && r.op === 'close') dirCloses.push(r);
+    if (r.ev === 'note' && r.agenda) notes.push(r);
     if (r.ev === 'goto' && r.tid == null) distanceTraveled += r.moved || 0;
     if (r.ev === 'task_end') {
       taskCount++;
@@ -197,6 +204,14 @@ function summarize(botName) {
   const chat = readChat(botName);
   const chatCount = chat.lines.length;
 
+  // soak #5 follow-up: "the gate file should attribute the stationary time by cause... so the
+  // next soak's verdict names its wall without hand-reading decisions.jsonl" — computed only
+  // when the verdict ISN'T PLAYING (a healthy hour has nothing to attribute, and running this
+  // unconditionally would print a wall of zeros for the common case). `verdict()` is a hoisted
+  // function declaration below in this same file — safe to call here.
+  const v = verdict({ stationaryPct, productiveActionsPer10Min: Math.round(per10 * 10) / 10 });
+  const stallAttribution = v !== 'PLAYING' ? attributeStalls({ opens: dirOpens, closes: dirCloses, notes, sinceMs: SINCE, untilMs: NOW }) : null;
+
   return {
     bot: botName,
     windowMs: WINDOW_MS,
@@ -208,6 +223,7 @@ function summarize(botName) {
     noOpFraction: taskCount ? Math.round((noOpTasks / taskCount) * 1000) / 1000 : null,
     stationaryPct,
     productiveActionsPer10Min: Math.round(per10 * 10) / 10,
+    stallAttribution,
     chatCount,
     chatGap: chat.gap,
   };
@@ -262,6 +278,12 @@ if (has('json')) {
     detail.push(`chat lines: ${s.chatCount}${s.chatGap ? ' (log file missing — GAP)' : ''}`);
     if (s.itemsDeposited) detail.push(`deposited: ${s.itemsDeposited} items`);
     console.log('    ' + detail.join(' | '));
+    if (s.stallAttribution) {
+      const ec = s.stallAttribution.episodeCauses, ro = s.stallAttribution.rungOwnership;
+      const fmtMs = (ms) => `${Math.round(ms / 60000 * 10) / 10}min`;
+      console.log(`    stall attribution — episodes (n=${ec.n}, ${fmtMs(ec.totalMs)} total): standdown ${fmtMs(ec.standdownCarryover.ms)} (${ec.standdownCarryover.n}) | kit_missing ${fmtMs(ec.kitMissing.ms)} (${ec.kitMissing.n}) | frozen_repeat ${fmtMs(ec.frozenRepeat.ms)} (${ec.frozenRepeat.n}) | other ${fmtMs(ec.other.ms)} (${ec.other.n})`);
+      console.log(`    stall attribution — rung ownership: SHELTER ${fmtMs(ro.SHELTER)} | IDLE ${fmtMs(ro.IDLE)} | directed ${fmtMs(ro.directed)} | unknown ${fmtMs(ro.unknown)}`);
+    }
   }
   console.log('---');
   console.log('LEDGER GAPS (things this instrument could not read from the existing ledger):');

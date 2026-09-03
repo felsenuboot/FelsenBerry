@@ -182,6 +182,12 @@ const overall = c1 && c2 && c3 && c4;
 console.log(`humanbar4 ${LABEL}: ${overall ? 'PASS — all four human-bar criteria met' : 'FAIL'}`);
 if (windowTruncated) console.log(`  WINDOW TRUNCATED: ${windowTruncated.note}`);
 console.log(`  1. playcheck PLAYING:        ${c1 ? 'PASS' : 'FAIL'}  (${hb.playcheck ? hb.playcheck.verdict : 'no data'}${hb.playcheck && hb.playcheck.stationaryPct != null ? `, ${hb.playcheck.stationaryPct}% stationary, ${hb.playcheck.productiveActionsPer10Min}/10min` : ''})`);
+if (hb.playcheck && hb.playcheck.stallAttribution) {
+  const ec = hb.playcheck.stallAttribution.episodeCauses, ro = hb.playcheck.stallAttribution.rungOwnership;
+  const fmtMs = (ms) => `${Math.round(ms / 60000 * 10) / 10}min`;
+  console.log(`     stall attribution — episodes (n=${ec.n}, ${fmtMs(ec.totalMs)}): standdown ${fmtMs(ec.standdownCarryover.ms)} | kit_missing ${fmtMs(ec.kitMissing.ms)} | frozen_repeat ${fmtMs(ec.frozenRepeat.ms)} | other ${fmtMs(ec.other.ms)}`);
+  console.log(`     stall attribution — rung ownership: SHELTER ${fmtMs(ro.SHELTER)} | IDLE ${fmtMs(ro.IDLE)} | directed ${fmtMs(ro.directed)} | unknown ${fmtMs(ro.unknown)}`);
+}
 console.log(`  2. --direction-gate PASS:    ${c2 ? 'PASS' : 'FAIL'}  (opened ${hb.direction ? hb.direction.opened : '?'}, closed ${hb.direction ? hb.direction.closed : '?'}, unclosed ${hb.direction ? hb.direction.unclosed : '?'}, latency p50 ${hb.direction ? hb.direction.latency_p50_ms : '?'}ms)`);
 console.log(`  3. survives unaided:         ${c3 ? 'PASS' : 'FAIL'}  (deaths ${deaths.length}, non-decider interventions ${humanInterventions.length}${interventions.length ? ` [decider:${deciderCalls.length} total:${interventions.length}]` : ''}, vitals floor ${vitalsFloor.sustained ? 'FAIL' : 'ok'})`);
 if (humanInterventions.length) {
@@ -205,7 +211,11 @@ const out = {
   pass: overall,
   ...(windowTruncated ? { windowTruncated } : {}),
   criteria: {
-    playcheck: { pass: c1, verdict: hb.playcheck ? hb.playcheck.verdict : null },
+    playcheck: { pass: c1, verdict: hb.playcheck ? hb.playcheck.verdict : null,
+      // soak #5 follow-up: names WHY criterion 1 failed (kit_missing stall / frozen_repeat
+      // loop / standdown carryover / SHELTER-night / genuine IDLE), read straight through from
+      // humanbar-<label>.json -- null on a PLAYING verdict (nothing to attribute) or no data.
+      stallAttribution: (hb.playcheck && hb.playcheck.stallAttribution) || null },
     directionGate: { pass: c2, opened: hb.direction ? hb.direction.opened : null, closed: hb.direction ? hb.direction.closed : null, unclosed: hb.direction ? hb.direction.unclosed : null },
     survivesUnaided: { pass: c3, deaths: deaths.length, humanInterventions: humanInterventions.length, deciderInterventions: deciderCalls.length,
       humanInterventionDetail: humanInterventions.map((r) => ({ t: new Date(r.t).toISOString(), route: r.route, preview: (r.preview || '').slice(0, 200) })),
