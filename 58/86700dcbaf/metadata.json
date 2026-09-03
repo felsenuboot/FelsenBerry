@@ -3,7 +3,7 @@
   "checkpoint_id": "5886700dcbaf",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 6,
+  "checkpoints_count": 16,
   "files_touched": [
     "survival.js"
   ],
@@ -14,13 +14,17 @@
       "compact_transcript": "/58/86700dcbaf/0/transcript.jsonl",
       "content_hash": "/58/86700dcbaf/0/content_hash.txt",
       "prompt": "/58/86700dcbaf/0/prompt.txt"
+    },
+    {
+      "metadata": "/58/86700dcbaf/1/metadata.json",
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 16128,
-    "cache_creation_tokens": 616599,
-    "cache_read_tokens": 162398856,
-    "output_tokens": 172668,
-    "api_call_count": 486
+    "input_tokens": 20718,
+    "cache_creation_tokens": 4302101,
+    "cache_read_tokens": 786192325,
+    "output_tokens": 1390124,
+    "api_call_count": 2781
   }
 }
