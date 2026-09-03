@@ -68,6 +68,9 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    Spawn: eng-3, OWNER=engine-dev-3 PURPOSE="soak #5" MC_PORT=25600 port 3162 --agenda, DRIVEN unset, SOAK_BOT on a fresh decider daemon.
    Window = server.log join timestamp + 60 min, lead holds. Inspector (engine-dev) at T+55; grade after close ping:
    `node bench/humanbar4.mjs --bot <name> --since <join> --until <join+60m> --inspector-port <p> --label soak5`. Pass = /goal met.
+5j. **Cook/smelt skill** (#118, eng-3, soak-hour task on 25599): furnace path for raw meat (reuse producer.js station lookup + fuel),
+   argue saturation math in FEEDBACK before wiring into FOOD; ship unwired if not worth it.
+5k. **wall-off-multithreat fixture deterministic** (#119, engine-dev, before the T+55 cue): agenda ≥34 bot, controlled summons.
 6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
