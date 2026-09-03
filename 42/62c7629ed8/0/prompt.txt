@@ -211,3 +211,7 @@ Confirmed and ack'd — I mis-merged two death cycles into one entry, my error; 
 <event>[11:39:23] [Server thread/INFO]: MotzMaxi left the game</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+[Image #1] this is what i meant with permissionsbeing asked
