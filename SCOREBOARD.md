@@ -1272,12 +1272,18 @@ design, so `#108`'s FOOD rung is exercised as intended).
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
 
-Steering calls: 1 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
-08:58:53.698Z (T+25s), clean on first attempt, per Race book v2's trigger table. Deaths: 0 so far.
-Monitor: armed — 15s `/state` poll (IDLE-while-project-set, `needs_direction`, kit `blocked`,
-low-HP) plus real-time `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table
-and branch plans (combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed
-from spawn).
+Steering calls: 2 — (1) initial `setProject({skill:'mineLane',args:{target:'stone',count:16}})` at
+08:58:53.698Z (T+25s), clean on first attempt, per Race book v2's trigger table; (2) Food/kit-refusal
+branch, `setProject({skill:'huntAnimals',args:{anyMob:true,radius:32,repeat:true}})` at 09:08:09.749Z
+(T+9m41s) after the identical `food 0/4` kit-gate refusal repeated twice (09:06:05Z, 09:07:19Z, ~74s
+apart) with the bot otherwise stationary between them — hunger stayed full (20/20) throughout, so
+`#108`'s FOOD rung (which gates on `hunger<=12`) never had a reason to fire; this is the kit-assembly
+food-ITEM requirement, a different condition, and per Race book v2's trigger table the manual fallback
+is the documented response ("the moment you see food 0/N, immediately setProject(huntAnimals...)"),
+not a wait-for-engine-routing case. Deaths: 0 so far. Monitor: armed — 15s `/state` poll
+(IDLE-while-project-set, `needs_direction`, kit `blocked`, low-HP) plus real-time
+`server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans
+(combat-loss-at-night re-arm branch and the wood→stone wedge watches both armed from spawn).
 
 Decider daemon: was NOT running at prep time; messaged engine-dev-3 to coordinate first (concurrently
 on TODO 4b in decider.js), said I'd wait for their ack. **Did not wait long enough — started it at
