@@ -5,7 +5,9 @@ Milestones, curated. Everything else: `git log`. Engine payload versions live in
 ## Unreleased — 2026-09-03 (toward soak #4, the first human-bar attempt)
 - **#107 gear-progression drive** (agenda TOOL rung): a bot now crafts the better tool tier the moment materials
   are in hand (wooden→stone pickaxe, live-verified); root cause was `bestOwned()` short-circuiting before the tier
-  machinery was ever asked. Also fixed: the pre-craft depot check walking the bot away from its own materials.
+  machinery was ever asked. Also fixed: the pre-craft depot check walking the bot away from its own materials. Extended to **sword and axe**
+  (af5d009; priority active class → sword → axe), which exposed and fixed a selection-by-durability-not-tier bug in
+  the pickaxe drive that was starving later upgrades of sticks via redundant re-crafts.
 - **#102 chopTrees fell-complete** (skills v61): whole trunk column, no elevated drops; real root cause was the
   pathfinder's ~2.4-block reach height cap (new `digThorough`, honest ~5-block ceiling). Fixture rebuilt on real
   bonemeal-grown trees.
