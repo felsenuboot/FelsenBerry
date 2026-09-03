@@ -4481,5 +4481,4 @@ silently dropping the ask.
 fix: `agenda.js` (new FOOD rung, `A._foodHuntFails` + huntAnimals harvest-block tracking,
 `FOODS` raw-meat additions — v30). `bench/fixtures/agenda-ladder.js` (4 new cases: fires
 independent of role/project, respects EAT/RESTOCK precedence, 38/38).
-github: n/a yet — filing after this entry lands, since it was built mid-soak as a priority
-interrupt rather than from a pre-filed issue.
+github: felsenuboot/FelsenBerry#108 (filed and closed with this fix)
