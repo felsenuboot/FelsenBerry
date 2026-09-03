@@ -1,0 +1,249 @@
+{
+  "label": "soak5",
+  "at": "2026-09-03T11:31:46.157Z",
+  "pass": true,
+  "reasons": [],
+  "opened": 13,
+  "closed": 13,
+  "unclosed": 0,
+  "latency_p50_ms": 18794,
+  "latency_p90_ms": 29883,
+  "llm_calls": 6,
+  "llm_calls_per_hr": 6.6,
+  "skipped_cap": 0,
+  "closedBy_decider": 4,
+  "decider_interventions_matched": 4,
+  "undirected_time_fraction_by_bot": {
+    "SchnoddSchorsch": {
+      "opened": 13,
+      "fraction": 0.07007505540933165
+    }
+  },
+  "latency_breakdown": {
+    "perEpisode": [
+      {
+        "eid": "dmtldzoa212",
+        "why": "unproductive_idle",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 19256,
+        "timeToFirstAttemptMs": 19251,
+        "deciderComputeMs": 0,
+        "dispatchMs": 2,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 3
+      },
+      {
+        "eid": "dmtle51ha13",
+        "why": "project_stalled",
+        "closedBy": "decider_exhausted",
+        "attempts": 2,
+        "totalLatencyMs": 29883,
+        "timeToFirstAttemptMs": 12463,
+        "deciderComputeMs": 4244,
+        "dispatchMs": null,
+        "interAttemptGapMs": 13991,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtledkvk14",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 14465,
+        "timeToFirstAttemptMs": 14465,
+        "deciderComputeMs": 3475,
+        "dispatchMs": 1,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtlehs4015",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 1,
+        "totalLatencyMs": 16104,
+        "timeToFirstAttemptMs": 16104,
+        "deciderComputeMs": 968,
+        "dispatchMs": 1,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtleqb8016",
+        "why": "project_stalled",
+        "closedBy": "decider",
+        "attempts": 2,
+        "totalLatencyMs": 38325,
+        "timeToFirstAttemptMs": 21134,
+        "deciderComputeMs": 4583,
+        "dispatchMs": 1,
+        "interAttemptGapMs": 13493,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtlev0zq17",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 17619,
+        "timeToFirstAttemptMs": 17618,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtlewp6l18",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 19665,
+        "timeToFirstAttemptMs": 19664,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtlezp7k19",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 19775,
+        "timeToFirstAttemptMs": 19775,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 0
+      },
+      {
+        "eid": "dmtlf6k4j20",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 20006,
+        "timeToFirstAttemptMs": 20005,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtlfdf2521",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 214,
+        "timeToFirstAttemptMs": 213,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtlfjw3i22",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 18481,
+        "timeToFirstAttemptMs": 18480,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtlfqr1523",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 18620,
+        "timeToFirstAttemptMs": 18619,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 1
+      },
+      {
+        "eid": "dmtlfxlys24",
+        "why": "project_stalled",
+        "closedBy": "frozen_repeat",
+        "attempts": 1,
+        "totalLatencyMs": 18794,
+        "timeToFirstAttemptMs": 18794,
+        "deciderComputeMs": 0,
+        "dispatchMs": null,
+        "interAttemptGapMs": 0,
+        "standDownCarryoverMs": null,
+        "selfRecoveredStallMs": null,
+        "unattributedMs": 0
+      }
+    ],
+    "aggregate": {
+      "timeToFirstAttempt": {
+        "n": 13,
+        "p50_ms": 18619,
+        "p90_ms": 20005
+      },
+      "deciderCompute": {
+        "n": 13,
+        "p50_ms": 0,
+        "p90_ms": 4244
+      },
+      "dispatch": {
+        "n": 4,
+        "p50_ms": 1,
+        "p90_ms": 2
+      },
+      "interAttemptGap": {
+        "n": 13,
+        "p50_ms": 0,
+        "p90_ms": 13493
+      },
+      "standDownCarryover": {
+        "n": 0,
+        "p50_ms": null,
+        "p90_ms": null
+      },
+      "selfRecoveredStall": {
+        "n": 0,
+        "p50_ms": null,
+        "p90_ms": null
+      },
+      "unattributed": {
+        "n": 13,
+        "p50_ms": 1,
+        "p90_ms": 1
+      }
+    },
+    "pendingFields": {
+      "dispatch_ms": "landed 2026-09-03 (decider.js commit 872aa07) -- null on records from before that commit, or on a src that never reaches the dispatch step (dedup/rate-gate/frozen_repeat/driver-grace skips)",
+      "standDown": "landed 2026-09-03 (agenda.js commit 872aa07) -- null on episodes opened before that commit, or (increasingly, post-5d) whenever nothing was actually inherited"
+    }
+  }
+}

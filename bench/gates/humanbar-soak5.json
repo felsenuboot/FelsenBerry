@@ -1,0 +1,29 @@
+{
+  "label": "soak5",
+  "bot": "SchnoddSchorsch",
+  "since": "2026-09-03T10:31:20Z",
+  "until": "2026-09-03T11:31:20Z",
+  "at": "2026-09-03T11:31:46.190Z",
+  "pass": false,
+  "reasons": [
+    "playcheck verdict is SPARSE, not PLAYING"
+  ],
+  "direction": {
+    "pass": true,
+    "opened": 13,
+    "closed": 13,
+    "unclosed": 0,
+    "latency_p50_ms": 18794,
+    "latency_p90_ms": 29883,
+    "llm_calls_per_hr": 6.6
+  },
+  "playcheck": {
+    "verdict": "SPARSE",
+    "stationaryPct": 86.9,
+    "productiveActionsPer10Min": 0.8,
+    "noOpFraction": 0.929,
+    "distanceTraveled": 129.1,
+    "deaths": 0,
+    "panics": 0
+  }
+}

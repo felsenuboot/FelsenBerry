@@ -1,0 +1,56 @@
+{
+  "label": "soak5",
+  "bot": "SchnoddSchorsch",
+  "since": "2026-09-03T10:31:20Z",
+  "until": "2026-09-03T11:31:20Z",
+  "at": "2026-09-03T11:31:46.198Z",
+  "pass": false,
+  "criteria": {
+    "playcheck": {
+      "pass": false,
+      "verdict": "SPARSE"
+    },
+    "directionGate": {
+      "pass": true,
+      "opened": 13,
+      "closed": 13,
+      "unclosed": 0
+    },
+    "survivesUnaided": {
+      "pass": true,
+      "deaths": 0,
+      "humanInterventions": 0,
+      "deciderInterventions": 19,
+      "humanInterventionDetail": [],
+      "lastVitals": {
+        "t": "2026-09-03T11:30:54.516Z",
+        "hp": 20,
+        "food": 20
+      },
+      "vitalsCritical": false,
+      "vitalsFloor": {
+        "pass": true,
+        "criticalHp": 6,
+        "sustainMs": 600000,
+        "worst": null,
+        "streakCount": 0
+      }
+    },
+    "trail": {
+      "pass": true,
+      "verdict": "PASS",
+      "reasons": [],
+      "sitesChecked": 3,
+      "sitesSeen": {
+        "chopClusters": 2,
+        "digClusters": 1
+      },
+      "vacuous": false,
+      "vacuousReasons": []
+    }
+  },
+  "artifacts": {
+    "humanbar": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/humanbar-soak5.json",
+    "trail": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/trail-soak5.json"
+  }
+}

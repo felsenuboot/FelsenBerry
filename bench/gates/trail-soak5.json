@@ -1,0 +1,24 @@
+{
+  "label": "soak5",
+  "bot": "SchnoddSchorsch",
+  "since": "2026-09-03T10:31:20.000Z",
+  "until": "2026-09-03T11:31:20.000Z",
+  "at": "2026-09-03T11:31:46.091Z",
+  "verdict": "PASS",
+  "reasons": [],
+  "vacuous": false,
+  "vacuousReasons": [],
+  "findings": {
+    "floatingLogs": [],
+    "strandedDrops": [],
+    "nakedShafts": [],
+    "sitesChecked": 3
+  },
+  "ledgerStrandedTotal": 0,
+  "torchRate": 0,
+  "sitesSeen": {
+    "chopClusters": 2,
+    "digClusters": 1
+  },
+  "excludeZones": null
+}
