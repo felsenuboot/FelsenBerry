@@ -81,7 +81,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    b. ~~#73 chopTrees oak-only~~ DONE (d48baa9 — skills already species-agnostic; the bug was decider.js mapAndyCommand hardening Andy's one named species into a restriction → now types:'any'; 17/17 replay cases; lands for the NEXT decider start, soak #5's daemon predates it).
    c. ~~#71 RESTOCK torch deadlock~~ DONE (e504964 — coal→charcoal fallback + honest no_fuel already existed; real gap: mineProduct called ensureTool (bootstrapping a whole wooden pickaxe) before checking any ore was reachable — 25.6s per cycle in a sealed box → 542ms with an existence check first; shared path for every mineProduct caller; fixture producer-torch-fuel.js self-calibrating).
    d. #95 direction-episode rot follow-ups — adjacent to #109/#110/#112. eng-3 + engine-dev grader.
-   e. #67 role-default work no-ops at base — next step off #88. eng-3.
+   e. ~~#67 role-default work no-ops at base~~ DONE (02aa516 — every role's work already classifies barren correctly; the gap was RELOCATABLE missing huntAnimals, so a barren hunter detected it every cycle and could never act; live-verified with --role hunter; agenda-idlework 42/42). Flagged, unfixed: runner.js arg parser eats `--role` as `--agenda`'s value when `--agenda` comes first — use `--role X --agenda`.
    f. #69 telemetry ledger gaps — grading data quality. engine-dev.
    Lanes relabelled: engine-dev-2 retired → eng-3 29 open, engine-dev 13, movement (R2/R3 ladder, UNOWNED) 6, unassigned 19 (#6/#8 = phase-2 cooperation).
    Run #7 (GrantigGustav, world-race7) launches after soak #5's verdict + lead go. #103 done; #104 low.
