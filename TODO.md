@@ -60,6 +60,11 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    lane; run #6 death #1 09:30:17–21Z, test-driver f50f6b7): -10 HP co-timed with "Creeper at 2.8 blocks", then three -2 bite drops with
    NO dangerscan mention of a spider. Threat tracking must hold N threats (nearest-first) and WALL_OFF must not run mid-build with an
    unseen melee attacker landing hits — re-scan on damage-without-named-source. Fixture against real mobs on 25599 (RCON summon OK there).
+5g. **Respawn camp: respawned at night with an empty inventory → walks → shot again** (eng-3, agenda/survival, from run #6:
+   server.log deaths 09:37:16 / 09:37:52 / 09:38:19Z — three in 63s at world spawn, the last 3s after a re-arm). #103 opens an
+   episode on respawn but nothing says "it is night and I have nothing: dig in FIRST". Design: on respawn at night (or hostile within
+   16 blocks), SHELTER runs before any project/kit work, with dirt-dig fallback when there is no filler; also a spawn-camp counter
+   (N deaths within M s of respawn → dig-in + wait-for-dawn regardless). Fixture in agenda-ladder; live on 25599 with RCON-set night.
 6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
