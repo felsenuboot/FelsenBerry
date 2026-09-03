@@ -116,7 +116,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 28, enabled: true,
+  version: 29, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -295,6 +295,22 @@ const sense = (inject) => {
     // __agenda.step(injectedSnapshot) could not replay a synthetic world for the TOOL rung,
     // and the design's mandatory deterministic-replay hook was quietly leaky. Every input a
     // predicate reads has to come through sense(), or the dry run is not a dry run.
+    //
+    // #107 follow-up, live-caught: "best" used to mean highest RAW DURABILITY, tier ignored
+    // entirely — so a freshly-crafted 100%-durability wooden tool consistently outranked an
+    // already-used stone one of the SAME class. The gear-progression drive's own s.upgrades
+    // reads s.tools[cls].name to decide "already upgraded?", so this made it report the OLD
+    // wooden tool as still-held even right after a successful stone craft, firing again —
+    // measured live: it crafted three redundant stone_pickaxes in a row (never discarding the
+    // now-obsolete wooden ones) before running the shared stick supply to zero, which starved
+    // the SWORD upgrade of the sticks it needed and never reached — a bot that let a
+    // durability tie silently define "best" not only wasted materials, it broke the
+    // multi-class ordering this whole follow-up exists to deliver. Tier now wins first,
+    // durability only breaks a tie within the same tier — TOOL_TIER_RANK is a small, local
+    // copy of skills.js's own TIER_RANK (that file's internal, not exported); keep them in
+    // sync if either changes.
+    const TOOL_TIER_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, copper: 2.5, golden: 2, wooden: 1 };
+    const toolTierRank = (name) => TOOL_TIER_RANK[String(name || '').split('_')[0]] || 0;
     s.toolCounts = {};
     for (const it of items) {
       const m = /_(pickaxe|axe|shovel|hoe|sword)$/.exec(it.name);
@@ -302,7 +318,11 @@ const sense = (inject) => {
       const cls = m[1];
       const max = it.maxDurability || 0;
       const dur = max ? Math.round(((max - (it.durabilityUsed || 0)) / max) * 100) : 100;
-      if (!s.tools[cls] || dur > s.tools[cls].dur) s.tools[cls] = { name: it.name, dur };
+      const cur = s.tools[cls];
+      const itTier = toolTierRank(it.name);
+      if (!cur || itTier > toolTierRank(cur.name) || (itTier === toolTierRank(cur.name) && dur > cur.dur)) {
+        s.tools[cls] = { name: it.name, dur };
+      }
       s.toolCounts[cls] = (s.toolCounts[cls] || 0) + 1;
     }
 
@@ -314,20 +334,40 @@ const sense = (inject) => {
     // snapshot" rule s.tools/s.toolCounts already follow. Bounded to wooden->stone on purpose:
     // that's tierFor's own bootstrappable boundary (iron/diamond need a furnace/ore chain
     // craftToolChain doesn't cover).
-    s.upgrade = null;
+    //
+    // #107 follow-up: sword and axe joined pickaxe here — a human upgrades every tool they
+    // carry, not just the one their role happens to name. `s.upgrades` is a map (class ->
+    // {cls,to}), not a single class, because a bot can have more than one pending upgrade at
+    // once (e.g. a lumberjack's own axe AND a separately-carried wooden sword) — TOOL's act()
+    // picks which one to pursue this tick; the ladder naturally works through the rest on
+    // later ticks since an addressed class simply stops appearing in this map next sense().
+    s.upgrades = {};
     {
-      const c = activeClass(s);
       const S = globalThis.__skills;
-      if (c && S && typeof S.tierFor === 'function') {
+      if (S && typeof S.tierFor === 'function') {
         let tableInReach = false;
         try {
           tableInReach = items.some((i) => i.name === 'crafting_table')
             || Boolean(bot.findBlock({ matching: bot.registry.blocksByName.crafting_table.id, maxDistance: 6 }));
         } catch (e) {}
-        let payable = null;
-        try { payable = S.tierFor(c, items, tableInReach); } catch (e) {}
-        const heldName = s.tools[c] && s.tools[c].name;
-        if (payable === `stone_${c}` && (!heldName || heldName.startsWith('wooden_'))) s.upgrade = { cls: c, to: payable };
+        const classes = new Set([activeClass(s), 'sword', 'axe'].filter(Boolean));
+        for (const c of classes) {
+          let payable = null;
+          try { payable = S.tierFor(c, items, tableInReach); } catch (e) {}
+          const heldName = s.tools[c] && s.tools[c].name;
+          // UPGRADE means "already holds a working wooden tool of this class" — NOT missing
+          // (that's classBroken's/weaponMissing's own job, a genuine need, already gated
+          // above this in fire()/act()). Live-caught before it ever shipped: the original
+          // pickaxe-only version accepted a missing tool here too (`!heldName`), which was
+          // harmless there ONLY because a missing active-class pickaxe is always intercepted
+          // by classBroken first, at higher priority, before this branch is ever reached.
+          // Sword/axe have no equivalent intercept for "this ONE class is missing" (only
+          // weaponMissing, which fires solely when BOTH are absent) — so the same `!heldName`
+          // check here would manufacture a brand-new axe or sword from scratch for any bot
+          // with spare materials, even one that never held or needed that class at all. That
+          // is acquisition, not upgrade, and out of this feature's scope.
+          if (payable === `stone_${c}` && heldName && heldName.startsWith('wooden_')) s.upgrades[c] = { cls: c, to: payable };
+        }
       }
     }
 
@@ -385,6 +425,18 @@ const sense = (inject) => {
 const activeClass = (s) => {
   if (A.project && A.project.tool) return A.project.tool;
   return ROLE_TOOL[s.role] || null;
+};
+// Gear-progression drive (#107 follow-up): which pending upgrade (if any) TOOL should pursue
+// next, out of possibly several in s.upgrades. Priority: the active class (what the bot's
+// CURRENT work actually depends on) first, then sword, then axe — see the ordering argument
+// in FEEDBACK.md. Pure function of the snapshot, safe for fire()/clear()/act() alike.
+const nextUpgrade = (s) => {
+  if (!s.upgrades) return null;
+  const active = activeClass(s);
+  for (const c of [active, 'sword', 'axe']) {
+    if (c && s.upgrades[c]) return s.upgrades[c];
+  }
+  return null;
 };
 // Does the departure gate want a weapon we do not have? kitCheck accepts a sword OR an axe,
 // so this must too, or TOOL would keep acquiring a sword for a bot already carrying an axe.
@@ -798,9 +850,9 @@ const RUNGS = [
       const b = s.tools[c];
       if (!b || b.dur <= 15) return true;
       // gear-progression drive: lowest priority of TOOL's own triggers — a broken/missing
-      // tool always outranks a mere upgrade. s.upgrade is already gated to "payable tier is
+      // tool always outranks a mere upgrade. s.upgrades is already gated to "payable tier is
       // strictly better than what's held" (sense()'s job, not this predicate's).
-      if (s.upgrade) return true;
+      if (nextUpgrade(s)) return true;
       return false;
     },
     clear: (s) => {
@@ -808,7 +860,7 @@ const RUNGS = [
       if (kitPickShort(s)) return false;
       // an upgrade in progress must not clear just because the OLD tool is still healthy —
       // clear()'s own health check below knows nothing about tiers.
-      if (s.upgrade) return false;
+      if (nextUpgrade(s)) return false;
       const c = activeClass(s);
       if (!c) return true;
       const b = s.tools[c];
@@ -847,7 +899,14 @@ const RUNGS = [
       // craftToolChain fell through to bootstrapping a WORSE (wooden) tier from scratch —
       // the opposite of what this feature is for. depot:false keeps the craft where the
       // opportunity was actually detected.
-      else if (s.upgrade) { target = s.upgrade.cls; spare = true; skipDepot = true; }
+      //
+      // Ordering for MULTIPLE pending upgrades (#107 follow-up, argued in FEEDBACK): the
+      // active class first — that is the tool the bot's CURRENT work actually depends on —
+      // then sword, then axe as secondary weapon-readiness upgrades. Not "all at once": one
+      // craft per act() call, same as every other TOOL branch, but this rung re-fires on
+      // every tick an upgrade is still pending, so a bot with two pending upgrades addresses
+      // both within a few ticks, in this stable order, not "only ever the first one found".
+      else if (nextUpgrade(s)) { const u = nextUpgrade(s); target = u.cls; spare = true; skipDepot = true; }
       else if (c) target = c;
       if (!target) return 'none';
       // spare: without it ensureTool answers "you already have one" and the rung can never

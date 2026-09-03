@@ -92,14 +92,20 @@ try {
   T('an AXE satisfies the weapon requirement too',
     { tools: { pickaxe: { name: 'iron_pickaxe', dur: 90 }, axe: { name: 'stone_axe', dur: 80 } },
       toolCounts: { pickaxe: 2, axe: 1 } }, 'PROJECT');
-  // gear-progression drive: rung WIRING only — sense()'s own computation of s.upgrade (from
+  // gear-progression drive: rung WIRING only — sense()'s own computation of s.upgrades (from
   // real carried items via S.tierFor) is a live-bot concern, not something dry-run injection
   // exercises (same split as panicStale above: this proves fire()/act() react correctly to
   // the field, a live fixture proves sense() sets it correctly from a real inventory).
-  T('s.upgrade set (payable stone, held wooden) -> TOOL even with a healthy tool otherwise',
-    { upgrade: { cls: 'pickaxe', to: 'stone_pickaxe' } }, 'TOOL');
+  T('s.upgrades has a pickaxe entry -> TOOL even with a healthy tool otherwise',
+    { upgrades: { pickaxe: { cls: 'pickaxe', to: 'stone_pickaxe' } } }, 'TOOL');
   T('a mere upgrade never outranks a genuine need — hungry still wins',
-    { food: 5, upgrade: { cls: 'pickaxe', to: 'stone_pickaxe' } }, 'EAT_CRITICAL');
+    { food: 5, upgrades: { pickaxe: { cls: 'pickaxe', to: 'stone_pickaxe' } } }, 'EAT_CRITICAL');
+  // #107 follow-up: sword/axe joined pickaxe. A pending upgrade in EITHER class alone must
+  // fire TOOL too, not just the active (project/role) class.
+  T('s.upgrades has ONLY a sword entry (no active-class upgrade pending) -> TOOL still fires',
+    { upgrades: { sword: { cls: 'sword', to: 'stone_sword' } } }, 'TOOL');
+  T('s.upgrades has ONLY an axe entry -> TOOL still fires',
+    { upgrades: { axe: { cls: 'axe', to: 'stone_axe' } } }, 'TOOL');
   T('torches 4 (below floor 16) -> RESTOCK', { torches: 4 }, 'RESTOCK');
   T('dark + carrying torches -> LIGHT', { surfaceExposed: false, light: 3 }, 'LIGHT');
   A.project = null;

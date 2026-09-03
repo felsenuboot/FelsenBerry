@@ -4376,3 +4376,55 @@ fix: n/a — process note. `pids/Respawn103.meta` confirms OWNER=engine-dev-3/DE
 were correctly set (an earlier accusation to the contrary, from team-lead, was withdrawn) — the
 finding is proximity, not a missing spawn flag.
 github: n/a
+
+### 2026-09-03 engine-dev-3 — gear-progression drive extended to sword and axe (agenda v29):
+same s.upgrades mechanism, more classes; a real durability-vs-tier bug found and fixed along
+the way that was silently undermining even the ORIGINAL pickaxe-only feature
+type: fix + fixture + live verification
+status: built, ordering argued below, live-verified end to end (pickaxe THEN sword addressed
+correctly, exactly one craft each, no waste), `bench/fixtures/agenda-ladder.js` 34/34 (up from
+32/32), `bench/preflight.sh` 217/217. All live testing on a throwaway bot >=400 blocks from
+MampfManfred (soak #4), per the new soak-hygiene law.
+what: `s.upgrade` (singular, active-class-only) became `s.upgrades` (a map: class -> {cls,to}),
+checked for the active class AND sword AND axe every sense(). Tightened one real bug along
+the way, caught before it ever shipped: the original pickaxe-only version accepted a MISSING
+tool as upgrade-eligible too (`!heldName`), which was harmless there only because a missing
+active-class pickaxe is always intercepted by `classBroken` first, at higher priority, before
+the upgrade branch is ever reached — sword/axe have no equivalent per-class intercept (only
+`weaponMissing`, which fires solely when BOTH are absent), so the same check would have
+manufactured a brand-new axe or sword from scratch for any bot with spare materials, even one
+that never held or needed that class. Fixed by requiring `heldName &&
+heldName.startsWith('wooden_')` — upgrade means "already holds a working wooden tool of this
+class," never "acquire a new one."
+
+**Ordering, argued as asked**: `nextUpgrade(s)` picks the ACTIVE class first (project's own
+tool, or the role's) — that is the tool the bot's CURRENT work actually depends on, so its
+upgrade has the most immediate payoff — then sword, then axe, as secondary weapon-readiness
+upgrades. Not "all at once": one craft per `act()` call, same as every other TOOL branch, but
+the rung re-fires on every tick a pending upgrade remains, so a bot with two or three pending
+upgrades works through all of them within a few ticks in this stable order, not "only ever the
+first one found forever." Rejected literal simultaneity (queueing multiple `ensureTool` calls
+in one act) as unnecessary complexity — the ladder's own tick cadence already delivers "all of
+them, soon" for free.
+
+**Live testing found and fixed a real bug in the ORIGINAL (already-shipped) pickaxe-only
+feature, not just the sword/axe extension**: `s.tools[cls]` (P1d's "best tool held" input, used
+fleet-wide, predates this whole feature) picked by highest RAW DURABILITY only, tier ignored
+entirely — so a freshly-crafted 100%-durability wooden tool consistently outranked an
+already-used stone one of the SAME class. Since `s.upgrades` reads `s.tools[cls].name` to
+decide "already upgraded?", this made it report the OLD wooden tool as still-held right after a
+successful stone craft, firing again. Measured live: a bot crafted THREE redundant
+stone_pickaxes in a row (never discarding the now-obsolete wooden ones, which stayed in the
+bag) before running its shared 8-stick supply to zero — which then starved the SWORD upgrade
+of the sticks it needed and it was never reached at all that run. A silently-wrong "best tool"
+definition didn't just waste materials, it broke the very ordering this follow-up exists to
+deliver. Fixed by making tier win first (a small local `TOOL_TIER_RANK`, matching
+`skills.js`'s own internal, unexported `TIER_RANK` — kept in sync by comment, not import, since
+skills.js doesn't export it), durability only breaking a tie within the same tier. Re-tested
+clean after the fix: exactly one stone_pickaxe and one stone_sword crafted, zero redundant
+re-crafts, settled correctly into IDLE once both were addressed.
+fix: `agenda.js` (`s.tools` selection now tier-then-durability, `s.upgrades` map + `nextUpgrade`
+priority helper, TOOL's fire/clear/act — v29). `bench/fixtures/agenda-ladder.js` (2 new cases:
+sword-only and axe-only pending upgrades each fire TOOL, 34/34).
+github: felsenuboot/FelsenBerry#107 (extends the already-closed pickaxe-only fix; the
+durability-vs-tier bug applied to that shipped work too, not just this extension)
