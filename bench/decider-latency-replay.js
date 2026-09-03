@@ -36,7 +36,7 @@ process.env.OLLAMA_PORT = String(OLLAMA_PORT);
 const path = require('path');
 const decider = require(path.join(__dirname, '..', 'decider.js'));
 const { handleBot, ruleKey, loadRules, getState, setState,
-        DRIVER_GRACE_MS, PER_BOT_MIN_GAP_MS, LLM_MISS_RETRY_LIMIT, POLL_MS } = decider;
+        DRIVER_GRACE_MS, PER_BOT_MIN_GAP_MS, LLM_MISS_RETRY_LIMIT, POLL_MS, mapAndyCommand } = decider;
 
 let failures = 0;
 let passed = 0;
@@ -200,6 +200,25 @@ async function main() {
     await fb.close();
     await fakeOllama.close();
   }
+
+  // ---- TODO 7b (#73): mapAndyCommand's species mapping — pure, no fake bot/Ollama needed ----
+  // Andy names exactly ONE species (mindcraft-ce's own !searchForBlock dialect always does),
+  // which is a fact about its training distribution (oak is its overwhelmingly common
+  // example), not a real observation of what wood is actually nearby. The old mapping
+  // (`types:[species]`) treated that guess as a hard restriction and recreated soak #4's own
+  // wood-freeze shape at a birch/spruce spawn. Fixed to 'any', matching skills.js's own
+  // chopTrees default (its own header: "#A: default ANY species, not oak-only").
+  for (const [cmd, block] of [['searchForBlock', 'oak_log'], ['collectBlocks', 'birch_log']]) {
+    const mapped = mapAndyCommand(cmd, [`"${block}"`, '32']);
+    assert(mapped && mapped.skill === 'chopTrees', `mapAndyCommand('${cmd}', '${block}') resolves to chopTrees`);
+    assert(mapped && mapped.args && mapped.args.types === 'any',
+      `mapAndyCommand('${cmd}', '${block}') maps to types:'any', NOT types:['${block.replace('_log', '')}'] — Andy's named species is a preference signal, never a hard restriction`);
+  }
+  // sanity: a non-species block (ore/ubiquitous) is UNAFFECTED by this change — still maps to
+  // mineLane with its own real target, not accidentally swept into the 'any species' branch.
+  const oreMapped = mapAndyCommand('searchForBlock', ['"iron_ore"', '32']);
+  assert(oreMapped && oreMapped.skill === 'mineLane' && oreMapped.args.target === 'iron_ore',
+    'a non-species block (iron_ore) still maps to mineLane with its real target, unaffected by the species-preference fix');
 
   console.log(`\nREPLAY: ${passed}/${passed + failures}`);
   process.exit(failures ? 1 : 0);

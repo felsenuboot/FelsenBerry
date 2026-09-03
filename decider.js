@@ -250,7 +250,20 @@ function mapAndyCommand(cmd, argStrs) {
     const n2 = num(argStrs[1], null);
     const species = stripLogSuffix(block);
     if (SPECIES_LIST.includes(species)) {
-      const args = { types: [species] };
+      // TODO 7b (#73): Andy names exactly ONE species because mindcraft-ce's own
+      // !searchForBlock dialect always takes one specific block name — that is a fact about
+      // its TRAINING DISTRIBUTION (oak is by far the most common example, so Andy defaults to
+      // it constantly), not a real observation about what wood is actually nearby. Treating
+      // that guess as a HARD restriction (the old `types:[species]`) recreated soak #4's own
+      // wood-freeze shape: dispatched at a birch/spruce spawn, chopTrees would search only for
+      // oak, find none, and report a failure right next to abundant wood it was never allowed
+      // to touch. skills.js's own chopTrees already made exactly this argument for its default
+      // (`#A: default ANY species, not oak-only`) — this mapping should agree with it. Species
+      // PREFERENCE, not restriction: the decider has no way to express an ordered preference
+      // to chopTrees (it only takes an acceptable SET), so the honest translation of "Andy
+      // said go get oak" is "go get wood" — 'any' species, matching the intent (get wood) over
+      // the incidental, training-biased detail (which species Andy happened to name).
+      const args = { types: 'any' };
       if (cmd === 'searchForBlock') args.maxDist = n2 || 32; else args.count = n2 || 4;
       return { skill: 'chopTrees', args };
     }
@@ -592,4 +605,5 @@ module.exports = {
   handleBot, discoverBots, loadRules, ruleKey, pollOnce,
   getState: () => state, setState: (s) => { state = s; },
   POLL_MS, DRIVER_GRACE_MS, PER_BOT_MIN_GAP_MS, LLM_MISS_RETRY_LIMIT, FLEET_CAP_PER_HOUR,
+  mapAndyCommand,   // TODO 7b (#73): exposed for bench/fixtures/decider-species.js
 };

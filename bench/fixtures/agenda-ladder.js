@@ -297,6 +297,19 @@ try {
     { food: 12, foodCount: 1 }, 'EAT');
   A.owner = null;
 
+  // 7a (#74): relocateToWork's success check is now verifier-backed against the requested hop
+  // (skills.js, S._relocateVerified — the threshold math itself is tested there, in
+  // bench/fixtures/relocate-verify.js). This side of it is agenda.js's own: IDLE's barren-
+  // relocate tracking (A._idleWorkOutcome) must read whatever relocateToWork HONESTLY reports
+  // — a short-of-threshold "no_progress" counts as barren (keeps the relocate-backoff/wander-
+  // cap machinery engaged), a genuine past-threshold "relocated:true" counts as worked. A
+  // lying primitive corrupts this classifier from the consumer side exactly as much as it
+  // corrupts REMEDY's telemetry — this is the other half of that same finding.
+  TF('IDLE barren classifier: relocateToWork honestly reports no_progress (short of the new threshold) -> classified barren',
+    A._idleWorkOutcome('relocateToWork', { relocated: false, reason: 'no_progress', dist: 10, hop: 64 }, null) === 'barren');
+  TF('IDLE barren classifier: relocateToWork honestly reports relocated:true (past the new threshold) -> classified worked',
+    A._idleWorkOutcome('relocateToWork', { relocated: true, dist: 40, hop: 64 }, null) === 'worked');
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.rung}`);
   return out;

@@ -5618,3 +5618,103 @@ ladder.js` (+1 case, the priority-inversion proof). `bench/preflight.sh` (added
 `producer-cook` to the fixture list).
 github: n/a (soak-hour follow-up, not separately filed — flagged as an open design question
 in this entry if a future TODO item wants to solve the priority-inversion properly)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 7a: relocateToWork verifier-backed against the requested
+hop, not a fixed absolute floor (#74, skills.js v64)
+type: fix + fixture
+status: built, live-verified (real bot, real terrain, both outcome paths), `bench/fixtures/
+relocate-verify.js` (new, 9/9, pure/synthetic — no world dependency), `bench/fixtures/
+agenda-ladder.js` +2 cases (74/74), `bench/preflight.sh` 275/275 on throwaway bots (25599
+only). Nothing near 25600 (soak #5) throughout — confirmed still fine before/after.
+
+what: `relocateToWork` already had a #C fix for the LITERAL 0m false-success (a `gotoNear` that
+resolved without the bot actually moving, `dist<3` → `relocated:false`) — but that was a FIXED
+absolute floor, and it does not scale: a 64-block hop (REMEDY's own tier-1 escalation ask,
+TODO 5c/#110) landing just past 3 blocks away would still have reported `relocated:true`. That
+is not a meaningful relocate — the whole point of a bigger hop is "significantly further than
+last time" — and REMEDY's own escalation ladder (and IDLE's barren-relocate backoff tracking,
+`A._idleWorkOutcome`) both depend on this primitive telling the truth about whether that
+actually happened; a lying `relocated:true` silently defeats REMEDY's "still failing, escalate
+further" signal and corrupts soak telemetry that reads `dist` as ground truth.
+
+fix: success now requires `dist >= hop * 0.5` (argued: candidates are picked at ring distances
+`hop`/`hop+20`/`hop+40` and `gotoNear` navigates straight to one, so a genuine arrival should
+land well past half of even the smallest ring tried — a real bar, not a token increase over the
+old fixed 3; `hop` is always ≥16 from its own clamp, so this is ALWAYS at least as strict as the
+floor it replaces, never looser). Extracted as a pure, exposed predicate
+(`S._relocateVerified(dist, hop)`, `S._minRelocateFraction`) — same discipline as `S.tierFor`/
+`S._huntAnyMobDefaultSpecies` — so the threshold math is fixture-testable with synthetic pairs,
+no need to actually walk a bot to prove the boundary.
+
+**Live-verified, both outcome paths, on 25599** (a heavily-used test world after a full day of
+multi-bot activity — worth recording, see below): (1) boxed_in — walled a bot into a small
+enclosed room via RCON (`fill ... hollow`), `relocateToWork{hops:64}` correctly reported
+`{relocated:false, reason:'boxed_in', tried:12, unroutable:12}`, confirming that path is
+unaffected by the fix. (2) **Could not complete a clean "genuine long-distance success"
+live demo** despite trying from six different locations (two remote diagonal coordinates, a
+supposedly-cleared box, world-spawn-adjacent terrain, and two more) — every attempt reported
+`boxed_in` (`unroutable` at or near `tried`), and a direct probe of `bot.pathfinder.getPathTo`
+against plain 5-block offsets from the bot's own position returned `status:'partial'` on 4 of 5
+tries even in open-looking terrain. Read honestly: this reflects the CURRENT state of a test
+world that many bots have mined/built/walled across all day (protected regions, dug-out
+terrain, partially-collapsed ground), not a flaw in the fix or the test methodology — `ctx.
+reachable`'s own 2s-budget `getPathTo` search is pre-existing and untouched by this change.
+Confidence in the fix rests on: the pure threshold math (9/9, deterministic), the confirmed-
+unchanged `boxed_in` path (live, twice), and the consumer-side check in agenda-ladder.js (below)
+— not on a live "successful long relocate" demo, which this world's current state did not
+produce despite genuine effort. Flagging for whoever runs the next live relocate test: try a
+freshly-loaded/less-worked area, or accept `boxed_in` as a legitimate, common outcome here now.
+
+`bench/fixtures/agenda-ladder.js` (+2 cases): `A._idleWorkOutcome('relocateToWork', ...)`
+correctly reads an honest `no_progress` (short of the new threshold) as barren and an honest
+`relocated:true` (past it) as worked — the OTHER half of "a lying primitive corrupts the
+escalation ladder": IDLE's own barren-relocate backoff depends on this exactly as much as
+REMEDY's telemetry does.
+
+fix: `skills.js` (`relocateVerified`/`S._relocateVerified`/`S._minRelocateFraction`,
+`relocateToWork`'s own success check now calls it instead of a fixed `dist<3` — v64).
+`bench/fixtures/relocate-verify.js` (new, 9/9). `bench/fixtures/agenda-ladder.js` (+2 cases).
+`bench/preflight.sh` (added `relocate-verify` to the fixture list).
+github: felsenuboot/FelsenBerry#74 (TODO 7a)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 7b: decider's Andy-species mapping no longer restricts
+chopTrees to one species (#73, decider.js)
+type: fix + fixture
+status: built, replay-verified (`bench/decider-latency-replay.js`, +5 cases, 17/17 total,
+against the real `mapAndyCommand` — not a reimplementation). Does NOT touch the currently-
+running soak #5 decider daemon (pid 180453, started on the pre-fix source) — same "a live
+daemon runs whatever was on disk when it started, a source edit needs a restart to take
+effect" fact this team already learned once today (TODO 4b's own WIP-race story); NOT
+restarting it mid-soak, per the standing rule. This fix lands for the NEXT decider start.
+
+what: `skills.js`'s own `chopTrees` already defaults to `types:'any'` when the caller doesn't
+name a species (its own header: "#A: default ANY species, not oak-only... FurzFriedrich
+thrashed 'no oak within 64' beside birch/spruce") — rules.json's own chopTrees entries never
+specify `types` either, so the RULE-dispatch path was already correct. The bug was specifically
+in `decider.js`'s `mapAndyCommand` — Andy's `!searchForBlock`/`!collectBlocks` dialect always
+names exactly ONE species (that is how mindcraft-ce's own training data shapes the command,
+oak being the overwhelmingly common example), and the old mapping took that literally:
+`types:[species]`. At a birch/spruce spawn with Andy defaulting to "oak" (its training bias,
+not an observation of what is actually nearby), this recreated soak #4's own wood-freeze shape
+— chopTrees would search ONLY for oak, find none, and report a failure standing right next to
+reachable wood it was never allowed to touch.
+
+fix: maps to `types:'any'` unconditionally whenever Andy names a recognized species — species
+PREFERENCE, not restriction, per the ask. The decider has no way to express an ORDERED
+preference to chopTrees (it only accepts an acceptable SET), so the honest translation of
+"Andy said go get oak" is "go get wood" — matching skills.js's own default philosophy, not
+overriding it with an incidental, training-biased detail. Non-species blocks (ore/ubiquitous)
+are unaffected — confirmed via a dedicated fixture case (iron_ore still maps to mineLane with
+its real target).
+
+`bench/decider-latency-replay.js` (+5 cases, pure — `mapAndyCommand` needs no fake bot/Ollama
+for this): both `!searchForBlock`/`!collectBlocks` map a named species to `types:'any'`, and a
+non-species block is unaffected. `mapAndyCommand` newly exposed in decider.js's test-only
+module.exports for this.
+
+fix: `decider.js` (`mapAndyCommand`'s species branch now returns `types:'any'`;
+`mapAndyCommand` added to `module.exports`). `bench/decider-latency-replay.js` (+5 cases,
+17/17 total).
+github: felsenuboot/FelsenBerry#73 (TODO 7b)

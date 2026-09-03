@@ -59,7 +59,9 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
 // v62 -> v63: TODO 5e (shared foods.js allowlist, huntAnimals anyMob species widening) landed
 // without bumping this — caught during soak #5 prep, same drift as agenda.js's own version
 // field (see its comment).
-const ENGINE_VERSION = 63;
+// v63 -> v64: TODO 7a (#74) — relocateToWork's success check is now verifier-backed against
+// the requested hop (50%), not a fixed absolute 3-block floor.
+const ENGINE_VERSION = 64;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -3689,6 +3691,14 @@ S.define('chopTrees', {
 // is to load new chunks by moving. Headings rotate across calls so repeated barren cycles fan
 // OUT instead of pacing one dead direction. No kit gate on purpose: a stripped bot must still
 // be able to relocate, and walking needs nothing in the bag.
+// #74 (TODO 7a): pure, exposed so a fixture can drive it with synthetic (dist, hop) pairs —
+// same discipline as S.tierFor/S._huntAnyMobDefaultSpecies. See the real call site's own
+// comment (inside relocateToWork's fn, below) for the full argument for the 50% threshold.
+const MIN_RELOCATE_FRACTION = 0.5;
+const relocateVerified = (dist, hop) => dist >= hop * MIN_RELOCATE_FRACTION;
+S._relocateVerified = relocateVerified;
+S._minRelocateFraction = MIN_RELOCATE_FRACTION;
+
 S.define('relocateToWork', {
   description: 'Walk to fresh, unprotected terrain when the local area is worked out, so role-default work has something to do. The agenda IDLE rung calls this on a barren no-op.',
   params: { skill: 'the role-work skill that no-opped (chopTrees|harvestGrass|mineLane|safeDescend)', role: 'fallback resource hint if skill is absent', hops: 'blocks to travel (default 40)' },
@@ -3770,9 +3780,25 @@ S.define('relocateToWork', {
     // — that was the outcome:ok-despite-0m false success. Measure from the real final position.
     const fin = bot.entity.position;
     const dist = Math.round(Math.sqrt((fin.x - here.x) ** 2 + (fin.z - here.z) ** 2));
-    if (dist < 3) return { relocated: false, reason: 'no_progress', kind, tried, unroutable };
+    // #74: verifier-backed, not just a fixed absolute floor. #C's own flat "dist<3" caught the
+    // literal 0m false-arrival, but it does not SCALE — a 64-block hop (REMEDY's own tier-1
+    // escalation ask, TODO 5c/#110) landing 4-5 blocks away would still have passed, and that
+    // is not a meaningful relocate: the whole point of a BIGGER hop is "significantly further
+    // than last time", and REMEDY's escalation ladder now depends on this primitive telling
+    // the truth about whether that actually happened — a lying 'relocated:true' silently
+    // defeats REMEDY's own "still failing, escalate to tier 2" signal and corrupts soak
+    // telemetry that reads `dist` as "how far did the relocate actually move the bot".
+    // Threshold argued at 50% of the REQUESTED hop (not the ring the candidate happened to be
+    // found at): candidates are picked at ring distances hop/hop+20/hop+40 and gotoNear
+    // navigates straight TO one, so a genuine successful arrival should land well past half of
+    // even the smallest (first) ring tried — a real bar, not a token increase over the old
+    // fixed 3. `hop` is always >=16 (the clamp above), so this is always a stricter check than
+    // the fixed-3 floor it replaces, never a looser one. `relocateVerified` (module-level,
+    // exposed as S._relocateVerified) is pure so bench/fixtures/relocate-verify.js can drive
+    // it with synthetic (dist, hop) pairs — no need to actually walk a bot to test the math.
+    if (!relocateVerified(dist, hop)) return { relocated: false, reason: 'no_progress', kind, tried, unroutable, hop, dist };
     try { await ctx.collectDrops(8, 6000); } catch (_) {}
-    return { relocated: true, kind, to: { x: Math.round(fin.x), y: Math.round(fin.y), z: Math.round(fin.z) }, dist };
+    return { relocated: true, kind, to: { x: Math.round(fin.x), y: Math.round(fin.y), z: Math.round(fin.z) }, dist, hop };
   },
   // #67a: a relocate that found nowhere new to go is not news — stay silent.
   doneMsg: (t) => (t.result && t.result.relocated
