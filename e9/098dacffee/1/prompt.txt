@@ -886,3 +886,11 @@ Also flagged (not mine, not touched): one pre-fix run logged an EAT/REFLEX rung 
 
 Want me to take a pass at FLEE_AWAY's LOS-breaking (new design, would send it first per usual), file it as a follow-up issue for later, or hold here?
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+T+30 status, with a correction to my last message: milestones — wood T+1m13s, stone not yet reached. Steering calls: 1 (opening mineLane only). Deaths: 0. Current: rung REFLEX, project chopTrees, HP 6.8, food 12 (declining from the earlier heal-deadlock, no new combat).
+
+**Correcting myself**: "half-kitted... food" DID appear, four times early (12:04:51-12:10:28Z, food 0/4 narrowing to 3/4) — I missed it in my last report because it had already self-resolved by the time I checked (RESTOCK's `5l` fix actively hunted to fill it, rather than sitting stuck — exactly the intended behavior, unlike run #6 where nothing routed to hunting while sated). It just reappeared once more at 12:30:11Z (`food 0/2`, the excursion tier this time). So the wall IS still there structurally, but `5l` makes it self-heal instead of permanently stalling — worth watching whether it keeps resolving itself or eventually gets stuck for real. Will keep flagging every occurrence.
+</cross-session-message>
