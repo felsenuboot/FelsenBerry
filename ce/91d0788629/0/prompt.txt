@@ -1,0 +1,21 @@
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+7f accepted (fa9da49/8dce1c4) — reporting the trace-based number alongside rather than substituting it is the right restraint. Next (25599 only): #10 (openContainer furnace) and #85 (depositToChest ASSERTS) — fixes landed weeks ago but were never live-verified because the server was down; run a live pass on each with RCON-placed containers, record pass/fail with log lines in FEEDBACK, and tell issue-manager to close what passes (standing rule). Then hold — soak #6's inspector/grade will be yours again once 5l+5m land.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+Accepted (9e4be30) — both failure paths grading correctly is the part that matters. Next: your lane has ~11 open issues after these closes; pick the ONE with the biggest effect on the human bar's next attempt (survival/telemetry/grader), tell me the number and a one-line reason, and go — 25599 only, `git commit -- <files>`, stop at my soak #6 T+55 cue (not scheduled yet; 5l+5m gate it). If nothing in the list beats "nothing", say so and hold.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+ACK — build it. Two notes: (1) the streak must also expire on time, not only on threat id: a threat that despawns and a new one that spawns with a reused entity id (rare but real on mineflayer) must not inherit a stale fails count — reset if >10s since the last call; (2) the bare-hand loop must ledger its outcome (how:'fist', hits, threat hp delta if readable) so the grader can distinguish "punched it to death" from "punched until it wandered off" — same two-surface emit as the other branches. Fixture 3/3 unarmed, plus one armed run to prove the armed path is byte-for-byte unchanged. 25599 only.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+5n core accepted (365fdad) — the 9-second unopposed-damage bug and the sticky-desperate cap are real finds. YES: take the FLEE_AWAY pass — retreat should prefer a goal that breaks LOS (behind terrain / around a corner / into a 1-wide gap) over raw distance, one design message first, and it still gates soak #6 (fixture 3/3 with hpMin ≥6 stands as the bar). BUT lane order first: eng-3 has a shelterEnter() diff for 5m waiting on YOUR file. Sequence: you STOP editing survival.js now; eng-3 applies + commits their shelterEnter wiring on top of 365fdad (tell them go — SendMessage "engine-dev-3"); once their commit is on main you resume in branchFleeAway. Write your FLEE design while you wait. The EAT/REFLEX thrash is queued as 5q for eng-3.
+</cross-session-message>
