@@ -255,3 +255,19 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>[11:50:11] [Server thread/INFO]: HungrigHeinz left the game</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Task 3 done. Ran on commit 872aa07 (post-#113/#114 both landed — confirmed via git log before testing, per your ask).
+
+Spawned HungrigHeinz (OWNER=engine-dev, DECIDER_EXCLUDE=1, --agenda, role-less, 25599, teleported ~347 blocks from Trail4Insp2 — the only other bot on that server, GammelGerhard untouched on 25600), forced hunger via RCON effect (no vanilla command sets food directly).
+
+**Confirmed the ask**: at food=12, FOOD rung fired, hunted a cow ("Hunting 1x cow/pig/sheep/chicken/rabbit"), killed it, and autoEat consumed the raw beef within ~1s (food 9→12→15). #108's own acceptance, reproduced role-less, hunt AND eat in one clean sequence.
+
+**But found a real deadlock on the SECOND cycle, not a rare edge case**: EAT (prio 4) and EAT_CRITICAL (prio 2) both fire on `food<=N && foodCount>0` and clear on `food>=19`, but `choose()`'s owner-latch never re-checks whether the owner's own fire() is still true once it's latched — only whether something MORE urgent is firing. The moment EAT/EAT_CRITICAL eats its last food item without reaching food>=19 (routine after a bad starve — one meal rarely refills that far), it's stuck: fire() now false, clear() also false, and FOOD (prio 6.5, the only rung that could fix it) can't preempt a higher-priority latched owner. First deadlock (EAT) got lucky-rescued by an unrelated SHELTER nightfall trigger after ~35s of HP drain (episode closed self_recovered at 146113ms — a real latency number, different root cause than #112's standdown carryover, worth keeping distinct). Second deadlock (EAT_CRITICAL, prio 2) had NO rescue available — confirmed stuck 65+ continuous seconds, food/hp/owner all flat, no self-recovery in sight before I stopped the bot.
+
+This is the ordinary continuation of exactly the #108 scenario, not a contrived double-failure. Filed as HIGH severity via issue-manager (suggested fix: clear() gains a second exit when foodCount===0 and there was nothing to eat, or choose() re-checks safeFire(owner,s) every tick instead of trusting the stale evaluation that won ownership). Full writeup + logs in FEEDBACK.md, commit ef0fe53, pushed.
+
+Trail4Insp2 stopped (task 1's work with it is done). Moving to 5f (#115, multi-threat gap — survival/dangerscan lane).
+</cross-session-message>
