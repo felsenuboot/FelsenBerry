@@ -1,0 +1,30 @@
+{
+  "label": "soak4-audit",
+  "bot": "MampfManfred",
+  "since": "2026-09-03T07:49:42.327Z",
+  "until": "2026-09-03T08:49:42.327Z",
+  "at": "2026-09-03T09:04:19.971Z",
+  "pass": false,
+  "reasons": [
+    "latency p50 76s -- must be <=60s",
+    "latency p90 215s -- must be <120s"
+  ],
+  "direction": {
+    "pass": false,
+    "opened": 10,
+    "closed": 10,
+    "unclosed": 0,
+    "latency_p50_ms": 76456,
+    "latency_p90_ms": 215415,
+    "llm_calls_per_hr": 9.4
+  },
+  "playcheck": {
+    "verdict": "PLAYING",
+    "stationaryPct": 12.1,
+    "productiveActionsPer10Min": 5.5,
+    "noOpFraction": 0.154,
+    "distanceTraveled": 6450.9,
+    "deaths": 0,
+    "panics": 0
+  }
+}

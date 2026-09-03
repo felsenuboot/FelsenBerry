@@ -1,0 +1,37 @@
+{
+  "label": "soak4-audit",
+  "bot": "MampfManfred",
+  "since": "2026-09-03T07:49:42.327Z",
+  "until": "2026-09-03T08:49:42.327Z",
+  "at": "2026-09-03T09:04:19.828Z",
+  "verdict": "PASS",
+  "reasons": [],
+  "vacuous": true,
+  "vacuousReasons": [
+    "only 1 site(s) checked (chop clusters seen 0, dig clusters seen 1) — below the 3-site floor this file's own findings thresholds already treat as the anecdote/pattern line",
+    "0 chop clusters seen — this verdict says nothing about chop cleanliness specifically (the bot never completed/attempted a chop in this window)"
+  ],
+  "findings": {
+    "floatingLogs": [],
+    "strandedDrops": [],
+    "nakedShafts": [],
+    "sitesChecked": 1
+  },
+  "ledgerStrandedTotal": 0,
+  "torchRate": 0,
+  "sitesSeen": {
+    "chopClusters": 0,
+    "digClusters": 1
+  },
+  "excludeZones": {
+    "zones": [
+      {
+        "x": -3,
+        "z": 5,
+        "r": 30
+      }
+    ],
+    "excludedChopSites": 0,
+    "excludedDigSites": 0
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "label": "soak4-audit",
+  "bot": "MampfManfred",
+  "since": "2026-09-03T07:49:42.327Z",
+  "until": "2026-09-03T08:49:42.327Z",
+  "at": "2026-09-03T09:04:19.980Z",
+  "pass": false,
+  "criteria": {
+    "playcheck": {
+      "pass": true,
+      "verdict": "PLAYING"
+    },
+    "directionGate": {
+      "pass": false,
+      "opened": 10,
+      "closed": 10,
+      "unclosed": 0
+    },
+    "survivesUnaided": {
+      "pass": true,
+      "deaths": 0,
+      "humanInterventions": 0,
+      "deciderInterventions": 18,
+      "humanInterventionDetail": [],
+      "lastVitals": {
+        "t": "2026-09-03T08:46:01.118Z",
+        "hp": 10,
+        "food": 0
+      },
+      "vitalsCritical": true
+    },
+    "trail": {
+      "pass": true,
+      "verdict": "PASS",
+      "reasons": [],
+      "sitesChecked": 1,
+      "sitesSeen": {
+        "chopClusters": 0,
+        "digClusters": 1
+      },
+      "vacuous": true,
+      "vacuousReasons": [
+        "only 1 site(s) checked (chop clusters seen 0, dig clusters seen 1) — below the 3-site floor this file's own findings thresholds already treat as the anecdote/pattern line",
+        "0 chop clusters seen — this verdict says nothing about chop cleanliness specifically (the bot never completed/attempted a chop in this window)"
+      ]
+    }
+  },
+  "artifacts": {
+    "humanbar": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/humanbar-soak4-audit.json",
+    "trail": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/trail-soak4-audit.json"
+  }
+}

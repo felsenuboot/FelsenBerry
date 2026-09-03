@@ -1,0 +1,25 @@
+{
+  "label": "soak4-audit-truncated",
+  "at": "2026-09-03T09:04:20.181Z",
+  "pass": false,
+  "reasons": [
+    "latency p50 76s -- must be <=60s",
+    "latency p90 215s -- must be <120s"
+  ],
+  "opened": 10,
+  "closed": 10,
+  "unclosed": 0,
+  "latency_p50_ms": 76456,
+  "latency_p90_ms": 215415,
+  "llm_calls": 8,
+  "llm_calls_per_hr": 9.4,
+  "skipped_cap": 0,
+  "closedBy_decider": 6,
+  "decider_interventions_matched": 6,
+  "undirected_time_fraction_by_bot": {
+    "MampfManfred": {
+      "opened": 10,
+      "fraction": 0.3071787727066128
+    }
+  }
+}

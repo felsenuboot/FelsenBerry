@@ -50,10 +50,10 @@ const MAX_SITES = parseInt(flag('max-sites', '15'), 10);
 const RCON_HOST = flag('rcon-host', '127.0.0.1');
 const RCON_PORT = flag('rcon-port', '25598');
 const RCON_PASS = flag('rcon-pass', 'fellocal123');
-if (!BOT || !INSPECTOR_PORT) {
-  console.error('usage: node bench/trail.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port <port> [--max-sites N] [--exclude-zones "x,z,r;x,z,r"] [--json]');
-  process.exit(2);
-}
+// the CLI-arg validation moved into main() (see bottom of file) -- this module is now also
+// IMPORTABLE (bench/fixtures/trail-vacuous.js pulls in computeVerdict()/MIN_SITES_FOR_VERDICT
+// hermetically, no live bot/RCON), and an unconditional exit(2) here would kill that at import
+// time whenever BOT/INSPECTOR_PORT aren't on argv (they never are for the fixture's own argv).
 
 // --exclude-zones "x,z,r;x,z,r;..." -- for a KNOWN contamination source sharing the same
 // server (a different bot's own dig/shelter activity near the graded bot's own work sites,
@@ -239,86 +239,124 @@ async function inspectShaft(site) {
   `);
 }
 
-// ---------------- 4. run it ----------------
-const recs = loadLedger();
-if (!recs.length) { console.error(`trail: no ledger records for ${BOT} in this window`); process.exit(1); }
-await stopSurvival();
-
-const { chopSites: allChop, digSites: allDig, torchSurfacePlaced, surfaceTaskCount } = extractSites(recs);
-const excludedChop = allChop.filter((s) => inExcludedZone(s.pos));
-const excludedDig = allDig.filter((s) => inExcludedZone(s.pos));
-const rawChop = allChop.filter((s) => !inExcludedZone(s.pos));
-const rawDig = allDig.filter((s) => !inExcludedZone(s.pos));
-if (EXCLUDE_ZONES.length) {
-  console.error(`trail: ${EXCLUDE_ZONES.length} exclusion zone(s) active — dropped ${excludedChop.length} chop + ${excludedDig.length} dig site(s) as contaminated (known other-bot activity), not counted toward this bot's verdict`);
-}
-const chopClusters = cluster(rawChop, 6).sort((a, b) => (b.stranded || 0) - (a.stranded || 0));
-const digClusters = cluster(rawDig, 6).sort((a, b) => (b.digs || 0) - (a.digs || 0));
-
-// prioritize ledger-flagged sites (stranded>0) first, then a spread sample of the rest,
-// bounded to MAX_SITES total across BOTH categories (roughly half each) -- a real-time
-// budget, not a claim every site was checked.
-const chopBudget = Math.ceil(MAX_SITES / 2), digBudget = MAX_SITES - chopBudget;
-const chopToCheck = chopClusters.slice(0, chopBudget);
-const digToCheck = digClusters.slice(0, digBudget);
-
-const findings = { floatingLogs: [], strandedDrops: [], nakedShafts: [], sitesChecked: 0 };
-for (const site of chopToCheck) {
-  try {
-    const logs = await inspectFloatingLogs(site);
-    const drops = await inspectDrops(site);
-    findings.sitesChecked++;
-    if (logs.length) findings.floatingLogs.push({ site: site.pos, ledgerStranded: site.stranded, logs });
-    if (drops.length) findings.strandedDrops.push({ site: site.pos, ledgerStranded: site.stranded, drops });
-  } catch (e) { console.error(`trail: chop site ${site.pos} inspection failed: ${e.message}`); }
-}
-for (const site of digToCheck) {
-  try {
-    const shaft = await inspectShaft(site);
-    findings.sitesChecked++;
-    if (shaft.open) findings.nakedShafts.push({ site: site.pos, ...shaft });
-  } catch (e) { console.error(`trail: dig site ${site.pos} inspection failed: ${e.message}`); }
-}
-
-// ---------------- 5. verdict ----------------
+// ---------------- 5. verdict (pure — no network, no fs; hermetically testable) ----------------
 // Thresholds argued in FEEDBACK.md, 2026-09-03 ("criterion-4 trail inspector"): a human
 // player leaves ZERO of these as a matter of course (nobody walks away from a half-chopped
 // tree or an open pit on purpose), so PASS is reserved for zero found. WARN acknowledges a
 // live-inspection sample is bounded (MAX_SITES) and a single incident could be an honest
 // one-off; FAIL is reserved for either a genuine multi-site pattern or anything at the
 // tightest tolerance (an open shaft — the single most visually obvious scar of the four).
-const ledgerStrandedTotal = rawChop.reduce((n, s) => n + (s.stranded || 0), 0);
-const torchRate = surfaceTaskCount ? torchSurfacePlaced / Math.max(1, rawDig.reduce((n, s) => n + (s.digs || 0), 0)) : null;
+//
+// VACUOUS (added 2026-09-03, FEEDBACK.md "criterion-4 vacuous verdict", soak #4 audit): soak
+// #4 passed this criterion on ONE dig site and ZERO chop clusters (the bot never completed a
+// chop that hour) -- a clean read from that few sites is not the same claim as "confirmed no
+// scars". The findings thresholds just above already encode a "how many is a pattern, not an
+// anecdote" line for DIRTY samples (>=3 floating-log sites fails outright, one only warns) --
+// MIN_SITES_FOR_VERDICT reuses that SAME n=3 line, sign flipped: a CLEAN read below it cannot
+// claim more confidence than a dirty read gets at the same sample size. This never changes
+// `verdict` itself (a real WARN/FAIL finding on a thin sample is still a real finding) -- it
+// only qualifies a PASS, same "annotate, don't flip the boolean" doctrine already used for
+// criterion 3's hp/food caveat. Separately, a category with ZERO clusters seen at all (chop or
+// dig) gets its own callout: a verdict computed from only the other category says nothing
+// about the empty one specifically, no matter how many sites the non-empty category cleared.
+export const MIN_SITES_FOR_VERDICT = 3;
 
-const reasons = [];
-let verdict = 'PASS';
-const worsen = (v) => { if (v === 'FAIL' || verdict === 'FAIL') verdict = 'FAIL'; else if (v === 'WARN') verdict = 'WARN'; };
+export function computeVerdict({ findings, rawChop, rawDig, chopClusters, digClusters, torchSurfacePlaced, surfaceTaskCount }) {
+  const ledgerStrandedTotal = rawChop.reduce((n, s) => n + (s.stranded || 0), 0);
+  const torchRate = surfaceTaskCount ? torchSurfacePlaced / Math.max(1, rawDig.reduce((n, s) => n + (s.digs || 0), 0)) : null;
 
-if (findings.floatingLogs.length >= 3) { worsen('FAIL'); reasons.push(`${findings.floatingLogs.length} sites with floating (half-felled) logs`); }
-else if (findings.floatingLogs.length >= 1) { worsen('WARN'); reasons.push(`${findings.floatingLogs.length} site(s) with a floating log — spot-checked, not exhaustive`); }
+  const reasons = [];
+  let verdict = 'PASS';
+  const worsen = (v) => { if (v === 'FAIL' || verdict === 'FAIL') verdict = 'FAIL'; else if (v === 'WARN') verdict = 'WARN'; };
 
-if (ledgerStrandedTotal >= 6 || findings.strandedDrops.length >= 3) { worsen('FAIL'); reasons.push(`${ledgerStrandedTotal} stranded drops reported by the engine itself across the window (${findings.strandedDrops.length} confirmed live)`); }
-else if (ledgerStrandedTotal >= 1) { worsen('WARN'); reasons.push(`${ledgerStrandedTotal} stranded drop(s) reported, ${findings.strandedDrops.length} confirmed live`); }
+  if (findings.floatingLogs.length >= 3) { worsen('FAIL'); reasons.push(`${findings.floatingLogs.length} sites with floating (half-felled) logs`); }
+  else if (findings.floatingLogs.length >= 1) { worsen('WARN'); reasons.push(`${findings.floatingLogs.length} site(s) with a floating log — spot-checked, not exhaustive`); }
 
-if (findings.nakedShafts.length >= 2) { worsen('FAIL'); reasons.push(`${findings.nakedShafts.length} open, uncapped shafts found — the most visually obvious scar of the four`); }
-else if (findings.nakedShafts.length >= 1) { worsen('WARN'); reasons.push(`1 open shaft found (tight tolerance — a single one is already a real scar, not failing outright only because a bounded sample can't claim it's a pattern)`); }
+  if (ledgerStrandedTotal >= 6 || findings.strandedDrops.length >= 3) { worsen('FAIL'); reasons.push(`${ledgerStrandedTotal} stranded drops reported by the engine itself across the window (${findings.strandedDrops.length} confirmed live)`); }
+  else if (ledgerStrandedTotal >= 1) { worsen('WARN'); reasons.push(`${ledgerStrandedTotal} stranded drop(s) reported, ${findings.strandedDrops.length} confirmed live`); }
 
-if (torchRate != null) {
-  if (torchRate >= 0.30) { worsen('WARN'); reasons.push(`torch rate ${torchRate.toFixed(3)}/dig vs the ~0.125 (1-per-8) design target — real over-placement (see #106)`); }
+  if (findings.nakedShafts.length >= 2) { worsen('FAIL'); reasons.push(`${findings.nakedShafts.length} open, uncapped shafts found — the most visually obvious scar of the four`); }
+  else if (findings.nakedShafts.length >= 1) { worsen('WARN'); reasons.push(`1 open shaft found (tight tolerance — a single one is already a real scar, not failing outright only because a bounded sample can't claim it's a pattern)`); }
+
+  if (torchRate != null && torchRate >= 0.30) { worsen('WARN'); reasons.push(`torch rate ${torchRate.toFixed(3)}/dig vs the ~0.125 (1-per-8) design target — real over-placement (see #106)`); }
+
+  const vacuous = findings.sitesChecked < MIN_SITES_FOR_VERDICT;
+  const vacuousReasons = [];
+  if (vacuous) vacuousReasons.push(`only ${findings.sitesChecked} site(s) checked (chop clusters seen ${chopClusters.length}, dig clusters seen ${digClusters.length}) — below the ${MIN_SITES_FOR_VERDICT}-site floor this file's own findings thresholds already treat as the anecdote/pattern line`);
+  if (chopClusters.length === 0 && digClusters.length > 0) vacuousReasons.push('0 chop clusters seen — this verdict says nothing about chop cleanliness specifically (the bot never completed/attempted a chop in this window)');
+  if (digClusters.length === 0 && chopClusters.length > 0) vacuousReasons.push('0 dig clusters seen — this verdict says nothing about dig-site cleanliness specifically');
+
+  return { verdict, reasons, ledgerStrandedTotal, torchRate, vacuous, vacuousReasons };
 }
 
-console.log(`trail ${LABEL}: ${verdict}${reasons.length ? '\n  ' + reasons.join('\n  ') : ' (clean — no half-felled trees, stranded drops, or open shafts found in the sample)'}`);
-console.log(`  sites checked: ${findings.sitesChecked} (chop clusters seen: ${chopClusters.length}, dig clusters seen: ${digClusters.length}, budget: ${MAX_SITES})`);
-if (torchRate != null) console.log(`  torch rate: ${torchRate.toFixed(3)}/dig (ledger-wide, not live-confirmed)`);
+// ---------------- 4/6. run it (CLI only) ----------------
+async function main() {
+  if (!BOT || !INSPECTOR_PORT) {
+    console.error('usage: node bench/trail.mjs --bot <name> --since <ISO> [--until <ISO>] --inspector-port <port> [--max-sites N] [--exclude-zones "x,z,r;x,z,r"] [--json]');
+    process.exit(2);
+  }
+  const recs = loadLedger();
+  if (!recs.length) { console.error(`trail: no ledger records for ${BOT} in this window`); process.exit(1); }
+  await stopSurvival();
 
-const out = {
-  label: LABEL, bot: BOT, since: new Date(SINCE).toISOString(), until: new Date(UNTIL).toISOString(),
-  at: new Date().toISOString(), verdict, reasons,
-  findings, ledgerStrandedTotal, torchRate,
-  sitesSeen: { chopClusters: chopClusters.length, digClusters: digClusters.length },
-  excludeZones: EXCLUDE_ZONES.length ? { zones: EXCLUDE_ZONES, excludedChopSites: excludedChop.length, excludedDigSites: excludedDig.length } : null,
-};
-fs.mkdirSync(path.join(ROOT, 'bench', 'gates'), { recursive: true });
-fs.writeFileSync(path.join(ROOT, 'bench', 'gates', `trail-${LABEL}.json`), JSON.stringify(out, null, 2));
-if (has('json')) console.log(JSON.stringify(out, null, 2));
-process.exit(verdict === 'FAIL' ? 1 : 0);
+  const { chopSites: allChop, digSites: allDig, torchSurfacePlaced, surfaceTaskCount } = extractSites(recs);
+  const excludedChop = allChop.filter((s) => inExcludedZone(s.pos));
+  const excludedDig = allDig.filter((s) => inExcludedZone(s.pos));
+  const rawChop = allChop.filter((s) => !inExcludedZone(s.pos));
+  const rawDig = allDig.filter((s) => !inExcludedZone(s.pos));
+  if (EXCLUDE_ZONES.length) {
+    console.error(`trail: ${EXCLUDE_ZONES.length} exclusion zone(s) active — dropped ${excludedChop.length} chop + ${excludedDig.length} dig site(s) as contaminated (known other-bot activity), not counted toward this bot's verdict`);
+  }
+  const chopClusters = cluster(rawChop, 6).sort((a, b) => (b.stranded || 0) - (a.stranded || 0));
+  const digClusters = cluster(rawDig, 6).sort((a, b) => (b.digs || 0) - (a.digs || 0));
+
+  // prioritize ledger-flagged sites (stranded>0) first, then a spread sample of the rest,
+  // bounded to MAX_SITES total across BOTH categories (roughly half each) -- a real-time
+  // budget, not a claim every site was checked.
+  const chopBudget = Math.ceil(MAX_SITES / 2), digBudget = MAX_SITES - chopBudget;
+  const chopToCheck = chopClusters.slice(0, chopBudget);
+  const digToCheck = digClusters.slice(0, digBudget);
+
+  const findings = { floatingLogs: [], strandedDrops: [], nakedShafts: [], sitesChecked: 0 };
+  for (const site of chopToCheck) {
+    try {
+      const logs = await inspectFloatingLogs(site);
+      const drops = await inspectDrops(site);
+      findings.sitesChecked++;
+      if (logs.length) findings.floatingLogs.push({ site: site.pos, ledgerStranded: site.stranded, logs });
+      if (drops.length) findings.strandedDrops.push({ site: site.pos, ledgerStranded: site.stranded, drops });
+    } catch (e) { console.error(`trail: chop site ${site.pos} inspection failed: ${e.message}`); }
+  }
+  for (const site of digToCheck) {
+    try {
+      const shaft = await inspectShaft(site);
+      findings.sitesChecked++;
+      if (shaft.open) findings.nakedShafts.push({ site: site.pos, ...shaft });
+    } catch (e) { console.error(`trail: dig site ${site.pos} inspection failed: ${e.message}`); }
+  }
+
+  const { verdict, reasons, ledgerStrandedTotal, torchRate, vacuous, vacuousReasons } = computeVerdict({
+    findings, rawChop, rawDig, chopClusters, digClusters, torchSurfacePlaced, surfaceTaskCount,
+  });
+
+  const vacuousTag = vacuous ? ` (VACUOUS${verdict === 'PASS' ? ' — not a confirmed-clean trail' : ' — thin sample'})` : '';
+  console.log(`trail ${LABEL}: ${verdict}${vacuousTag}${reasons.length ? '\n  ' + reasons.join('\n  ') : (vacuous ? '' : ' (clean — no half-felled trees, stranded drops, or open shafts found in the sample)')}`);
+  console.log(`  sites checked: ${findings.sitesChecked} (chop clusters seen: ${chopClusters.length}, dig clusters seen: ${digClusters.length}, budget: ${MAX_SITES})`);
+  if (vacuousReasons.length) console.log(`  vacuous: ${vacuousReasons.join('; ')}`);
+  if (torchRate != null) console.log(`  torch rate: ${torchRate.toFixed(3)}/dig (ledger-wide, not live-confirmed)`);
+
+  const out = {
+    label: LABEL, bot: BOT, since: new Date(SINCE).toISOString(), until: new Date(UNTIL).toISOString(),
+    at: new Date().toISOString(), verdict, reasons, vacuous, vacuousReasons,
+    findings, ledgerStrandedTotal, torchRate,
+    sitesSeen: { chopClusters: chopClusters.length, digClusters: digClusters.length },
+    excludeZones: EXCLUDE_ZONES.length ? { zones: EXCLUDE_ZONES, excludedChopSites: excludedChop.length, excludedDigSites: excludedDig.length } : null,
+  };
+  fs.mkdirSync(path.join(ROOT, 'bench', 'gates'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'bench', 'gates', `trail-${LABEL}.json`), JSON.stringify(out, null, 2));
+  if (has('json')) console.log(JSON.stringify(out, null, 2));
+  process.exit(verdict === 'FAIL' ? 1 : 0);
+}
+
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (isMain) await main();
