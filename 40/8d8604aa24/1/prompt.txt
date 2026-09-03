@@ -202,3 +202,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bkpap079p</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: actionable-only (milestone/death/needs_direction/errors from log; hp&lt;8 or food&lt;6 or rung-stuck&gt;90s from poll)"</summary>
+<event>[POLL] ALERT-STUCK rung=IDLE pos=(-65,112,0) for 90s</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
