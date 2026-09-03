@@ -55,7 +55,12 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    cooldown, then gets its own false `project_stalled` episode (one showed 128s "latency" that is standdown carryover). Fix: key the
    backoff on (rung, project skill+args) or reset it on setProject; fixture in agenda-ladder.js. Grader side (engine-dev): the
    latency breakdown must attribute standdown carryover so it can't read as decider latency.
-6. **Gear-race run #6** (test-driver, GammelGerhard reserved, world-race6, Race book v2) — **GREEN-LIT 2026-09-03 08:55Z** (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
+5e. **skills.js FOODS allowlist missed #108 + huntAnimals species widening** (eng-3, from run #6 live, test-driver FEEDBACK ~09:31Z,
+   BEFORE #112 — it is small and it gates stone→iron on food): (a) skills.js's excursion-kit FOODS allowlist never got #108's raw-meat
+   additions (only agenda.js's copy did) → a hunted porkchop cannot satisfy mineLane/chopTrees' food-kit gate; make ONE shared FOODS
+   source. (b) huntAnimals{anyMob:true} never widens species past ['cow'] → explicit species list (cow, pig, sheep, chicken last).
+   (c) note: no cook/smelt skill in the registry — file as follow-up, don't build now. Fixtures + preflight; verify on 25599 only.
+6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
 ## 2. Standing (unchanged)
