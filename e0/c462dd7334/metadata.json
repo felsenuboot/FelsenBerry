@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "e0c462dd7334",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "agenda.js",
+    "bench/fixtures/agenda-idlework.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e0/c462dd7334/0/metadata.json",
+      "transcript": "/e0/c462dd7334/0/full.jsonl",
+      "compact_transcript": "/e0/c462dd7334/0/transcript.jsonl",
+      "content_hash": "/e0/c462dd7334/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 902,
+    "cache_creation_tokens": 655230,
+    "cache_read_tokens": 192609210,
+    "output_tokens": 346686,
+    "api_call_count": 451
+  }
+}
