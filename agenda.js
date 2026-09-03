@@ -126,7 +126,9 @@ const A = {
   // nothing else can supply it (own counter, A._restockHuntFails); (b) resolveKit's shim
   // contract widens from position-only to position+vitals (food, health), Proxy-enforced, so
   // chopTrees can drop its food demand on a short/sated trip (see skills.js chopTrees kit fn).
-  version: 36, enabled: true,
+  // v36 -> v37: TODO 5p — FOOD also fires on the hp<=10/food<18/foodCount==0 heal-deadlock
+  // band (natural regen needs food>=18), guarded calm-and-no-hostile.
+  version: 37, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -1370,8 +1372,29 @@ const RUNGS = [
   // after RESTOCK's own (cheaper, depot-first) attempt has had its chance, before LIGHT/
   // PROJECT/ESCAPE — a human eats before continuing whatever they were doing, but doesn't
   // preempt a genuine tool/restock need to do it.
+  // TODO 5p (run #2/#5's own "heal-deadlock", distinct from #117): vanilla
+  // natural regen needs food>=18 (mineflayer/vanilla threshold — a bot below that never heals
+  // no matter how long it waits), but this rung's ORIGINAL trigger only fired at food<=12. A
+  // hurt bot with foodCount==0 sitting at food 13-17 fell into a real gap no rung owned: too
+  // full to trigger the starvation branch above, too empty to ever regen, and EAT/EAT_CRITICAL
+  // (prio 2/4) can't help either — both require foodCount>0, and there is nothing left to eat.
+  // Measured live, run #7 12:28Z: hp 6.8, food 15, foodCount 0, walled in, stuck.
+  //
+  // Second clause below: "hurt AND stuck in that band AND nothing to eat" is a food need too
+  // ("I need to heal" -> "I need food" -> go get food), same act() (hunt, then harvestGrass)
+  // as the starvation branch already uses — no new action, just a second, narrower reason to
+  // take it. Deliberately does NOT touch the original food<=12 branch's behavior at all.
+  //
+  // Guarded on calm + no nearby hostile (checked directly here, NOT left to the owner-latch
+  // alone — defense in depth, same doctrine as #117's own comment on this file): a bot that is
+  // hurt specifically BECAUSE something is (or just was) attacking it must not have FOOD (prio
+  // 6.5) yank it out of a defensive wall-off while that threat is still live — REFLEX/POSTURE
+  // (prio 0/1) own that fight and will still win arbitration via the owner-latch regardless,
+  // but this rung should not even ASK for the body in that window in the first place. Hunt once
+  // things are actually calm, not before.
   { id: 'FOOD', prio: 6.5,
-    fire: (s) => s.foodCount === 0 && s.food <= 12,
+    fire: (s) => s.foodCount === 0 && (s.food <= 12
+      || (s.hp <= 10 && s.food < 18 && s.dangerState === 'calm' && !s.hostileNear)),
     clear: (s) => s.foodCount > 0,
     act: async (s) => {
       if (oursRunning(s)) return 'running';

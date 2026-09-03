@@ -6370,3 +6370,53 @@ GrantigGustav becomes engine-dev-3's live specimen on 25600 exactly as it stands
 (-95,73,-76)), decider left running, for live forensics against a real, reproducible instance of the loop.
 github: felsenuboot/FelsenBerry (new — REFLEX panic non-clearance on a non-proximate creeper; survival.js/
 dangerscan.js, eng-3's lane)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5p (#123): FOOD rung's heal-deadlock band (food 13-17, foodCount 0, hurt) — landed, live-confirmed on run #7's own specimen
+
+Predecessor's diagnosis (run #7, 12:28Z live trace, TODO comment a73c0a1) and code were already
+in the tree, uncommitted, on respawn. Verified rather than re-derived: vanilla natural regen
+needs `food>=18` (mineflayer threshold), but the ORIGINAL FOOD rung only fired at `food<=12`.
+A hurt bot (`hp<=10`) sitting at `foodCount==0` and `food` in 13-17 fell into a real gap no rung
+owned — too full for the starvation branch, too empty to ever regen naturally, and EAT/
+EAT_CRITICAL both require `foodCount>0` so they can't help either.
+
+Fix: `agenda.js` v36->v37, FOOD's `fire()` gains a second clause —
+`s.foodCount === 0 && (s.food <= 12 || (s.hp <= 10 && s.food < 18 && s.dangerState === 'calm' && !s.hostileNear))`
+— additive, does not touch the original `food<=12` branch. Guarded on calm + no nearby hostile,
+checked directly in `fire()` rather than left to the owner-latch alone (same defense-in-depth
+doctrine as #117's comment on this file): a bot hurt BECAUSE something is/was attacking it must
+not have FOOD (prio 6.5) yank it out from under REFLEX/POSTURE (prio 0/1) mid-fight; those still
+win arbitration via the owner-latch regardless, but FOOD shouldn't even ask for the body in that
+window. `bench/fixtures/agenda-ladder.js` gets 10 new cases: the actual soak-#7 shape (hp 6.8/
+food 15), both band edges (food 17 fires, food 18 does not — the regen threshold itself is the
+cutoff), the hp boundary (10 fires, 11 does not), the additive proof against the pre-existing
+`food<=12`/EAT-ownership cases, and the three guard cases (alert state does not fire, calm+
+hostileNear does not fire, threat-clears-then-fires).
+
+**Live confirmation, not just the fixture**: KlonkKurt (port 3194, DECIDER_EXCLUDE=1) was left
+running by the predecessor sitting in the band. `logs/KlonkKurt.log` and
+`logs/metrics-KlonkKurt.jsonl` both show the fix firing for real — at `12:34:40.798Z`
+(`hp:7.3, food:17, foodCount:0`) the bot logged "Walled off but can't heal — food stuck at
+17/20 with nothing to eat", then FOOD dispatched `huntAnimals` (failed, none in radius, widened
+32->48, still none), then fell back through the same act() path the original branch already
+used: `collectDrops` -> `harvestGrass`. Ledger corroborates independently: a `note` event
+`{"ev":"note","agenda":"FOOD","hp":7.33,"food":13,"danger":"calm"}` at `seq:146`
+(`logs/metrics-KlonkKurt.jsonl`) sits exactly in the band. No animals were actually in range this
+particular live instance, so the bot did not fully heal from this — food kept draining while it
+searched (13->9) and it eventually dug in for the night on SHELTER once dusk hit — but that is
+the fallback's own known limit (no supply found), not a defect in the new clause: the rung fired
+correctly, asked for food correctly, and released cleanly to SHELTER at nightfall exactly as
+before. The claim verified here is "the deadlock band now gets ownership and acts", not "food is
+guaranteed found."
+
+`node bench/fixtures/agenda-ladder.js` is not runnable standalone (it reads `globalThis.__agenda`
++ live `bot`, by design — see its own header) — ran it and the full suite the way `bench/
+preflight.sh` actually drives them, via `/eval` against KlonkKurt on 3194: `agenda-ladder 89/89`,
+full preflight `301/301` (all 18 fixtures green; the TODO's "~287+" baseline undercounted —
+current tree already carries more fixtures than that number assumed).
+
+fix: agenda.js v36->v37 (predecessor's diff, verified+committed by respawn), bench/fixtures/
+agenda-ladder.js (+10 cases)
+commit: (this entry's own commit, immediately following)
+github: felsenuboot/FelsenBerry#123 (TODO 5p) — landed, live-verified

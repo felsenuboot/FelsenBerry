@@ -122,6 +122,32 @@ try {
   A.project = null;
   T('starving (foodCount 0, food 12), no project, no role -> FOOD', { foodCount: 0, food: 12, role: null }, 'FOOD');
   T('foodCount 0 but food NOT yet low (food 15), no project -> nothing fires, floor is IDLE', { foodCount: 0, food: 15, role: null }, 'IDLE');
+
+  // TODO 5p: the heal-deadlock band. Vanilla natural regen needs food>=18 -- a hurt bot
+  // (hp<=10) with foodCount==0 sitting at food 13-17 is too full for the food<=12 branch above
+  // and too empty to ever regen; nothing else in the ladder can reach it (EAT/EAT_CRITICAL both
+  // need foodCount>0). Live-measured, run #7 12:28Z: hp 6.8, food 15, foodCount 0, walled in.
+  T('hp low + heal-deadlock band (food 15) + foodCount 0, calm -> FOOD (the actual soak #7 shape)',
+    { foodCount: 0, food: 15, hp: 6.8, role: null }, 'FOOD');
+  T('band upper edge (food 17, just below the food<=17 EAT trigger point) + hp low -> FOOD',
+    { foodCount: 0, food: 17, hp: 8, role: null }, 'FOOD');
+  T('food 18 (the regen threshold itself) + hp low -> does NOT fire this branch -- already able to regen, floor is IDLE',
+    { foodCount: 0, food: 18, hp: 6, role: null }, 'IDLE');
+  T('hp exactly at the 10 boundary -> still fires', { foodCount: 0, food: 15, hp: 10, role: null }, 'FOOD');
+  T('hp 11 (one above the boundary) -> does not fire this branch, floor is IDLE',
+    { foodCount: 0, food: 15, hp: 11, role: null }, 'IDLE');
+  T('foodCount>0 in the band -> EAT owns it (something IS held, precedence unchanged)',
+    { foodCount: 1, food: 15, hp: 6, role: null }, 'EAT');
+  // guard: must not pull a bot out of a defensive posture while a threat is live -- checked
+  // directly in fire(), not left to the owner-latch alone (defense in depth, same doctrine as
+  // #117's own comment on this file).
+  T('same band, but dangerState alert (a fight is on) -> FOOD does not even ask; POSTURE owns it',
+    { foodCount: 0, food: 15, hp: 6, role: null, dangerState: 'alert' }, 'POSTURE');
+  T('same band, calm dangerState but a hostile is still nearby (hostileNear) -> FOOD stays quiet, floor is IDLE',
+    { foodCount: 0, food: 15, hp: 6, role: null, hostileNear: true, threat: { d: 10 } }, 'IDLE');
+  T('threat clears (calm, no hostileNear) -> FOOD picks it back up',
+    { foodCount: 0, food: 15, hp: 6, role: null, dangerState: 'calm', hostileNear: false }, 'FOOD');
+
   A.project = { skill: 'mineLane', args: {}, restockFloor: { torches: 16, food: 4, filler: 16 } };
   T('food low but SOME food still held -> EAT owns it, not FOOD', { foodCount: 2, food: 10 }, 'EAT');
   T('RESTOCK still outranks a mere starving-with-no-floor state when torches are ALSO short', { foodCount: 0, food: 12, torches: 4 }, 'RESTOCK');
@@ -273,6 +299,12 @@ try {
   A.owner = A.rung('EAT');
   T('owner EAT, foodCount hits 0 (food still low but not FOOD-rung-triggering) -> releases to PROJECT, not stuck',
     { food: 15, foodCount: 0 }, 'PROJECT');
+  // TODO 5p: the SAME food:15/foodCount:0 release, but the bot is also hurt -- the heal-
+  // deadlock band picks it up now where the case just above (healthy hp) correctly still does
+  // not, proving the new branch is additive, not a relaxation of the old one.
+  A.owner = A.rung('EAT');
+  T('owner EAT, foodCount hits 0, food 15 (not the old <=12 branch) AND hp low -> releases into FOOD via the NEW heal-deadlock branch',
+    { food: 15, foodCount: 0, hp: 6 }, 'FOOD');
   A.owner = A.rung('EAT');
   T('owner EAT, foodCount 0 AND food low enough to also trigger FOOD -> releases straight into FOOD picking it up',
     { food: 10, foodCount: 0 }, 'FOOD');
