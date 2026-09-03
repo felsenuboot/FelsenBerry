@@ -46,6 +46,11 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    no food rule, ROLE_WORK.hunter doesn't apply to role:null (#88 residual), Andy didn't supply it. Build a FOOD rung
    (foodItems==0 && hunger ≤ ~12 → huntAnimals w/ widening radius → harvest/farm fallback → backoff) + a zero-token
    rules.json entry. Starvation ended runs #1/#2 too.
+5c. **Busy-but-unproductive rung detector** (eng-3, from soak #4's T+30→T+46 stall): the TOOL rung retried
+   "could not acquire sword" every ~90s for 16+ min at one spot while direction stayed 8/8 — a rung that ACTS every
+   tick but never progresses is invisible to the episode layer (no stall opens because TOOL reads as busy). Propose
+   `tool_stalled` (N consecutive identical TOOL failures → episode) — composition-rot at the rung/episode boundary.
+   Likely trigger: stick exhaustion from the durability-not-tier recraft bug (fixed af5d009) — verify from ledger.
 6. **Gear-race run #6** (test-driver, GammelGerhard reserved, world-race6, Race book v2) after soak #4's verdict AND 5b.
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
