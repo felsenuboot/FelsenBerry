@@ -894,3 +894,18 @@ T+30 status, with a correction to my last message: milestones — wood T+1m13s, 
 
 **Correcting myself**: "half-kitted... food" DID appear, four times early (12:04:51-12:10:28Z, food 0/4 narrowing to 3/4) — I missed it in my last report because it had already self-resolved by the time I checked (RESTOCK's `5l` fix actively hunted to fill it, rather than sitting stuck — exactly the intended behavior, unlike run #6 where nothing routed to hunting while sated). It just reappeared once more at 12:30:11Z (`food 0/2`, the excursion tier this time). So the wall IS still there structurally, but `5l` makes it self-heal instead of permanently stalling — worth watching whether it keeps resolving itself or eventually gets stuck for real. Will keep flagging every occurrence.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+FLEE_AWAY design, holding for ACK before touching survival.js (also holding on the file itself until eng-3's 5m commit lands, per your sequencing).
+
+Root cause: branchFleeAway's only goal is `GoalInvert(GoalFollow(ent,12))` — pure raw-distance maximization, no LOS awareness at all. A skeleton with a clear shot keeps shooting the whole 8s retreat regardless of distance gained.
+
+**Primary fix — LOS-biased target selection, re-evaluated periodically:**
+Reuse BREAK_LOS's own corner-step primitive (the `losBlocked(tEye, cell)` check phase (a) already uses), but widened: each ~1-1.5s tick of the retreat loop, sample nearby reachable cells in a wider ring (not just the 8 adjacent-block offsets — flee has more time/room than a melee corner-step) and prefer any cell that breaks LOS over one that's merely farther away. Re-picked on a cadence rather than once at entry, same lesson as #65 (a moving skeleton can re-open a sightline the initial plan didn't see coming). If no LOS-breaking cell exists nearby, fall back to today's raw-distance goal — open ground doesn't get worse than current behavior.
+
+**The catch, worth flagging before I build this**: bench/fixtures/induced-stress-sequencing.sh's arena is `build_platform` — a completely flat, featureless stone platform, zero terrain variance anywhere. The LOS-bias mechanism has *nothing to work with* there; it can't find a single LOS-breaking cell on a bare platform, so it would degrade to identical behavior to today in exactly the fixture that gates soak #6. I also checked: this fixture is deliberately toolless (no shield either, matches its sibling's comment), and branchFleeAway's existing "cornered → shieldUp" line is already a silent no-op in this exact scenario (shieldUp requires a shield item; there isn't one) — so there's no secondary mitigation available on truly bare ground with no kit.
+
+I don't think a real fix exists for "unarmed, shieldless, zero terrain within reach, sustained ranged fire" — that's close to an unwinnable engagement by design in vanilla combat math, not a logic bug. My proposal: land the LOS-bias fix (real improvement for the ~universal case of natural terrain having *some* variance) AND add a small amount of scattered obstruction to the fixture's arena (a few 1-2-block stone pillars within the platform, still built/cleared by the fixture itself) so the fixture tests a realistic worst-case-with-some-cover rather than a physically-unsolvable total void — that's a fixture change, not a further survival.js scope change, and still mine to make. Want me to proceed on both, or do you want the fixture arena left bare and the bar adjusted instead?
+</cross-session-message>
