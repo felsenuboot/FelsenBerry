@@ -3449,6 +3449,62 @@ S.define('chopTrees', {
     // marching progressively further from the task's own starting point with every tree.
     const origin = bot.entity.position.clone();
 
+    // #102: an elevated trunk/canopy cell (a tall real tree's upper logs, or leaves clustered
+    // around them) is exactly where digBlock's own reach ladder falls apart. Traced live
+    // (real bonemealed oak/spruce, not guessed): digBlock's PRIMARY path is
+    // `ctx.gotoSee` -> `goals.GoalLookAtBlock(pos, bot.world, {reach:4.0})`, and that goal's
+    // own `isEnd()` gates every candidate node on `node.distanceTo(pos.offset(0,1.6,0)) <=
+    // reach` BEFORE it ever checks line-of-sight — i.e. it compares the candidate's FEET
+    // position (not eye) against the target raised by entityHeight, which caps the reachable
+    // height at just `reach - entityHeight` = 2.4 blocks above the bot's own feet, no matter
+    // how far it walks sideways. A target more than 2.4 above ground can never satisfy that
+    // gate, so GoalLookAtBlock's search has nothing to converge on and every repositioning
+    // attempt through it fails identically. digBlock's SECONDARY fallback (`gotoNear`, a
+    // euclidean range around the block) is worse for this shape, not better: the block floats
+    // in open air, so a walking bot's minimum possible distance to it is the vertical delta
+    // itself — `gotoNear(p, 4, ...)` is unsatisfiable on its own terms for anything more than
+    // 4 blocks up, independent of any pathfinding quirk.
+    //
+    // What actually works, confirmed live: digBlock ALSO has its own, more accurate distance
+    // check using the bot's REAL current eye position (feet+1.6) against the block, both
+    // before AND after the gotoSee attempt — that one is the same reach real Minecraft players
+    // get (up to ~4.6 from standing feet, higher again once genuinely adjacent). So the fix
+    // is to never let the broken GoalLookAtBlock gate get invoked to begin with: walk the bot
+    // to ground level directly under the TARGET cell's own x/z (not the trunk's base x/z — a
+    // real canopy can spread laterally, and standing under the trunk while the leaf hangs 2
+    // blocks sideways just re-adds the horizontal distance this is trying to remove) and
+    // retry digBlock from there. If that ground cell isn't itself standable/reachable (thin
+    // canopy edge, uneven terrain), fall back to the trunk's own base — still short-range and
+    // known-good. If the target is within real reach of wherever we land, digBlock's own
+    // eye-distance check now passes on its OWN initial check and digs directly, never
+    // touching gotoSee's flawed math at all.
+    //
+    // This is not unlimited — it does not turn the bot into a climber. A cell more than ~5
+    // blocks above the trunk's own base is genuinely out of reach from flat ground, the same
+    // ceiling a real player without a jump-and-place scaffold would hit; digThorough reports
+    // that honestly as still-unreachable rather than pretending to solve it.
+    async function digThorough(p, base) {
+      let r = await ctx.digBlock(p);
+      if (r.ok && !r.already) return r;
+      if (!r.ok && r.reason === 'no_tool') {
+        // logs are always hand-harvestable; a weird held item can break digTime — clear hand once
+        try { await bot.unequip('hand'); } catch (_) {}
+        r = await ctx.digBlock(p);
+        if (r.ok && !r.already) return r;
+      }
+      if (!r.ok) {
+        // range 0, not 1 — landing exactly under the target (pure vertical delta, no residual
+        // horizontal slack) is what keeps the post-reposition eye distance safely under
+        // digBlock's OWN 4.0 initial-check threshold, so its second attempt skips straight to
+        // digging rather than gambling on gotoSee again (a range-1 landing spot was observed
+        // live leaving just enough residual distance, ~4.0-4.6, to still trigger it).
+        try { await ctx.gotoNear(new Vec3(p.x, base.y, p.z), 0, 15000); }
+        catch (_) { try { await ctx.gotoNear(base, 1, 15000); } catch (_) {} }
+        r = await ctx.digBlock(p);
+      }
+      return r;
+    }
+
     while (felled < count) {
       ctx.step();
       // find trunk bases: a log whose block below is NOT a log (ground contact)
@@ -3501,16 +3557,9 @@ S.define('chopTrees', {
         ctx.step();
         // a real tree growing against registered structure: fell the tree, leave the build
         if (ctx.isProtected(p)) { protectedSkipped++; continue; }
-        const r = await ctx.digBlock(p);
+        const r = await digThorough(p, base);
         if (r.ok && !r.already) { dugThisTree++; logsDug++; }
-        else if (!r.ok) {
-          if (r.reason === 'no_tool') {
-            // logs are always hand-harvestable; a weird held item can break digTime — clear hand once
-            try { await bot.unequip('hand'); } catch (_) {}
-            const r2 = await ctx.digBlock(p);
-            if (r2.ok && !r2.already) { dugThisTree++; logsDug++; } else stranded++;
-          } else stranded++;
-        }
+        else if (!r.ok) stranded++;
       }
       if (dugThisTree === 0) { blacklist.add(key(base)); ctx.log(`tree at ${key(base)} unreachable — blacklisted`); continue; }
       felled++;
@@ -3560,7 +3609,7 @@ S.define('chopTrees', {
           for (const p of leaves) {
             ctx.step();
             if (ctx.isProtected(p)) continue;
-            const r = await ctx.digBlock(p);
+            const r = await digThorough(p, base);
             if (r.ok && !r.already) leavesCleared++;
           }
         }
