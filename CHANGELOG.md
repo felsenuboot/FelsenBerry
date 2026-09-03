@@ -10,7 +10,7 @@ Milestones, curated. Everything else: `git log`. Engine payload versions live in
   pathfinder's ~2.4-block reach height cap (new `digThorough`, honest ~5-block ceiling). Fixture rebuilt on real
   bonemeal-grown trees.
 - **#105 night-shelter primitives** (survival v11): dig-in-and-cap / 1×1 hut, dawn/threat/hunger/project exits —
-  all four live-fired; API `__survival.shelter.*` for the SHELTER agenda rung (pending).
+  all four live-fired; **SHELTER agenda rung landed** (51b39d0) — wood/stone-tier bots now dig in at dusk instead of fighting.
 - **#106** raw block light is permanently 0 underground even beside a torch (never truth); composite spec in flight.
   LIGHT-rung torch-spam hypothesis disconfirmed by 435 ledger firings.
 - **Instruments**: `bench/trail.mjs` (criterion-4 human-trail inspector: floating logs, stranded drops, naked shafts,

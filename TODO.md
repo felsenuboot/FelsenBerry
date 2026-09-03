@@ -32,12 +32,12 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    <Felsenuboot> chat = supervisor wake).
 
 ## 1. IMMEDIATE queue (priority order) — re-sequenced 2026-09-02 23:40 (Fable 5.1)
-1. **#102 chopTrees fell-complete + elevated drops** (eng-3, in progress — WIP in tree). Required for human-bar criterion 4.
-2. **Gear-progression drive** (eng-3): craft the better tool tier the moment materials are in hand — the race's
-   "stone wall" is partly this missing reflex (run #3 held 24 cobble, never crafted a stone pick).
-3. **SHELTER rung** (eng-3, agenda.js prio ~2.5) calling survival v11's `__survival.shelter.{should,enter,exit,status}`
-   (#105 primitives LANDED 79e0e1e, live-verified: dig-in-and-cap, 1x1 hut, dawn exit; threat/hunger exits not yet live-fired).
-   With it aboard the bot spends nights sealed + lit instead of fighting — criterion 3 by avoidance.
+1. ~~#102 chopTrees fell-complete~~ DONE (skills v61, f35333b — GoalLookAtBlock height-cap reach bug fixed via digThorough).
+2. ~~Gear-progression drive~~ DONE (#107, fc6cef5 — TOOL rung upgrades wooden→stone when payable; depot-walk inversion fixed).
+3. ~~SHELTER rung~~ DONE (51b39d0; #105 primitives 79e0e1e with all four exits live-fired e51744b).
+3b. **#106 light composite** (eng-3, LAST item before the soak): surface `isDay ? skyLight : 0`; underground = tracked torch
+   positions (raw light is permanently 0 there — never truth); ctx.autoTorch by distance-since-last-torch; fixture
+   bench/fixtures/light-composite.sh; preflight green.
 4. **SOAK #4 = first formal HUMAN-BAR attempt** (after 1-3 + preflight): fresh crude name, --agenda, SOAK_BOT on the
    decider, canonical timestamp, 60 min hands-off, `node bench/humanbar4.mjs --bot <name> --since <ISO> --until <ISO>
    --inspector-port <port> --label soak4` (ALL FOUR criteria, one verdict; trail check runs FIRST — drops despawn in 5 min;
