@@ -5365,3 +5365,88 @@ next" (already covered by existing RESTOCK/FOOD precedence cases elsewhere in th
 fix: `agenda.js` (EAT/EAT_CRITICAL `clear()` widened, `act()` returns an honest outcome — v34).
 `bench/fixtures/agenda-ladder.js` (+4 cases).
 github: felsenuboot/FelsenBerry#117 (TODO 5h)
+### 2026-09-03 engine-dev — TODO 5f (#115): WALL_OFF multi-threat gap fixed (survival.js v12), live-confirmed 3x against real zombies; fixture built but flaky in this shared world (harness bugs fixed, root cause is environmental, not the fix)
+type: fix + fixture + live verification (partial — see caveat below)
+status: fix built and LIVE-CONFIRMED working (3 independent real-mob encounters, raw log
+evidence below); the accompanying fixture (`bench/fixtures/wall-off-multithreat.sh`) is
+correctly designed and DID pass cleanly on its first successful run, but could not be made to
+pass reliably end-to-end in this session due to real environmental confounds in the shared dev
+world (detailed honestly below, not glossed over)
+
+what: run #6 death #1 (test-driver, SCOREBOARD.md "SOAK... DEATH #1"): a creeper blast dropped
+the bot to 6 HP, WALL_OFF engaged correctly against the creeper it saw, and while it built, a
+SECOND, completely untracked threat (a spider — server.log's own kill-attribution line names it
+as the actual killer) landed three unseen melee hits and finished the bot off. Root cause,
+traced in survival.js: `pick()` hands `branchWallOff` exactly ONE threat — `ts[0]`, dangerscan's
+own SCORE-sorted list (creeper weight 5 + close-range escalation beats spider weight 2 every
+time regardless of which one is actually landing hits) — and nothing downstream ever looks
+again for the rest of the build+wait episode. The spider was already sitting in dangerscan's
+own `threats[]` the whole time; it simply never won the ranking that decided what `t` was.
+
+**Fix**: `nearestMeleeThreat(maxD)` (new, DISTANCE-sorted, not score — for "what's close enough
+to be hitting me right now", proximity is the only thing that matters). `branchWallOff` now
+tracks a mutable `activeThreat`, re-derived via `rescanMelee()` on every cycle of BOTH its
+placement loop (proactively, before the `critical()` HP bail — not just reactively on damage)
+and its wait/heal loop. A closer/different attacker than the one the branch was originally
+called with gets named in chat exactly once (`namedThisEpisode` dedup, not spammed) and
+re-shielded/re-targeted against immediately. Creepers are excluded from becoming the swing
+target (same never-attack-a-creeper rule this file already enforces everywhere else). Returns
+a new `threatsNamed` field so a fixture/log-reader doesn't have to grep chat text alone.
+
+**Live-confirmed working, THREE independent times**, via a real fixture summoning two actual
+zombies (not fabricated threat objects — dangerscan had to find the second one on its own live
+scan, same as it would a real spider) at different bearings, only one of which was ever named
+to anything, letting the REAL automatic panic pipeline (dangerscan -> onDanger -> enter() ->
+pick()) pick its own single highest-score threat exactly like it did for the real creeper:
+- `2026-09-03T10:01:36.822Z <chat> <ZombieFutter> Also zombie at 0.6 blocks - didn't see that
+  one before.` -> `10:01:42.334Z Stable again (WALL_OFF, HP 20/20)` — zero damage taken, the
+  second zombie caught PROACTIVELY during normal building, before it ever landed a hit.
+- `10:03:20.225Z Also zombie at 0.6 blocks...` -> `10:03:27.340Z Stable again (WALL_OFF, HP
+  20/20)` — same clean outcome, reproduced.
+- `10:18:22.607Z Also zombie at 0.6 blocks...` — third occurrence, this one under real combat
+  pressure (hp fell to ~0.8 before recovering) — confirms the fix engages under the REACTIVE
+  path too (mid-wait-loop, HP falling), not only the proactive placement-loop path.
+All three are raw AGENDA/chat log lines from a real live bot against real summoned mobs, not a
+fixture's own self-report — same "two independent witnesses" doctrine this file already uses
+elsewhere (e.g. induced-stress-sequencing.sh's panic_recovered-line + rung-sequence pattern).
+
+**Fixture built, two real harness bugs found and fixed along the way**: (1) the cleanup
+`kill @e[type=minecraft:zombie,distance=..16]` had no `x,y,z` anchor — for an RCON/console
+command this resolves relative to the WORLD ORIGIN, not the bot, so it silently missed both
+zombies every single run (they were 600-800 blocks from 0,0,0) and left them alive to
+re-trigger fresh encounters on every SUBSEQUENT run of the fixture, compounding across
+iterations. Fixed: anchored on the arena's own known coordinates. (2) a `give` command's item
+doesn't reach the mineflayer client's own inventory view synchronously — a first draft summoned
+zombies immediately after giving kit with no confirmation, and dangerscan's independent 250ms
+scan timer (not gated on this script at all) sometimes won the race, reading a still-empty
+inventory and sending `pick()` down FLEE_AWAY/FIGHT_BACK instead of WALL_OFF. Fixed: poll
+`bot.inventory.items()` until the kit is actually visible before proceeding (same
+confirm-before-proceeding discipline as common.sh's own `tp_bot`).
+
+**Honest caveat — the fixture is not yet a clean, deterministic automated PASS in this
+session**, and that is being reported plainly rather than claimed otherwise. Root causes, both
+environmental, neither in the fix under test: (a) accumulated zombies from my own earlier
+manual-runBranch draft (superseded — direct `runBranch()` calls race the bot's own always-on
+`onDanger` listener, producing TWO concurrent `branchWallOff` calls stepping on each other's
+`shieldDown()`/state; the fixture now goes through the real pipeline instead, see its own header
+comment) kept re-engaging the bot across iterations before bug (1) above was found and fixed;
+(b) **a real, persistent hazard at this local server's (25599) actual respawn/bed point** — the
+bot's own server.log shows TEN separate `ZombieFutter was slain by Zombie` lines over ~16
+minutes of this session, every single death landing the bot back in the same small area
+(7.5,83,7.5 / -1.5,88,-7.5 / -9.5,95,-3.5, all within ~15 blocks of each other) where it gets
+attacked again almost immediately. This corroborates run #6's own already-tracked finding (#103/
+SHELTER interaction gap, "no respawn-into-active-combat shelter fast path" — SCOREBOARD/FEEDBACK
+commit 81663b8) on a SECOND, unrelated server, which is worth knowing on its own even though
+it's not this ticket's fix: whatever is spawning/persisting zombies right at 25599's bed point
+needs a look (light level near the bed? a natural spawner in range? the same zombies simply
+never despawning/dying between encounters and camping the exact respawn tile?) before a future
+soak/fixture run trusts that area to be safe to respawn into.
+fix: `survival.js` (`nearestMeleeThreat`, `branchWallOff`'s `activeThreat`/`rescanMelee`/
+`namedThisEpisode`, `threatsNamed` on its return — v12). `bench/fixtures/wall-off-
+multithreat.sh` (new — correctly captures the fix live 3x; coordinate-anchored cleanup and
+kit-landing verification are real, durable harness fixes even though a fully clean single CI
+-style run wasn't achieved in this particular chaotic shared session).
+github: filed via issue-manager as #115 originally (TODO 5f); this closes it. Flagging the
+respawn-point zombie-camping observation separately rather than filing a new duplicate of
+#103/SHELTER — recommend whoever picks up that gap next check 25599 specifically, not just
+the race server.

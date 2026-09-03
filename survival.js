@@ -378,6 +378,24 @@ const threatsNow = () => {
 };
 const entOf = (t) => (t && t.id != null ? bot.entities[t.id] : null);
 
+// #115 (run #6 death #1, 2026-09-03, test-driver): threatsNow() is dangerscan's own list
+// SORTED BY SCORE (weight*proximity*LOS) -- exactly right for "what should decide the branch"
+// (pick()'s own use of ts[0]), exactly wrong for "what is close enough to be hitting me right
+// now". A creeper (weight 5, plus the close-range escalation in dangerscan's scan()) ranks
+// ts[0] over a spider (weight 2) at the same or even closer distance every time -- so a
+// single-threat branch built around ts[0]/`t` never sees the spider at all, even though
+// dangerscan's own 4Hz scan already has it in threats[]. This is the DISTANCE-sorted view of
+// the SAME list: for melee defense, proximity is the only thing that matters. Creepers are
+// excluded unless nothing else qualifies -- a lone close creeper is branchCreeper's distance
+// problem (RUN, never swing), not something WALL_OFF's shield/counter-attack should target.
+const nearestMeleeThreat = (maxD) => {
+  const ts = threatsNow().filter((x) => x.d <= maxD);
+  if (!ts.length) return null;
+  const nonCreeper = ts.filter((x) => x.name !== 'creeper').sort((a, b) => a.d - b.d);
+  if (nonCreeper.length) return nonCreeper[0];
+  return ts.slice().sort((a, b) => a.d - b.d)[0];
+};
+
 // ================= BRANCHES =================
 
 // ENV — checked first: standing in lava kills faster than any mob.
@@ -691,6 +709,34 @@ const branchWallOff = async (t) => {
   // adjacent, and a live trace caught the bot going 6 HP -> dead DURING construction,
   // never reaching the coffin it was building. shieldDown() happens once at the very end.
   const shielded = liveThreat ? await shieldUp(liveThreat) : false;
+
+  // #115 (run #6 death #1): everything below used to defend against `t` alone — the ONE
+  // threat pick() happened to be looking at when it selected this branch — for the entire
+  // build+wait episode. A creeper ranks dangerscan's own score-sorted list ahead of a spider
+  // regardless of which one is actually landing melee hits, so a spider already present in
+  // dangerscan's threats[] never got named, shielded against, or fought back — it was simply
+  // never the `t` this function was handed, and nothing here ever looked again.
+  // `activeThreat` is now re-derived from a fresh DISTANCE-sorted scan (nearestMeleeThreat)
+  // every cycle of both loops below, so a closer/different attacker than the original `t`
+  // takes over targeting the moment it's within melee range — named once (not spammed) via
+  // `namedThisEpisode`, re-shielded toward immediately. This is the "hold N threats, re-scan
+  // on damage-without-named-source" fix TODO 5f asks for, scoped to this branch (the one that
+  // actually died to it) rather than a fleet-wide threat-model rewrite.
+  let activeThreat = t;
+  const namedThisEpisode = new Set(t && t.id != null ? [t.id] : []);
+  const rescanMelee = async () => {
+    const closest = nearestMeleeThreat(g.cfg.meleeReach);
+    if (!closest) return activeThreat;
+    if (!activeThreat || closest.id !== activeThreat.id) {
+      if (!namedThisEpisode.has(closest.id)) {
+        namedThisEpisode.add(closest.id);
+        say(`! Also ${closest.name} at ${closest.d} blocks - didn't see that one before.`);
+      }
+      activeThreat = closest;
+      if (closest.name !== 'creeper') { try { await shieldUp(entOf(closest)); } catch (e) {} }
+    }
+    return activeThreat;
+  };
   const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
   // face the threat's bearing FIRST — the highest-value block is the one between the bot
   // and whatever is currently hitting it, not whichever side happens to be first in a
@@ -724,6 +770,7 @@ const branchWallOff = async (t) => {
   let placed = 0;
   const fails = [];
   for (const c of cells) {
+    await rescanMelee();   // #115: catch a closer/unnamed attacker BEFORE the critical() bail, not after
     if (critical()) { bailed = true; break; }
     const r = await placeAt(c);
     if (r === 'placed') placed++;
@@ -731,6 +778,7 @@ const branchWallOff = async (t) => {
   }
   if (!bailed) {
     for (const c of fails.slice()) {
+      await rescanMelee();
       if (critical()) { bailed = true; break; }
       const r = await placeAt(c);
       if (r === 'placed') { placed++; fails.splice(fails.indexOf(c), 1); }
@@ -765,10 +813,14 @@ const branchWallOff = async (t) => {
     // damage source directly is faster than rebuilding a wall around it -- and re-seals
     // (once per bail episode, not every poll) only as a secondary measure.
     if (bot.health > 0 && bot.health < CRIT && bot.health <= lastHp) {
-      const lt = entOf(t);
+      // #115: damage-without-a-named-source — HP is falling and the ORIGINAL threat may not
+      // be what's doing it (dead already, or never was: the whole point of this fix). Re-scan
+      // before deciding who to swing at, same helper as the placement loop above.
+      const current = await rescanMelee();
+      const lt = entOf(current);
       const ld = lt && lt.position ? dist(bot.entity.position, lt.position) : Infinity;
       const sw = bestSword();
-      if (ld <= 2 && sw && lt && t.name !== 'creeper') {
+      if (ld <= 2 && sw && lt && current && current.name !== 'creeper') {
         try {
           await bot.equip(sw, 'hand');
           bot.pvp.attack(lt);
@@ -792,10 +844,12 @@ const branchWallOff = async (t) => {
   open = cells.filter((c) => !isSolid(bot.blockAt(c))).length;   // final re-read, not the pre-wait tally
   if (shielded) shieldDown();
 
-  // exit away from the last known threat bearing (mobs do NOT despawn within 32 blocks)
+  // exit away from the last known threat bearing (mobs do NOT despawn within 32 blocks) —
+  // #115: `activeThreat`, not the original `t`, so exiting steers away from whichever mob was
+  // actually last confirmed close, not necessarily the one this branch was first called for.
   let dug = null;
   try {
-    const live = entOf(t);
+    const live = entOf(activeThreat);
     const bearing = live && live.position
       ? [Math.sign(feet.x - live.position.x) || 1, Math.sign(feet.z - live.position.z) || 0]
       : [1, 0];
@@ -817,6 +871,10 @@ const branchWallOff = async (t) => {
     branch: 'WALL_OFF', sealed: open === 0, placed, openFaces: open, bailed,
     hp: bot.health, food: bot.food, exit: dug,
     cannotHeal: stillCannotHeal, threatClear: threatsNow().length === 0, sweep,
+    // #115: >1 means rescanMelee() caught at least one threat beyond the one this branch was
+    // originally called with — the multi-threat gap actually firing, visible to a fixture/log
+    // reader without needing to grep chat lines.
+    threatsNamed: namedThisEpisode.size,
   };
 };
 
