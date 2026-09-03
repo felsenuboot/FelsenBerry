@@ -1455,16 +1455,72 @@ refusal (both already logged above with exact timestamps) stands as the run's ev
 regardless. (13) `setProject({skill:'huntAnimals',args:{species:[...],radius:48,repeat:true}})` at
 09:58:26.034Z, re-issued for a second, closer-to-cap confirmation instance.
 
-Steering calls: 13 total (see full list above; none issued during the held window). Deaths: 4 — #1
-creeper blast + an untracked spider's finishing hits (`slain by Spider` per server.log, organic); #2,
-#3, #4 all `shot by Skeleton`, a genuine 63-second respawn-camp with zero filler blocks throughout
-(see live finding above) — all organic, no driver error. Bot self-escaped the camp; DEAD-STOP did not
-apply. Riding to the cap (10:28:28Z) per team-lead's ruling unless DEAD-STOP's flat-everything test
-is met for 5 minutes, in which case concluding DNF-with-cause myself, stone already stands regardless.
-Monitor: armed —
-actionable-only filter (milestone first-seen, death/damage, hp<8/food<6, rung-stuck>90s,
-`needs_direction` opened, server errors) per team-lead's tightened cadence, plus real-time
-`server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans.
+**Near-death, 10:15:58Z-10:16:01Z**: an unannounced skeleton (0.5 blocks, no prior dangerscan warning)
+took the bot from full-ish HP to 0.3 in under 4 seconds. Survived this time — `WALL_OFF` actually
+completed (filler had accumulated from the self-provisioning grind since Death #4, unlike the
+zero-filler spawn-camp deaths) and sealed. Settled into the SAME heal-deadlock shape run #2's writeup
+already documented (natural regen needs hunger>=18, food stuck at 10, nothing to eat) plus the
+health-guard-blocks-everything corollary (`failed: harvestGrass/collectDrops — health 0.3 <= guard`,
+identical to run #2's finding). Held all `setProject` calls through this window — REFLEX owned the
+body correctly and any driver redirect risked pulling it off the seal. Bot survived the remainder of
+the run at HP 0.33, never dying a 5th time.
+
+## RUN #6 CONCLUDED — CAP REACHED 10:28:28Z. DNF at stone (first ever reached, stands).
+
+**Final state at cap**: alive, HP 0.33/20, food 10/20, position (-2.5,100,3.5), rung IDLE, project
+chopTrees (kit-gated, never dispatched). world elapsed ~92 in-game minutes (~1.5 day/night cycles).
+
+| Tier | Time from join | Notes |
+|---|---|---|
+| Join | T+0 (08:58:28Z) | — |
+| Wooden pickaxe | **T+1m15s** | 2nd-fastest ever (run #4's T+59s still the record) |
+| Stone pickaxe | **T+31m50s — THE WALL IS BROKEN, first ever reached by this program** | lost to death #1's inventory wipe 1.9s later, but the tier stands regardless per Race book v2's own instruction |
+| Iron pickaxe | not reached | blocked by the food-kit wall from ~T+27m onward (never resolved this run) |
+| Diamond pickaxe | not reached | moot |
+
+**Cause of DNF, stated precisely**: not a crash, not abandonment — the run hit its 90-minute cap while
+alive, still trying, held at a genuine structural wall. From ~T+27m onward, `mineLane`/`chopTrees`
+could not "set off" on any further excursion because neither legal food-acquisition path (hunting ->
+raw meat, rejected by `skills.js`'s cooked-only kit gate; harvesting grass -> seeds, never in either
+FOODS set) could satisfy the kit's `foodItems` requirement, and no cook/smelt skill exists in the
+registry to bridge raw meat to a form the gate accepts. **This is exactly the wall `#113` (landed
+mid-run, commit `872aa07`) removes** — GammelGerhard's engine stack was deliberately kept FROZEN at
+its spawn version (skills v62/agenda v30) for run comparability, so it never received the fix live.
+**Run #6's headline finding, for the record: this run died at the food-kit wall `#113` removes — run
+#7 carries the fix and should not hit it.**
+
+**Deaths: 4, all organic, no driver error** — #1 creeper blast + an untracked spider's finishing hits
+(`slain by Spider` per server.log); #2/#3/#4 a genuine 63-second respawn-camp (`shot by Skeleton` x3),
+zero filler blocks throughout, self-escaped via `FLEE_AWAY` with no driver input.
+
+**Steering calls: 13** (full itemized list above). None issued during two held windows (the respawn-
+camp hold and the near-death heal-deadlock hold), both per team-lead's directive to let the engine's
+own survival modules run uninterrupted during a crisis rather than fight them for control.
+
+**Findings surfaced live this run, all diagnosed, written up, and FIXED by the team during the same
+session** (GammelGerhard itself never benefited — frozen stack — but every future race/soak bot will):
+- `#112` — `PROJECT` rung's `standDown` backoff outlived the specific project it was set for, silently
+  delaying driver redirects (fixed, commit `3c7c3b7`).
+- `#113` — two independent FOODS allowlists had drifted (`skills.js`'s kit gate vs `agenda.js`'s FOOD
+  rung); `#108`'s raw-meat fix only patched one copy (fixed: shared `foods.js`, commit `872aa07`).
+- `#114` — `huntAnimals{anyMob:true}` never widened the species search past the `['cow']` default,
+  contrary to Race book v2's own documented fallback — likely the unresolved cause behind run #2's old
+  "search radius" note too (fixed alongside `#113`).
+- `#115` — the WALL_OFF escalation ladder had a multi-threat gap: it could engage the threat it saw
+  (the creeper) while an untracked second threat (the spider) landed the actual kill during the
+  vulnerable building window (fixed, survival.js v12, live-confirmed 3x against real mobs).
+- `#116` — no "respawn into an already-engaged hostile -> dig in before anything else" fast path
+  existed; `#103` and SHELTER each worked correctly in isolation but the INTERACTION under a
+  respawn-camp had no protection (fixed, agenda.js v33, spawn-camp detection + dispatch suppression).
+- `#117` — EAT/EAT_CRITICAL's owner-latch could dead-end: the moment either ate its last food item
+  without crossing the healing threshold, `fire()` went false but `clear()` never went true, latching
+  forever with no self-recovery (fixed, agenda v34) — this is the exact mechanism behind the run's own
+  final heal-deadlock at HP 0.33, corroborating evidence for the fix's real-world relevance even though
+  GammelGerhard's frozen stack never received it.
+
+Six real engine issues, each with a live reproduction case from this one run, all closed same-session.
+That is the actual return on a race run whose own scoreboard result is "DNF, alive, at cap." Findings
+detail: FEEDBACK.md (09:12Z, 09:28Z x2, 09:40Z entries + engine-dev/eng-3's fix writeups).
 
 Decider daemon: was NOT running at prep time; messaged engine-dev-3 to coordinate first (concurrently
 on TODO 4b in decider.js), said I'd wait for their ack. **Did not wait long enough — started it at
