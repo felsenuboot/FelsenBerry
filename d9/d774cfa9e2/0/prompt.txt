@@ -21,3 +21,29 @@ What actually happened at (-21,108,-3)/(-18,109,3), from decisions/metrics: 3 se
 ---
 
 why do you keep asking for permissions, you hve bypass permissions activated
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+Task 1 report (audit of the soak #4 post-hoc grade). FEEDBACK.md entry: "soak #4 grade audit: byte-equivalent, plus criterion-4 vacuous-verdict threshold + window-truncation annotation."
+
+**(a) Audit**: re-ran the exact staged command against Trail4Insp2 (3171). All four gate files (humanbar4/humanbar/trail/direction) diff byte-identical to yours (numeric fields, `del(label,at,since,until,artifacts)`). The post-hoc grade is confirmed correct.
+
+**(b) Criterion 4 vacuous verdict — argued + built**: MIN_SITES_FOR_VERDICT=3, reusing trail.mjs's own existing n=3 "anecdote vs pattern" line (already used for floating-log FAIL threshold) with the sign flipped for a clean read. Never flips the verdict boolean — only adds `vacuous`/`vacuousReasons` annotations, same "annotate don't flip" doctrine as your own c3 caveat. Re-run on soak #4: `trail soak4: PASS (VACUOUS — not a confirmed-clean trail)` — 1 site, 0 chop clusters. Fixture: bench/fixtures/trail-vacuous.mjs, 13/13, hermetic (had to split trail.mjs's pure verdict math from its CLI/network path behind an isMain guard, same idiom eng-3 used for decider.js's handleBot() — saw their 4b entry in FEEDBACK.md after I'd already done this independently, good sign it's the right pattern for this codebase).
+
+**(c) Window truncation — argued yes, built**: `--ledger-end <ISO>` on humanbar4.mjs, opt-in (not auto-detected — a quiet bot mid-soak would false-trigger a gap heuristic; the true external cutoff is something the grader states, same as --since/--until). Demoed on soak #4 with --ledger-end 08:46:12Z: prints "WINDOW TRUNCATED... this grade covers the actual ~56 minutes observed, not the full pre-registered window" and stamps the gate JSON. Fully opt-in — omitting it leaves every gate file byte-identical to before (re-confirmed). Did NOT thread it into trail.mjs (live-world truth, not time-series) or metrics.mjs's --direction-gate (no --until concept there today — humanbar.mjs already pre-filters into a scratch dir instead). Flagged as a real follow-up if a future truncated soak has unclosed episodes right at the cutoff worth annotating specifically.
+
+**(d) Criterion 3 vitals floor — PROPOSAL, not built** (per your instruction not to unilaterally touch GOAL.md):
+
+GOAL.md's "survives real night threats without driver help" has no vitals floor today. Soak #4 passed criterion 3 with the bot pinned at hp10/food0 at the last logged reading — humanbar4.mjs already prints this as a CAVEAT (unchanged this pass) but the boolean itself doesn't distinguish "never threatened" from "one hit from death the whole time," and both currently read as an identical clean PASS.
+
+Proposed addition to GOAL.md criterion 3: **"...without driver help, AND without sustained critical vitals — never below hp 6 OR food 0 for more than 10 continuous minutes."**
+
+Why these numbers: hp6/20 is the point survival.js's own reflex branches already treat as urgent (worth confirming the exact threshold against survival.js before adopting — I used the CAVEAT's own hp<=6/food<=6 check in humanbar4.mjs as the starting anchor, might want to align them explicitly either way). 10 minutes is arbitrary but deliberately not zero-tolerance: a brief dip while FOOD (#108) is actively working the problem shouldn't fail the run, only a bot stuck there.
+
+Why now: independent of #108 landing (that's a behaviour fix; this is a grading-criterion question) — a future soak could have #108 working correctly and still spend 15 minutes at food:0 before the FOOD rung's widening-radius hunt finds fauna, and today's c3 boolean would call that an unqualified PASS same as a bot that was never hungry. Your call whether/how to phrase it — flagging the gap and a concrete anchor, not asking you to adopt verbatim.
+
+Also FYI, unprompted: while reading FEEDBACK.md tail for context I saw eng-3's TODO-4b landed (decider.js driver-grace re-keyed on DRIVEN not OWNER, replay-verified 12/12) and test-driver's run #6 finding (PROJECT standDown outliving its project). Neither affects task 1's audit (soak #4's grade is historical/frozen) but flagging since 4b is directly relevant to my task 2 (direction-gate latency breakdown) — I'll read decider.js's current state before designing the breakdown, per the "coordinate with engine-dev-3 first" instruction.
+
+Moving to task 2 now.
+</cross-session-message>
