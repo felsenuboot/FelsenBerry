@@ -1268,7 +1268,7 @@ design, so `#108`'s FOOD rung is exercised as intended).
 |---|---|---|
 | Join | **T+0 (08:58:28Z / entity id 35)** | fresh spawn, position (3.5, 101, 3.5), hp 20/20, food 20/20, empty inventory confirmed via `/state` |
 | Wooden pickaxe | **T+1m15s (08:59:43Z)** | `Tool ready: wooden_pickaxe (crafted)`, log-confirmed on `world-race6` server.log — 2nd-fastest ever behind run #4's T+59s, well ahead of run #5's T+7m25s. No re-issue needed (per trigger table); RESTOCK now self-provisioning kit (torch/bread/cobblestone/stick) toward the stone attempt. |
-| Stone pickaxe | **T+31m50s (09:30:18.526Z) — THE WALL IS BROKEN** | `Tool ready: stone_pickaxe (crafted)`, log-confirmed on `world-race6` server.log. **First stone pickaxe ever reached live by this program** (runs #1-#4 all DNF'd before this tier; run #5 suspended mid-kit-assembly, excluded). Steering-call tally AT this exact tick: 9 (see full list below) — full engine stamp at this moment: skills v62, agenda v30, survival v11, dangerscan v6 (unchanged from spawn). Crafted 1.9s before a fatal creeper explosion (see death entry below) — the tier was genuinely reached regardless of the tool's subsequent loss on death. |
+| Stone pickaxe | **T+31m50s (09:30:18.526Z) — THE WALL IS BROKEN** | `Tool ready: stone_pickaxe (crafted)`, log-confirmed on `world-race6` server.log. **First stone pickaxe ever reached live by this program** (runs #1-#4 all DNF'd before this tier; run #5 suspended mid-kit-assembly, excluded). Steering-call tally AT this exact tick: 9 (see full list below) — full engine stamp at this moment: skills v62, agenda v30, survival v11, dangerscan v6 (unchanged from spawn). Crafted 1.9s into a fatal creeper-then-spider encounter (server.log: `slain by Spider`; see the corrected death entry below) — the tier was genuinely reached regardless of the tool's subsequent loss on death. |
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
 
@@ -1336,22 +1336,34 @@ currently has no legal `setProject` path to satisfy this specific gate. Proposed
 raw-meat set, same poison-risk exclusion of chicken) written up for engine-dev/eng-3, not applied by
 me (skills.js is shared, not my lane mid-race).
 
-**DEATH #1 — creeper explosion, 09:30:21.427Z, T+31m53s.** Full timeline (server-log-timestamped,
+**DEATH #1 — 09:30:21.427Z, T+31m53s. CORRECTED CAUSE (team-lead flag, honored): `world-race6/../server.log`
+line 53 reads `[11:30:21] [Server thread/INFO]: GammelGerhard was slain by Spider` — the server's own
+kill-attribution line is the record of truth for cause, and my first pass wrote "creeper explosion"
+from the bot's own dangerscan chat without cross-checking it. Reconciled, not just corrected: a
+SPIDER landed the final blow, but the creeper visibly contributed the bulk of the HP loss — both are
+real, from the same log, at these exact timestamps.** Full timeline (server-log/bot-log-timestamped,
 not inferred): 09:30:10.201Z `Creeper at 7.9 blocks - backing off, do NOT touch it` (dangerscan
 correctly identified and started disengaging) -> HP held at 20 through 09:30:12 (`Stable again
-(CREEPER, HP 20/20)`) -> explosion at close range: 09:30:15.427Z hp=18 -> 09:30:16.424Z hp=16 ->
-09:30:17.442Z hp=6 (single big jump — the actual detonation) -> `Walling myself in to patch up` fired
-at 09:30:17.726Z (WALL_OFF engaging, correctly, immediately) -> **09:30:18.526Z `Tool ready:
-stone_pickaxe (crafted)` — the wall-breaking milestone landed 1.9s into the death spiral, before the
-wall could complete** -> hp 4 (09:30:18.425) -> hp 2 (09:30:19.425) -> hp 0 (09:30:20.425) -> `bot
-died — respawning` (09:30:21.427Z). The zero-defense floor (`#96`) engaged in the right order
-(disengage -> wall) but a creeper's burst damage output-paced it — same honest ceiling run #5's
-writeup already named ("the bot can now always try something" is not "the bot now always survives"),
-not a regression. **Inventory wiped on death, confirmed via read-only `/eval`** (empty array) —
-consistent with every prior run's death (`#1`/`#2`/run #3's three deaths). The stone pickaxe crafted
-moments earlier is GONE, but the TIER was genuinely reached and is recorded as reached regardless
-(per Race book v2's own instruction: record the milestone "regardless of how the rest of the run
-goes").
+(CREEPER, HP 20/20)`) -> 09:30:15.427Z hp=18 -> 09:30:16.424Z hp=16 (two -2 drops, bite-shaped, no
+matching chat — likely the spider, un-narrated) -> **09:30:17.442Z hp=6, a single -10 jump, exactly
+co-timed with `Creeper at 2.8 blocks - backing off, do NOT touch it` at the SAME timestamp — this is
+the creeper's blast** -> `Walling myself in to patch up` fired at 09:30:17.726Z (WALL_OFF engaging
+correctly, immediately, on the right threat) -> **09:30:18.526Z `Tool ready: stone_pickaxe (crafted)`
+— the wall-breaking milestone landed 1.9s into the death spiral, before the wall could complete** ->
+hp 4 (09:30:18.425) -> hp 2 (09:30:19.425) -> hp 0 (09:30:20.425), three more -2 drops, bite-shaped
+again — **the spider finishing off a bot the creeper had already put at 6 HP while WALL_OFF was still
+mid-build, and the server credits the spider with the kill** -> `bot died — respawning`
+(09:30:21.427Z). No spider was ever named in the bot's own dangerscan chat (checked: zero matches) —
+dangerscan tracked and correctly reacted to the creeper (the more dangerous threat by design), while
+an unannounced spider got the actual finishing hits in during the vulnerable building window. The
+zero-defense floor (`#96`) engaged in the right order against the threat it saw (disengage -> wall)
+but a second, untracked threat landed the kill during the gap — a genuinely different shape from run
+#5's "the ladder fired correctly and still lost to raw damage" finding, worth eng-3 knowing as a
+DISTINCT case (multi-threat, not single-threat-outpaces-ladder) rather than filing it under the same
+bucket. **Inventory wiped on death, confirmed via read-only `/eval`** (empty array) — consistent with
+every prior run's death (`#1`/`#2`/run #3's three deaths). The stone pickaxe crafted moments earlier
+is GONE, but the TIER was genuinely reached and is recorded as reached regardless (per Race book v2's
+own instruction: record the milestone "regardless of how the rest of the run goes").
 
 **Respawn — `#103` (agenda v28, landed by eng-3 mid-run, commit `2caaf66`) fired live for the first
 time in this race program.** `AGENDA_EVENT {"op":"open","eid":"dmtlbr0d01","why":"respawned",...}` at
@@ -1369,8 +1381,9 @@ corpse-recovery detour (death coords ~60 blocks from the current bootstrap site,
 09:31:09.649Z) — logged here as its own timed interval per the branch's instruction, comparable
 across future runs.
 
-Steering calls: 10 total (see full list above). Deaths: 1 (creeper explosion, organic, zero-defense
-floor engaged in the right order but outpaced by burst damage — not a bug). Monitor: armed —
+Steering calls: 10 total (see full list above). Deaths: 1 (creeper blast + an untracked spider's
+finishing hits, `slain by Spider` per server.log, organic — see corrected writeup above; not a bug).
+Monitor: armed —
 actionable-only filter (milestone first-seen, death/damage, hp<8/food<6, rung-stuck>90s,
 `needs_direction` opened, server errors) per team-lead's tightened cadence, plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans.
