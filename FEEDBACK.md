@@ -6268,3 +6268,49 @@ commit: 365fdad
 github: felsenuboot/FelsenBerry#121 (TODO 5n) — escalation + ledger landed; FLEE_AWAY-
 under-fire is the open remainder, awaiting the lead's call on whether it's in-scope for
 #121 or a new follow-up issue
+
+---
+### 2026-09-03 engine-dev — #121/5n-b prep: stress arena gets cover; bare-platform variant retained as a documented, non-gating expected-loss case
+
+Lead ACK'd the FLEE_AWAY design (LOS-biased retreat, re-picked on cadence, raw-distance
+fallback) with two conditions before code: retain the bare-platform variant as documented
+expected-loss (run once, log hpMin, don't gate on it), and note dig-down as a possible
+tier below FLEE for a later issue (not building it now). Landed the fixture-arena half of
+that first (commit b92f6a8) since it doesn't touch survival.js and eng-3's 5m commit
+needs the file clear first.
+
+`bench/fixtures/induced-stress-sequencing.sh`'s arena (`build_platform`) was a completely
+flat, featureless stone platform — the fixture was testing a void, not a world. This
+fixture is deliberately toolless (no shield either), so an LOS-biased flee has nothing to
+use there and the existing "cornered -> shieldUp" line in branchFleeAway is already a
+silent no-op on it (shieldUp requires a shield item; there isn't one). Default arena now
+scatters 5 small stone pillars (1-2 blocks) inside the existing 12x12 footprint, clear of
+the bot-start/skeleton-spawn sightline so BREAK_LOS still gets its triggering shot — live-
+verified this doesn't disturb the encounter (skeleton got LOS at 4 blocks same as before).
+`STRESS_ARENA_BARE=1` keeps the original bare variant available, informational-only —
+pass() fires on that path even when hpMin<6, with an explicit "documented, non-gating
+loss, not a regression signal" message, so nobody later reads a low bare-variant number as
+something broke.
+
+Logged bare-variant sample, run once as instructed: hpMin=20 (no damage taken this
+particular run — skeleton combat has real accuracy/timing variance, this is a single
+stochastic sample, not a claim the bare case is safe). For the honest range: two earlier
+live encounters against this exact bare geometry, captured during #121/5n's original
+verification pass (see the entry above, commit 365fdad), hit hpMin 1.3 and hpMin 0.5. All
+three numbers are real measurements of the same unarmed+shieldless+zero-cover scenario;
+the variance itself is the finding — a bare-ground encounter's outcome depends heavily on
+skeleton accuracy luck, which is exactly why FLEE_AWAY needs a mechanism (LOS-biased
+retreat) rather than relying on raw distance/RNG.
+
+Next: the actual LOS-biased retreat in branchFleeAway (5n-b) — waiting on eng-3's 5m
+shelterEnter() commit to land on survival.js first (lead's sequencing), then building it
+per the ACK'd design.
+
+Follow-up, explicitly NOT now (lead's note): dig-down (dirt/sand/gravel by hand in <1s, or
+any pickaxe) as a possible tier below FLEE_AWAY for bare-ground/no-cover cases — filing as
+a later issue, not part of #121's scope.
+
+fix: bench/fixtures/induced-stress-sequencing.sh (arena + STRESS_ARENA_BARE)
+commit: b92f6a8
+github: felsenuboot/FelsenBerry#121 (TODO 5n / 5n-b) — arena prep landed; FLEE_AWAY LOS-
+bias itself still pending eng-3's file handoff
