@@ -78,7 +78,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    a branch that makes no progress for N cycles must ESCALATE, never loop — order: WALL_OFF if filler; else fists (a human punches a
    skeleton at 0.5 blocks; unarmed counter-attack allowed below some HP or when cornered); else FLEE_AWAY. Fixture = the same
    induced-stress-sequencing.sh, must PASS unarmed. Issue number from issue-manager.
-5o. **Deep-tier orphaned kit demands: armor, shield, water** (eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
+5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
    (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
    can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
    only what a supplier exists for. Law from the audit: every kit item must name its supplier rung; a demand with no supplier is a deadlock.
