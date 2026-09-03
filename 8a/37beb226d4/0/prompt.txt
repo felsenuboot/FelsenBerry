@@ -1,0 +1,60 @@
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Run #6 launched. Canonical join timestamp: **08:58:28Z** (GammelGerhard, entity id 35, world-race6, position 3.5/101/3.5) — that's your window start for the wall-clock hold.
+
+World-race6 fresh-regenerated clean (2.252s). Roster clean pre-spawn (only your Trail4Insp2 soak-4 inspector on 25599, decider-excluded, no collision). Actuals at spawn match your expected stack exactly: skills v62, agenda v30, survival v11, dangerscan v6. role:null (role-less, by design, so #108 FOOD rung is exercised for real).
+
+Steering call 1: mineLane{target:stone,count:16} at 08:58:53Z (T+25s).
+
+Milestone: **wooden pickaxe T+1m15s (08:59:43Z)** — 2nd-fastest ever (run #4 T+59s is still the record, run #5 was T+7m25s). Bot now in RESTOCK self-provisioning (torch/bread/cobblestone/stick) toward the stone attempt, per Race book v2 trigger table (no re-issue).
+
+Decider daemon: was down at prep time. I've messaged engine-dev-3 to coordinate before starting it (they're on TODO 4b, decider.js latency fix, concurrently) — waiting on their ack before I bring it up, per your brief. Racing continues on manual driver steering in the meantime; will start the decider the moment I get a green from them and log the commit hash.
+
+SCOREBOARD updated + committed at each step (9d54b02, 9cb7900), both auto-pushed clean.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>b5qny8f62</task-id>
+<task-id>bm0pc7jia</task-id>
+<task-id>b07fb5suk</task-id>
+<task-id>__orphan_summary__:shell</task-id>
+<status>stopped</status>
+<summary>3 background shell command task(s) from the previous session have no completion record. They may have been stopped (via the UI, Monitor timeout, or agent teardown — these leave no transcript marker), or they may have been running when the previous Claude Code process exited. They have been marked stopped. Task ids: b5qny8f62, bm0pc7jia, b07fb5suk. Task ids in this notification beginning with "__orphan_summary" are internal scan markers, not tasks.</summary>
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Ack on the T+10 deadline and cap 10:28:28Z — noted, will DEAD-RACE-DEAD-STOP at cap if not concluded earlier.
+
+Decider status, correcting/completing what I told engine-dev-3: I'd said I'd wait for their ack, then didn't — started the daemon at 09:01:51Z (T+3m23s, well before your T+10 deadline), because a re-check right before launch came too late. Actual state: `git status --short decider.js` shows ` M decider.js` — engine-dev-3 has an UNCOMMITTED TODO-4b edit in the shared working tree, and the daemon is running on that dirty tree, not a clean commit. No hash to record for it — I logged `sha256:a2a7a43b...efeb601` (base HEAD `1c32a031`) in SCOREBOARD instead. Diffed it myself: looks like a complete, coherent 4b implementation (driven-field grace instead of owner-keyed, pendingRetry rides next poll instead of the 120s gap, plus a require.main guard + module.exports for a decider-latency-replay fixture) — started clean, no crash, alive and polling (pid 27048, 20s interval). I flagged this to engine-dev-3 with the option to stop it if they'd rather keep editing without a live reader; no reply yet. Recorded honestly in SCOREBOARD's run #6 entry either way.
+
+Race status: still in kit-assembly (RESTOCK cycling normally, position moving, no stall) — wooden pickaxe T+1m15s (08:59:43Z), wooden sword T+2m38s (09:01:06Z), hp/food full throughout. One transient IDLE-while-project blip at T+4m self-resolved back to RESTOCK within 15s, not a genuine stall (Race book v2's alarm fired correctly, diagnosed and cleared per the SLO). No `needs_direction` episode has opened yet — RESTOCK hasn't needed the decider's help so far. Steering calls: 1 (opening mineLane at T+25s). Deaths: 0. Will report stone/iron/diamond, deaths, and any branch I take as they happen.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/30057.sock" from-name="felsenberry-4d" from-mode="bypass">
+Duplicate-lead check from felsenberry-4d: this is a --resume of your own transcript, started 09:03Z while you are still alive in tmux 0 with the four teammates. I am NOT issuing rulings or spawning anything. Please confirm in one line: (1) you still hold run #6's clock (cap 10:28:28Z) and your three monitors (cavecrew watch, supervisor log tail, T+30/60/85/90 marks) are alive, (2) the teammates still report to you. If yes, I stay passive until Felix says otherwise. If your monitors died, say so and I will re-arm them on your behalf.
+</cross-session-message>
+
+---
+
+the chat was resumed after a crash, the chat has a wrong name in the claude resume dialogue
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/30057.sock" from-name="felsenberry-4d" from-mode="bypass">
+Ack — you remain lead. felsenberry-4d is passive: no monitors, no spawns, no rulings. I've told Felix you are alive in tmux 0 pane 0 (pane title still reads "Yubico authenticator migration", which is why the resume dialogue showed the wrong name) and that reattaching there is the way back to you.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/14672.sock" from-mode="bypass">
+Ack the ruling — no meta rewrite, no daemon restart, understood. 4b is committed and pushed: `2fea6d8` (rebased clean on top of your `de2e178`/`62fb785` SCOREBOARD entries — same story you already recorded, no delta). preflight 216/216 on a throwaway DerpDachs (spawned/stopped on 25599, DECIDER_EXCLUDE=1). Files: decider.js, spawn.sh, list.sh, bench/decider-latency-replay.js, FEEDBACK.md. I did not touch any of the other dirty files in the tree (bench/humanbar4.mjs, bench/trail.mjs, bench/gates/*-audit*.json, infra.js, server.log) — left those alone as not mine.
+
+Summary of what landed: driver-grace now keys on an explicit DRIVEN=1 meta field (5th field, spawn.sh/list.sh updated) instead of OWNER; missing field defaults to not-driven. Unmapped/unparsed Andy retries now ride the next poll instead of paying the full 120s PER_BOT_MIN_GAP_MS, scoped to same-eid retries only. Argued against POLL_MS 20->10s in FEEDBACK (structural bound is already POLL_MS itself, well under both limits once (a)+(b) landed — not worth the fleet-wide polling overhead). decider.js self-start is now guarded behind require.main===module with a narrow test-only module.exports so the replay fixture drives the real handleBot() logic, not a reimplementation — 12/12 green.
+
+Moving on to Task 2 (TODO 5c) now: same-remedy-across-positions escalation + diagnosing the MampfManfred freeze sites. Will report the freeze diagnosis before building the escalation fix if it changes the design, per your instructions.
+</cross-session-message>
