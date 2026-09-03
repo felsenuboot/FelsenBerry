@@ -85,6 +85,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    HP/food/position flat 4+ min, no direction episode opens (state:cooldown) so the decider never sees it). A threat with no LOS and
    no ranged capability at >12 blocks must not enter panic; and N panic re-entries on the same threat id with no damage taken must
    escalate (walk away / kill it) not loop. Ledger it. Live specimen: GrantigGustav on 25600 after run #7's conclusion.
+5p. ~~Heal-deadlock band~~ DONE (#123, de81bd1 — agenda v37: FOOD also fires on hp≤10 && food<18 && foodCount==0 && calm && !hostileNear; +10 ladder cases; live-fired at hp 7.3/food 17; preflight 301/301). [Line was dropped by lead's 78ccd1b slice edit — restored.]
 5o. **Deep-tier orphaned kit demands: armor, shield, water** (#122, eng-3, after 5m; NOT gating soak #6 — only y<0 mining hits it): kit-supplier audit
    (3dcfc8e, FEEDBACK table) — activeFloors() never reads k.armor/k.shield/k.water while S.kitCheck demands all three for `deep`; no rung
    can supply them. Needs real supply chains (craft/withdraw shield, acquire+equip armor, bucket+fill water) or a `deep` tier that demands
