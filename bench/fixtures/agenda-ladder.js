@@ -58,6 +58,21 @@ try {
   T('panic, survival inactive, CONFIRMED stale -> REFLEX stands down, ladder proceeds', { dangerState: 'panic', survivalActive: false, panicStale: true }, 'PROJECT');
   T('danger alert -> POSTURE', { dangerState: 'alert' }, 'POSTURE');
   T('food 5 -> EAT_CRITICAL', { food: 5 }, 'EAT_CRITICAL');
+  // #105 SHELTER rung: wiring only, same split as panicStale/s.upgrade above — sense()'s own
+  // computation of shelterShould/shelterActive from __survival.shelter is a live-bot concern
+  // (see the live dusk fixture), this proves fire()/clear()/priority ordering react correctly
+  // to the snapshot fields.
+  T('shelterShould true -> SHELTER', { shelterShould: true }, 'SHELTER');
+  T('a real emergency still outranks shelter -> EAT_CRITICAL wins', { shelterShould: true, food: 5 }, 'EAT_CRITICAL');
+  T('shelter outranks ordinary travel-requiring rungs (freeSlots low too)', { shelterShould: true, freeSlots: 1 }, 'SHELTER');
+  // LATCHING must run on clear() (shelterActive), never on fire() staying true — should()'s
+  // own g.shelter.active check makes shelterShould read false the instant enter() starts, by
+  // design. If SHELTER's clear() were wrongly keyed off shelterShould, this case would fail
+  // exactly the way choose()'s own doc warns against.
+  A.owner = A.rung('SHELTER');
+  T('owner SHELTER, shelterShould now false but shelterActive still true -> stays latched', { shelterShould: false, shelterActive: true }, 'SHELTER');
+  T('owner SHELTER, shelterActive cleared -> released', { shelterShould: false, shelterActive: false }, 'PROJECT');
+  A.owner = null;
   T('freeSlots 1 -> DEPOSIT', { freeSlots: 1 }, 'DEPOSIT');
   T('food 15 -> EAT', { food: 15 }, 'EAT');
   T('pickaxe at 10% durability -> TOOL', { tools: { pickaxe: { name: 'iron_pickaxe', dur: 10 } } }, 'TOOL');

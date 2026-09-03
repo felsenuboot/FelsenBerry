@@ -116,7 +116,7 @@ const DEPOT_UNREACHABLE_TTL_MS = 3600000;
 const ACT_TIMEOUT_MS = 180000;
 
 const A = {
-  version: 26, enabled: true,
+  version: 27, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -314,6 +314,16 @@ const sense = (inject) => {
 
     const sv = globalThis.__survival;
     s.survivalActive = Boolean(sv && sv.active);
+    // #105/SHELTER rung: __survival.shelter.should()/status() are pure predicates over live
+    // bot state, but reading them straight from a rung's fire()/clear() would break the same
+    // "every predicate input comes through the snapshot" rule s.tools/s.upgrade already
+    // follow — bench/fixtures/agenda-ladder.js's dry-run injection cannot inject "what
+    // survival.js's own g.shelter object currently contains", only fields on s itself.
+    s.shelterShould = false; s.shelterActive = false;
+    if (sv && sv.shelter) {
+      try { s.shelterShould = Boolean(sv.shelter.should()); } catch (e) {}
+      try { s.shelterActive = Boolean(sv.shelter.status().active); } catch (e) {}
+    }
     // #97: track an unbroken "panic, but survival.js isn't engaging" streak, plus whether any
     // damage landed during it. Either signal breaking (state leaves panic, survival engages,
     // or a hit lands) resets the streak immediately -- see PANIC_STALE_MS's own comment.
@@ -674,6 +684,51 @@ const RUNGS = [
     fire: (s) => s.food <= 6 && s.foodCount > 0,
     clear: (s) => s.food >= 19,
     act: async () => { await eatInline(); return 'ate'; } },
+
+  // #105: proactive night shelter. engine-dev's survival.js v11 owns the PRIMITIVES
+  // (shelterDigIn/shelterHut, the exit state machine) and exposes should()/enter()/exit()/
+  // status() for exactly this rung — this is the other half team-lead split the work into.
+  // Priority ~2.5, deliberately between EAT_CRITICAL (2, a genuine emergency) and everything
+  // travel-requiring below it (DEPOSIT/EAT/TOOL/RESTOCK/LIGHT/PROJECT/ESCAPE, prio 3-8.5): a
+  // bot exposed at real night with no armor tier to fight it should seal up BEFORE any of
+  // those get another chance to walk it into the dark, but REFLEX/POSTURE (0/1) and a real
+  // food emergency still come first — SHELTER is prevention, not the reflex itself.
+  //
+  // fire() only asks "should I START" — should()'s own g.shelter.active check makes it
+  // return false the instant enter() is under way, by design (survival.js's own doc: "nothing
+  // here runs on its own timer... agenda polls should()"). LATCHING therefore has to run on
+  // clear(), never on fire() staying true, which is exactly how choose()'s owner/clear logic
+  // already works everywhere else in this file (see its own comment) — no special-casing
+  // needed here, just don't make the mistake of gating fire() on shelterActive too.
+  { id: 'SHELTER', prio: 2.5,
+    fire: (s) => s.shelterShould,
+    clear: (s) => !s.shelterActive,
+    act: async (s) => {
+      // Not a __skills task (enter() stops any running one itself, then drives the body
+      // directly) — no runSkill/activeTaskId here, that machinery is for the OTHER kind of
+      // work. Fire-and-forget by design (survival.js's own doc, same convention as its
+      // enter()/g.drill()): awaiting a multi-hour night would freeze the whole ladder loop
+      // exactly the way ACT_TIMEOUT_MS exists to prevent. Poll status().active via s.shelterActive instead.
+      const sv = globalThis.__survival;
+      if (!sv || !sv.shelter) { A.blocked = { why: 'no_survival_shelter', at: now() }; return 'blocked'; }
+      if (s.shelterActive) return 'running';
+      // Live-caught, two bugs stacked: (1) a genuine build failure (survival.js's own
+      // "no_viable_primitive" — no filler for a hut AND the ground under the bot isn't deep
+      // enough for dig-in) resolves g.shelter.active back to false almost immediately, well
+      // inside one tick interval, so fire()/act() re-triggered enter() every tick forever with
+      // nothing tracking the failure. (2) The first fix — chaining a standDown('SHELTER')
+      // onto enter()'s promise — did not actually stick: returning 'started' here hits
+      // tick()'s own generic "task started successfully" handler
+      // (`r !== 'running' && r !== 'cooldown' -> clear standDown`), which raced my async
+      // .then() and deleted the stand-down it had just set, every time. Returning 'running'
+      // instead (there is no __skills task to be "started" here in the first place — the
+      // whole point of this branch is that enter() is already in flight) skips that generic
+      // handler entirely, same as every tick where s.shelterActive is already true above,
+      // and leaves standDown as the sole authority on backoff.
+      sv.shelter.enter().then((r) => { if (!r || r.ok === false) standDown('SHELTER'); }).catch(() => standDown('SHELTER'));
+      note('SHELTER: entering for the night');
+      return 'running';
+    } },
 
   { id: 'DEPOSIT', prio: 3,
     fire: (s) => s.freeSlots <= 2,

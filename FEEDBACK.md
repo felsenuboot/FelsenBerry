@@ -4113,3 +4113,72 @@ first, internally, before anything else, satisfying team-lead's own sequencing n
 fix: `bench/humanbar4.mjs` (new).
 github: n/a — new instrument; the classification bug it caught and fixed was in this same
 uncommitted tool, never shipped as a false report.
+
+### 2026-09-03 engine-dev-3 — SHELTER rung built and verified (agenda v27): my half of #105's
+split, wiring engine-dev's landed survival v11 primitives — live testing found and fixed a real
+retry-storm bug the design couldn't have caught on paper
+type: fix + fixture + live verification
+status: built per team-lead's spec (prio 2.5, fire on should(), act=enter(), clear on
+!status().active), one real bug found and fixed live, bench/fixtures/agenda-ladder.js 32/32 (up
+from 27/27), full live dusk-to-dawn cycle verified end to end on a real bot
+what: `sense()` gained `s.shelterShould`/`s.shelterActive` (same "every predicate input comes
+through the snapshot" rule `s.upgrade`/`s.tools` already follow — `__survival.shelter.should()`/
+`.status()` are pure live-state reads, but a rung's fire()/clear() cannot call them directly
+without breaking `bench/fixtures/agenda-ladder.js`'s dry-run injection). New SHELTER rung, prio
+2.5 (between EAT_CRITICAL:2, a genuine emergency, and DEPOSIT:3, the first of everything
+travel-requiring) — `fire: s.shelterShould`, `clear: !s.shelterActive`, `act` calls
+`sv.shelter.enter()` fire-and-forget (never awaited — a multi-hour night would freeze the whole
+ladder the same way `ACT_TIMEOUT_MS` exists to prevent elsewhere).
+
+**Latching correctness, stated because it's the one thing easy to get backwards here**:
+`should()`'s own `g.shelter.active` check makes it return `false` the instant `enter()` starts,
+by design — so `s.shelterShould` goes false while sheltering, on purpose. Gating `clear()` on
+`shelterShould` instead of `shelterActive` would have released the rung the very next tick after
+it started, before the bot ever sealed anything. `choose()`'s own latch logic already runs
+entirely on `clear()`, never re-checking `fire()` for the current owner — this rung just had to
+not fight that, not add anything new.
+
+**Live testing found a real retry-storm bug, in two parts, that only showed up under an honest
+build failure.** First live attempt (thin single-layer test platform, no filler — an
+under-provisioned scenario, not a contrived one): `shelterBuild()` correctly, honestly failed
+fast (`no_viable_primitive` — no filler for a hut AND the ground under the bot wasn't the 3
+blocks deep `diginStandable()` requires), which resets `g.shelter.active` back to `false` well
+inside one 2s tick interval. With nothing tracking that failure, `fire()`/`act()` re-triggered
+`enter()` on literally every tick — "SHELTER: entering for the night" logged in a tight loop,
+forever, the exact "genuinely marooned... fails fast" case never actually backing off. First fix
+attempt (chain `standDown('SHELTER')` onto `enter()`'s promise) did not stick: this rung's `act`
+was returning `'started'`, which hits `tick()`'s own generic "a task started successfully, any
+prior stand-down is stale" handler (`r !== 'running' && r !== 'cooldown' -> delete
+A.standDown[id]`) — a real race, and the generic handler won it every time, deleting the
+stand-down my async `.then()` had just set. There is no `__skills` task here for that generic
+handler to legitimately be reacting to in the first place, so the fix was returning `'running'`
+instead (this rung's "task" — `enter()`'s own promise — genuinely IS already running the moment
+`act` calls it, which is also just the honest word for it): skips that generic handler
+entirely, same as every tick where `s.shelterActive` is already true, and leaves the async
+`standDown` call as sole authority. Re-tested against the identical thin-platform/no-filler
+scenario: one failed attempt, backoff (30s, escalating same as `RESTOCK`'s own pattern),
+control correctly handed to a lower rung — no more retry storm.
+
+**Full success path verified live, separately, on a bot the ladder wasn't fighting for control
+of.** wooden pickaxe(x2)+sword (gearTier below stone, and healthy/complete so TOOL's own rung
+stays quiet — an earlier attempt with stone tools correctly and unhelpfully proved `gearTier() >=
+stone` disqualifies shelter, and an attempt with no project cleared still got dragged around by
+TOOL/kit rungs, confirming the isolation was necessary, not just tidy) + 20 cobblestone + a few
+torches, real night (`time set night`): `shouldShelter()` fired, `enter()` selected `hut` (filler
+stock above the threshold), placed cells (`fillerCount` visibly draining as it built),
+`active:true kind:'hut'` — then `time set day`: exited cleanly on the very next tick,
+`active:false`, ladder fell through to `IDLE`, zero errors, zero lingering stand-down. Dig-in's
+own success path is engine-dev's already-verified primitive (prior #105 entries) — not re-proven
+here, since this session's job was the RUNG, not the shelter mechanics underneath it.
+
+**Precondition doctrine worth stating plainly, since it drove the whole retry-storm bug**: the
+30-second escalating stand-down is the correct behavior for a bot that is genuinely under-
+provisioned for shelter (no filler, thin/exposed ground) — it should NOT hammer the attempt every
+2 seconds, and it should NOT silently give up forever either (the escalating backoff still
+retries, just slower, so a bot that later picks up cobblestone or reaches better terrain gets
+another honest shot). This mirrors RESTOCK's own established backoff shape rather than inventing
+a new one.
+fix: `agenda.js` (`sense()`'s `s.shelterShould`/`s.shelterActive`, new SHELTER rung — v27).
+`bench/fixtures/agenda-ladder.js` (6 new cases: fire/priority-ordering/latch-via-clear, 32/32).
+github: felsenuboot/FelsenBerry#105 (this closes eng-3's half — engine-dev's primitives half was
+already closed)
