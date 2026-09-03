@@ -1381,9 +1381,30 @@ corpse-recovery detour (death coords ~60 blocks from the current bootstrap site,
 09:31:09.649Z) — logged here as its own timed interval per the branch's instruction, comparable
 across future runs.
 
-Steering calls: 10 total (see full list above). Deaths: 1 (creeper blast + an untracked spider's
-finishing hits, `slain by Spider` per server.log, organic — see corrected writeup above; not a bug).
-Monitor: armed —
+**DEATH #2 — 09:37:52.676Z, T+39m24s. `server.log`: `GammelGerhard was shot by Skeleton`.** Full
+timeline: an earlier, non-fatal skeleton shot at `[11:37:16]` server-log-time (09:37:16Z, ~36s before
+death) had already brought HP down to 6 by 09:37:38Z (`Stable again (BREAK_LOS, HP 6/20)`, BREAK_LOS
+firing repeatedly as the skeleton kept re-acquiring line of sight at ~2.3-2.5 blocks). **Critical: `No
+cobble to wall in with. Kit rule broken - heading out the way I came`** — the escalation ladder
+correctly recognized WALL_OFF was physically impossible (zero filler blocks, direct consequence of
+Death #1's inventory wipe 7m24s earlier and no RESTOCK cycle having replenished filler yet) and fell
+back to fleeing rather than looping uselessly on an unbuildable wall — the right decision, made too
+late to outrun a ranged attacker at 2.3 blocks. `Cobble wall up - that is my arrow shadow` then fired
+once (09:37:40.321Z, an arrow-shadow corner-step, not an actual wall — no material to build one) ->
+hp 3.3 (09:37:46.625Z) -> hp 0.3 (09:37:49.624Z) -> hp 0 -> death (09:37:52.676Z). **My own monitor's
+hp-alert only fired at hp=3.3**, already late in a ~36s encounter — the 15s poll interval missed the
+earlier hp=6 window; worth tightening for future runs but not actionable mid-race. Confirmed
+zero-defense floor genuinely tried (BREAK_LOS -> flee attempt), not a bug: a bot with literally no
+filler cannot wall, and fleeing from a ranged attacker already at melee-adjacent range is a real,
+honest loss, not a ladder failure. Inventory checked post-respawn: `dirtx1` only (near-empty, one
+stray pickup) — confirmed via read-only `/eval`. Followed the same combat-loss-at-night branch: (11)
+`setProject({skill:'mineLane',args:{target:'stone',count:16}})` at 09:38:16.500Z, re-armed from the
+bottom. **Death-to-re-arm gap: 23.8s** (09:37:52.676Z -> 09:38:16.500Z), faster than Death #1's 48.2s.
+
+Steering calls: 11 total (see full list above). Deaths: 2 — #1 creeper blast + an untracked spider's
+finishing hits (`slain by Spider` per server.log, organic — see corrected writeup above); #2 shot by
+Skeleton while filler-less post-Death#1 (organic, zero-defense floor tried the right fallback,
+outrun-failed against a ranged attacker — not a bug). Monitor: armed —
 actionable-only filter (milestone first-seen, death/damage, hp<8/food<6, rung-stuck>90s,
 `needs_direction` opened, server errors) per team-lead's tightened cadence, plus real-time
 `server.log`/`logs/GammelGerhard.log` tail, per Race book v2's trigger table and branch plans.
