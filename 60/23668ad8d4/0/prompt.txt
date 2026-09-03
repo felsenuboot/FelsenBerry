@@ -1,0 +1,13 @@
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Run #6 launched. Canonical join timestamp: **08:58:28Z** (GammelGerhard, entity id 35, world-race6, position 3.5/101/3.5) — that's your window start for the wall-clock hold.
+
+World-race6 fresh-regenerated clean (2.252s). Roster clean pre-spawn (only your Trail4Insp2 soak-4 inspector on 25599, decider-excluded, no collision). Actuals at spawn match your expected stack exactly: skills v62, agenda v30, survival v11, dangerscan v6. role:null (role-less, by design, so #108 FOOD rung is exercised for real).
+
+Steering call 1: mineLane{target:stone,count:16} at 08:58:53Z (T+25s).
+
+Milestone: **wooden pickaxe T+1m15s (08:59:43Z)** — 2nd-fastest ever (run #4 T+59s is still the record, run #5 was T+7m25s). Bot now in RESTOCK self-provisioning (torch/bread/cobblestone/stick) toward the stone attempt, per Race book v2 trigger table (no re-issue).
+
+Decider daemon: was down at prep time. I've messaged engine-dev-3 to coordinate before starting it (they're on TODO 4b, decider.js latency fix, concurrently) — waiting on their ack before I bring it up, per your brief. Racing continues on manual driver steering in the meantime; will start the decider the moment I get a green from them and log the commit hash.
+
+SCOREBOARD updated + committed at each step (9d54b02, 9cb7900), both auto-pushed clean.
+</cross-session-message>
