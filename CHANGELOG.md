@@ -11,7 +11,8 @@ Milestones, curated. Everything else: `git log`. Engine payload versions live in
   bonemeal-grown trees.
 - **#105 night-shelter primitives** (survival v11): dig-in-and-cap / 1×1 hut, dawn/threat/hunger/project exits —
   all four live-fired; **SHELTER agenda rung landed** (51b39d0) — wood/stone-tier bots now dig in at dusk instead of fighting.
-- **#106** raw block light is permanently 0 underground even beside a torch (never truth); composite spec in flight.
+- **#106 fixed** (c3149b3): raw block light is permanently 0 underground even beside a torch, so it is never truth — surface
+  now reads isDay·skyLight, underground scans tracked torch positions; ctx.autoTorch's raw-light early trigger removed.
   LIGHT-rung torch-spam hypothesis disconfirmed by 435 ledger firings.
 - **Instruments**: `bench/trail.mjs` (criterion-4 human-trail inspector: floating logs, stranded drops, naked shafts,
   torch density — live-verified both directions) and `bench/humanbar4.mjs` (all four human-bar criteria, one verdict;

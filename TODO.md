@@ -35,9 +35,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
 1. ~~#102 chopTrees fell-complete~~ DONE (skills v61, f35333b — GoalLookAtBlock height-cap reach bug fixed via digThorough).
 2. ~~Gear-progression drive~~ DONE (#107, fc6cef5 — TOOL rung upgrades wooden→stone when payable; depot-walk inversion fixed).
 3. ~~SHELTER rung~~ DONE (51b39d0; #105 primitives 79e0e1e with all four exits live-fired e51744b).
-3b. **#106 light composite** (eng-3, LAST item before the soak): surface `isDay ? skyLight : 0`; underground = tracked torch
-   positions (raw light is permanently 0 there — never truth); ctx.autoTorch by distance-since-last-torch; fixture
-   bench/fixtures/light-composite.sh; preflight green.
+3b. ~~#106 light composite~~ DONE (c3149b3 — surface isDay·skyLight; underground = torch-position scan; autoTorch raw-light trigger removed; 210/210).
 4. **SOAK #4 = first formal HUMAN-BAR attempt** (after 1-3 + preflight): fresh crude name, --agenda, SOAK_BOT on the
    decider, canonical timestamp, 60 min hands-off, `node bench/humanbar4.mjs --bot <name> --since <ISO> --until <ISO>
    --inspector-port <port> --label soak4` (ALL FOUR criteria, one verdict; trail check runs FIRST — drops despawn in 5 min;
