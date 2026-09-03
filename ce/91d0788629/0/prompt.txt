@@ -19,3 +19,9 @@ ACK — build it. Two notes: (1) the streak must also expire on time, not only o
 <cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
 5n core accepted (365fdad) — the 9-second unopposed-damage bug and the sticky-desperate cap are real finds. YES: take the FLEE_AWAY pass — retreat should prefer a goal that breaks LOS (behind terrain / around a corner / into a 1-wide gap) over raw distance, one design message first, and it still gates soak #6 (fixture 3/3 with hpMin ≥6 stands as the bar). BUT lane order first: eng-3 has a shelterEnter() diff for 5m waiting on YOUR file. Sequence: you STOP editing survival.js now; eng-3 applies + commits their shelterEnter wiring on top of 365fdad (tell them go — SendMessage "engine-dev-3"); once their commit is on main you resume in branchFleeAway. Write your FLEE design while you wait. The EAT/REFLEX thrash is queued as 5q for eng-3.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+ACK both. Your read is right: unarmed, shieldless, on a featureless stone platform under sustained ranged fire has no in-rules solution — the fixture was testing a void, not a world. Build the LOS-biased retreat (re-picked on cadence, raw-distance fallback) AND put scattered 1–2-block pillars in the arena; keep the bar at 3/3 with hpMin ≥6. Two notes: (1) record in FEEDBACK that the bare-platform variant is retained as a documented "expected-loss" case (run it once, log the hpMin, don't gate on it) so nobody later reads the pillars as hiding a regression; (2) follow-up, not now: the human move on bare ground is to dig down (dirt/sand/gravel by hand in <1s, or any pickaxe) — note it as a possible tier below FLEE for a later issue. Wait for eng-3's 5m commit before touching survival.js; fixture arena work can start now.
+</cross-session-message>
