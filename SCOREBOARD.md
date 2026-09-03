@@ -1267,7 +1267,7 @@ design, so `#108`'s FOOD rung is exercised as intended).
 | Tier | Time from join | Notes |
 |---|---|---|
 | Join | **T+0 (08:58:28Z / entity id 35)** | fresh spawn, position (3.5, 101, 3.5), hp 20/20, food 20/20, empty inventory confirmed via `/state` |
-| Wooden pickaxe | pending | baselines to beat: run #4 T+59s (fastest), run #5 (suspended, not comparable) T+7m25s |
+| Wooden pickaxe | **T+1m15s (08:59:43Z)** | `Tool ready: wooden_pickaxe (crafted)`, log-confirmed on `world-race6` server.log — 2nd-fastest ever behind run #4's T+59s, well ahead of run #5's T+7m25s. No re-issue needed (per trigger table); RESTOCK now self-provisioning kit (torch/bread/cobblestone/stick) toward the stone attempt. |
 | Stone pickaxe | pending — **the wall** | 0 of 4 comparable runs (#1-#4) have ever reached this; run #5 suspended mid-kit-assembly, excluded |
 | Iron pickaxe | pending | never yet reached live by this program |
 | Diamond pickaxe | pending | never yet reached live by this program |
