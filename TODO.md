@@ -74,7 +74,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    the cobblestone it just mined, BEFORE yielding to REFLEX; or mine with the lane mouth plugged behind it each batch. Fixture: threat
    mid-batch → bot ends inside a re-sealed chamber, alive.
 5n. ~~BREAK_LOS no-progress loop + FLEE LOS-bias~~ DONE (#121/#124: 365fdad core, cbc04a3 fixture+fix-B wiring, 757bd0c FLEE distance-primary + forced sprint (0/5 deaths live, 3–12 blocks gained/cycle), 6f80b2b enter()-level level-triggered re-entry (≤500 ms poll while actionableThreats() non-empty, ledger op:reenter/gap_ms) — induced-stress-sequencing.sh 3/3 pillared (hpMin 19.2/17.7/16.3), bare variant logged informational; survival v16; FEEDBACK f83b80c). The dig-down escape tier remains a noted follow-up.
-5m-c. **WALL_OFF must use the known sealed chamber when night-mining** (engine-dev, survival WALL_OFF, GATES soak #6 with 5m-b): eng-3's
+5m-c. **WALL_OFF must use the known sealed chamber when night-mining** (#127, engine-dev, survival WALL_OFF, GATES soak #6 with 5m-b): eng-3's
    5m-b trials (4 live, deaths 4/4 → last one survived the first wave) show the residual: when a threat interrupts a batch, REFLEX wins
    the race and WALL_OFF tries to box the bot in the 1-wide lane (2–6 open faces) instead of stepping ≤2 blocks back into the chamber
    and plugging the 2-cell mouth. Design: nightmine publishes g.shelter.nightMining = {chamberPos, lanePos, mouthCells}; branchWallOff
