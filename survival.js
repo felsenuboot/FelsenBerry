@@ -1,4 +1,15 @@
-// survival v12 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v13 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v13 (#115, TODO 5g item 4, eng-3's proposal, ack'd and implemented here): shelterBuild()
+// fell through to a silent no-op (`no_viable_primitive`) whenever there was no filler for a
+// hut AND diginStandable()'s full 3-deep column wasn't available — during a genuine spawn-camp
+// (bot._spawnCamp.active, #116's shared bot-level flag) doing nothing is worse than partial
+// cover. `diginDepth()` (0-3, partial credit sibling of diginStandable) + shelterDigIn(depth)
+// add a last-resort branch, gated on the camp flag so an ordinary no-filler night still fails
+// honestly as before. The cap/ring placement math in shelterDigIn needed NO change to support
+// a shallower depth — it was already depth-independent (cap computed from the real post-dig
+// feet position, ring references the undisturbed terrain around the single dug column at
+// whatever absolute Y that lands, same either way) — see its own comment.
 //
 // v12 (#115, TODO 5f, run #6 death #1): branchWallOff used to defend against exactly ONE
 // threat — whichever one dangerscan's own SCORE ranking handed pick() (a nearby creeper always
@@ -172,7 +183,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 12,
+  enabled: true, version: 13,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -1026,6 +1037,21 @@ const diginStandable = () => {
   }
   return true;
 };
+// #115/5g item 4 (spawn-camp dirt-dig fallback, eng-3's proposal, ack'd): diginStandable()
+// is all-or-nothing (needs a verified 3-deep column) -- this is the partial-credit sibling,
+// returning how many of the first 3 cells straight down are actually usable (0-3), so a
+// spawn-camped bot with no filler and imperfect ground underneath can still get SOME cover
+// instead of shelterBuild()'s current silent no-op. Same per-cell hazard/water/solid check.
+const diginDepth = () => {
+  const feet = bot.entity.position.floored();
+  let depth = 0;
+  for (let dy = 1; dy <= 3; dy++) {
+    const b = bot.blockAt(feet.offset(0, -dy, 0));
+    if (!isSolid(b) || HAZARD.has(b.name) || b.name === 'water') break;
+    depth++;
+  }
+  return depth;
+};
 
 // #105: dig straight down `n` blocks (mineflayer physics free-falls the bot into each gap —
 // no pathfinder goal needed for a 1-cell drop). Aborts honestly on a hazard or an undiggable
@@ -1055,10 +1081,10 @@ const digDownInto = async (n) => {
 // from the dig, no carried filler required (`g.shelter.extraFiller` below covers whatever
 // was actually dug, not just the fixed `g.filler` list). Needs a tool only where the ground
 // itself does (stone/etc.); dirt/grass need no tool at all.
-const shelterDigIn = async () => {
+const shelterDigIn = async (depth = 2) => {
   say('! Digging in for the night.');
   const startFeet = bot.entity.position.floored();
-  const dug = await digDownInto(2);
+  const dug = await digDownInto(depth);
   // whatever came out of the ground is fair cap/pillar material for THIS session, even if it
   // isn't one of `g.filler`'s fixed names (live-caught: terracotta, during this feature's own
   // fixture) — reset in shelterEnter's finally so this never leaks into a later WALL_OFF/
@@ -1086,6 +1112,17 @@ const shelterDigIn = async () => {
   // placeable — each ring cell's OWN reference is the natural ground one level down and one
   // column over, which IS solid on ordinary terrain (confirmed live: a 3x3 dirt platform's
   // untouched columns are solid exactly where a ring cell would need them).
+  //
+  // #115/5g item 4: this is DEPTH-INDEPENDENT and needs no special-casing for a shallower dig
+  // (`depth` param above, `diginDepth()`'s partial-credit fallback) — `cap` is computed from
+  // `feet`, re-read fresh right above AFTER whatever depth was actually dug, so it always sits
+  // exactly 2 above the REAL resting feet (1 above the bot's own head) regardless of depth. The
+  // ring's own reference (one level below the ring, at the ring's horizontal offset) is the
+  // UNDISTURBED terrain surrounding the single dug column, at whatever absolute Y that lands —
+  // solid either way, since digDownInto only ever touches the center 1x1 column, never the
+  // footprint around it. A shallow (depth=1) dig-in's ring/cap ends up ABOVE original grade
+  // instead of at it, which looks odd on paper but is mechanically identical to depth=2's case
+  // one level up — same solid neighbours, same placement logic, no reference gap either way.
   const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
   let r = await placeAt(cap);   // cheap check first — some geometry (a ledge, a rim) already has a reference
   for (const s of sides) {
@@ -1128,6 +1165,17 @@ const shelterBuild = async () => {
   if (preferHut) return await shelterHut();
   if (diginStandable()) return await shelterDigIn();
   if (fillerCount() >= 4) return await shelterHut();  // degraded hut: fewer cells sealed, still something
+  // #115/5g item 4: the LAST resort before giving up entirely, and deliberately scoped to a
+  // genuine spawn-camp (bot._spawnCamp.active, #116's own shared bot-level flag — no
+  // cross-payload require needed) rather than every ordinary no-filler night. Doing nothing
+  // is worse than partial cover ONLY when the alternative is repeat-dying at an active camp;
+  // an ordinary "ran out of filler, not currently camped" bot should still fail honestly here
+  // (unchanged) rather than dig a half-sealed pit it didn't need. diginDepth()>=1 is a lower
+  // bar than diginStandable()'s full 3, on purpose — 1-2 sealed cells beats zero.
+  if (bot._spawnCamp && bot._spawnCamp.active) {
+    const depth = diginDepth();
+    if (depth >= 1) return await shelterDigIn(depth);
+  }
   return { kind: null, ok: false, reason: 'no_viable_primitive' };
 };
 
@@ -1470,7 +1518,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 12, boundAt: Date.now(), stale: false };
+REG.survival = { version: 13, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -1481,7 +1529,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 12, home: g.home,
+  installed: true, version: 13, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
