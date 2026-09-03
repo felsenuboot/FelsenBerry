@@ -5299,3 +5299,69 @@ dedup, `spawnCampCheck`/`A._spawnCampCheck`, `spawnCampEmit`, SHELTER's widened 
 `SPAWN_CAMP_SUPPRESSED` in `safeFire()`, IDLE's spawnCamped hold — v33). `bench/fixtures/
 agenda-ladder.js` (+15 cases).
 github: felsenuboot/FelsenBerry#116 (TODO 5g, items 1/2/3/5; item 4 pending engine-dev)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5h: EAT/EAT_CRITICAL owner-latch dead-end release
+(agenda v34)
+type: fix + fixture
+status: built, live-verified (real tick loop), `bench/fixtures/agenda-ladder.js` 71/71 (up
+from 67/67, 4 new cases), `bench/preflight.sh` 266/266 on a fresh throwaway bot (SchnodderSteff,
+25599, DECIDER_EXCLUDE=1, stopped after).
+
+what: engine-dev's live find (FEEDBACK ef0fe53, on 872aa07): `choose()`'s owner-latch keeps a
+rung as owner as long as `!safeClear(owner,s)` and nothing higher-priority is currently firing
+— it never re-checks whether the owner's OWN `fire()` condition still holds. EAT (`fire:
+food<=17 && foodCount>0`, `clear: food>=19`) and EAT_CRITICAL (same shape at food<=6) both call
+`eatInline()` and unconditionally return `'ate'` regardless of whether anything was actually
+eaten. The moment either eats its LAST food item without reaching food>=19 (routine — a single
+meal rarely refills a badly-starved bot that far), `fire()` goes false (foodCount>0 fails) but
+`clear()` stays false too (food<19) — a genuine dead end, not the file's own deliberate fire()/
+clear() hysteresis gap (RESTOCK stays latched between its fire floor and clear ceiling on
+PURPOSE, still making real progress the whole time — this is the opposite: no progress is even
+possible). FOOD (prio 6.5, the only rung that can fix it) cannot preempt a latched
+HIGHER-priority owner. Live-observed: EAT stuck 65s+ with no self-recovery in one case, a
+second case only rescued by an unrelated nightfall SHELTER trigger after 35s of HP drain.
+
+**Audited LIGHT and RESTOCK for the same shape, per the lead's ask — neither has it.** Both
+already report a genuine resource exhaustion HONESTLY through their own act() return value
+(LIGHT: `'no_spot'` when out of torches; RESTOCK: `'refused'` after depot+produce both come up
+empty), and BOTH strings are already in the file's own `NO_PROGRESS` set — tick()'s EXISTING
+generic handler (`NO_PROGRESS.has(r) -> standDown(id) + A.owner=null`) already releases them
+correctly. EAT/EAT_CRITICAL were the outliers specifically because `eatInline()`'s wrapper
+swallowed its own outcome and always claimed success.
+
+**Deliberately did NOT build a blanket "choose() re-evaluates safeFire(owner,s) every tick"
+change** (the literal shape of the ask) — that would have broken this file's own documented
+hysteresis invariant FILE-WIDE ("fire() and clear() are deliberately different thresholds on
+every rung; that gap IS the hysteresis"), reintroducing exactly the RESTOCK/PROJECT boundary-
+bounce bug `#84` already fixed (a rung whose fire() naturally goes false the instant it crosses
+back above its OWN trigger threshold — the entire point of the gap — would release the moment
+it started working, not once it finished). Fixed at the SAME call site `choose()` already uses
+(`safeClear(owner,s)`) instead: widened EAT/EAT_CRITICAL's own `clear()` to
+`food>=19 || foodCount===0` — a targeted release for the two confirmed-broken rungs, zero risk
+to any other rung's hysteresis (this is the file's ONLY caller of `.clear()`, confirmed by
+grep). Also fixed `eatInline()`'s own dishonesty as defense-in-depth: `act()` now returns
+`'ate'`/`'none'` based on what actually happened, so the SAME `NO_PROGRESS`/`standDown`
+mechanism LIGHT/RESTOCK already rely on is a second, independent release path if the clear()
+widening is ever bypassed for any reason — no new machinery, reuses what the file already has.
+
+Live-verified against the real tick loop (not just the dry-run fixture): starved a bot via
+`effect give ... hunger`, force-set `A.owner` to EAT (then separately EAT_CRITICAL) at
+food=0/foodCount=0 via `/eval`, watched the next poll — released to FOOD within one 2s tick
+both times, confirmed via `/state`'s reported rung. (Also live-caught, unrelated to 5h: mine-
+flayer-auto-eat's own background watcher, `checkOnItemPickup:true` + `startAt:16`, consumes
+food items on pickup independent of the agenda ladder — a hunted item can be gone before the
+EAT rung ever gets a turn to own it. Not a bug, just a real interaction worth knowing before
+designing a live food-scarcity test: the ladder's EAT rung is a backstop, not the only eater.)
+
+`bench/fixtures/agenda-ladder.js`: 4 new cases (EAT releases past the dead end to PROJECT;
+releases straight into FOOD when food is also low enough to trigger it; ordinary hysteresis
+unaffected when food is still held; EAT_CRITICAL releases too). One fixture-design note: the
+project's own `restockFloor.food` ALSO reacts to `foodCount:0` (RESTOCK's cheaper depot-first
+attempt correctly gets first shot ahead of FOOD in the real ladder) — these cases set
+`restockFloor.food:0` to isolate "did EAT actually release" from "what happens to pick it up
+next" (already covered by existing RESTOCK/FOOD precedence cases elsewhere in this file).
+
+fix: `agenda.js` (EAT/EAT_CRITICAL `clear()` widened, `act()` returns an honest outcome — v34).
+`bench/fixtures/agenda-ladder.js` (+4 cases).
+github: felsenuboot/FelsenBerry#117 (TODO 5h)

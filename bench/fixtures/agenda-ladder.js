@@ -257,6 +257,34 @@ try {
     [T0 - 80000, T0 - 40000, T0 - 5000], T0, T0 - 60000, false, true);
   bot._spawnCamp = { active: false, openedAt: 0, deaths: 0 };
 
+  // 5h (#117): EAT/EAT_CRITICAL owner-latch dead-end release (engine-dev's live find, FEEDBACK
+  // ef0fe53) — foodCount hitting 0 without reaching food>=19 is a genuine dead end (nothing
+  // left to eat), not ordinary fire()/clear() hysteresis-in-progress, so it must release
+  // rather than sit latched with the body inert. RESTOCK's own food floor (`activeFloors(s)`,
+  // the project's `restockFloor.food:4`) ALSO reacts to foodCount:0 the moment EAT releases
+  // (`s.foodCount < f.food`) and RESTOCK (prio 6) sits ahead of FOOD (6.5) in the scan order —
+  // correct, intentional behaviour (RESTOCK's own cheaper depot-first attempt gets first
+  // shot), but it would swallow these cases' own signal (did EAT actually RELEASE, distinct
+  // from what happens to pick it up next). food:0 on THIS project's restockFloor isolates
+  // that — these cases test the release, not RESTOCK/FOOD's own downstream precedence
+  // (already covered by the existing RESTOCK/FOOD cases earlier in this file).
+  const savedFloor = A.project.restockFloor;
+  A.project.restockFloor = { torches: 16, food: 0, filler: 16 };
+  A.owner = A.rung('EAT');
+  T('owner EAT, foodCount hits 0 (food still low but not FOOD-rung-triggering) -> releases to PROJECT, not stuck',
+    { food: 15, foodCount: 0 }, 'PROJECT');
+  A.owner = A.rung('EAT');
+  T('owner EAT, foodCount 0 AND food low enough to also trigger FOOD -> releases straight into FOOD picking it up',
+    { food: 10, foodCount: 0 }, 'FOOD');
+  A.owner = A.rung('EAT');
+  T('owner EAT, still holds food, has not reached 19 yet -> stays latched (ordinary hysteresis unaffected by this fix)',
+    { food: 12, foodCount: 3 }, 'EAT');
+  A.owner = A.rung('EAT_CRITICAL');
+  T('owner EAT_CRITICAL, foodCount hits 0 -> releases too (the higher-stakes case: only REFLEX/POSTURE could otherwise ever preempt a latched prio-2 owner) -> FOOD picks it up',
+    { food: 4, foodCount: 0 }, 'FOOD');
+  A.project.restockFloor = savedFloor;
+  A.owner = null;
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.rung}`);
   return out;

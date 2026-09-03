@@ -946,10 +946,14 @@ const RUNGS = [
   // slowly and monotonically while starving. Waiting ~4s to start eating buys nothing and
   // the rung latches to food>=19 anyway, so it cannot thrash. (engine-dev-3 flagged this as
   // a judgement call; this is the judgement.)
+  // TODO 5h (#117): same dead-end shape and same fix as EAT below — see that rung's own
+  // comment. This one matters MORE: prio 2 means only REFLEX/POSTURE (0/1, real combat) could
+  // ever preempt a stuck EAT_CRITICAL, so a bot that hits this without a nearby threat has NO
+  // engine-internal escape at all (confirmed live: 65+ continuous seconds, no self-recovery).
   { id: 'EAT_CRITICAL', prio: 2, preemptNow: true,
     fire: (s) => s.food <= 6 && s.foodCount > 0,
-    clear: (s) => s.food >= 19,
-    act: async () => { await eatInline(); return 'ate'; } },
+    clear: (s) => s.food >= 19 || s.foodCount === 0,
+    act: async () => ((await eatInline()) ? 'ate' : 'none') },
 
   // #105: proactive night shelter. engine-dev's survival.js v11 owns the PRIMITIVES
   // (shelterDigIn/shelterHut, the exit state machine) and exposes should()/enter()/exit()/
@@ -1019,10 +1023,35 @@ const RUNGS = [
       return r.ok ? 'started' : (r._transient ? 'busy' : 'refused');
     } },
 
+  // TODO 5h (#117): owner-latch deadlock (engine-dev, live find on 872aa07, FEEDBACK
+  // ef0fe53). `choose()`'s owner-latch (`if (owner && !safeClear(owner,s) &&
+  // demanded.prio>=owner.prio) return owner`) never re-checks the owner's OWN fire() — by
+  // design, for hysteresis (this file's own header: "fire() and clear() are deliberately
+  // different thresholds on every rung; that gap IS the hysteresis" — e.g. RESTOCK stays
+  // latched between its fire floor and its clear ceiling on PURPOSE, still making real
+  // progress toward clear() the whole time). EAT/EAT_CRITICAL's bug is NOT that shape: once
+  // `foodCount` hits 0 (the last food item eaten without reaching food>=19 — routine, not an
+  // edge case, for a bot that was genuinely starving), fire() goes false (foodCount>0 fails)
+  // AND clear() stays false (food<19) — a genuine DEAD END, not hysteresis-in-progress,
+  // because there is nothing left to eat and never will be until FOOD (prio 6.5, which cannot
+  // preempt a latched HIGHER-priority owner) gets a turn. `clear()` widened to release the
+  // instant that dead end is reached, at the SAME `safeClear(owner,s)` call site `choose()`
+  // already uses for every other rung — not a blanket "re-check fire() every tick" change to
+  // `choose()` itself, which would have broken hysteresis file-wide (RESTOCK's own #84
+  // boundary-bounce fix depends on exactly the gap this would have erased). Audited LIGHT and
+  // RESTOCK for the same shape per the lead's ask — NEITHER has it: both already report a
+  // genuine resource-exhaustion honestly through act()'s own return value (`'no_spot'`/
+  // `'refused'`, both in NO_PROGRESS), which tick()'s EXISTING generic handler
+  // (`NO_PROGRESS.has(r) -> standDown + A.owner=null`) already releases correctly — EAT/
+  // EAT_CRITICAL were the outliers because `eatInline()`'s wrapper (below) swallowed its own
+  // outcome and unconditionally reported `'ate'` regardless of whether anything was eaten,
+  // which is ALSO fixed here (defense in depth: if the instant clear()-release above is ever
+  // bypassed for any reason, act() honesty is the second, independent release path — the same
+  // NO_PROGRESS/standDown mechanism LIGHT/RESTOCK already rely on, no new machinery).
   { id: 'EAT', prio: 4,
     fire: (s) => s.food <= 17 && s.foodCount > 0,
-    clear: (s) => s.food >= 19,
-    act: async () => { await eatInline(); return 'ate'; } },
+    clear: (s) => s.food >= 19 || s.foodCount === 0,
+    act: async () => ((await eatInline()) ? 'ate' : 'none') },
 
   // 5c: same-remedy-repeats-across-positions escalation. Prio 4.8 — above TOOL/RESTOCK/
   // PROJECT (the three callers that can accumulate a remedy-class failure, see the helpers
