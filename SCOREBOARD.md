@@ -1711,3 +1711,33 @@ run #6).
 
 **STATUS: prep complete, standing by for soak #5's verdict and team-lead's green light. Nothing on
 this list executes until then — 25600 is soak #5's server right now, not touched.**
+
+## SOAK #5 — second HUMAN-BAR attempt: **FAIL (3 of 4)** (team-lead, graded by engine-dev 2026-09-03 11:33Z)
+
+Bot `SchnoddSchorsch` (3162 on 25600/world-soak5, --agenda, DRIVEN unset, SOAK_BOT decider pid 180453). Stack skills 63 / agenda 34 /
+survival 13 / dangerscan 6 (preflight 261/261). Join 10:30:54.879Z; **graded window 10:31:20Z → 11:31:20Z** (pre-registered at T+30:
+preflight had been run ON the soak bot after join, 13 /eval fixture hits 10:31:06–15Z — excluded by starting the window after them).
+Command: `node bench/humanbar4.mjs --bot SchnoddSchorsch --since 2026-09-03T10:31:20Z --until 2026-09-03T11:31:20Z --inspector-port 3163 --label soak5`.
+
+| # | criterion | soak #4 | **soak #5** | number |
+|---|---|---|---|---|
+| 1 | playcheck PLAYING | PASS | **FAIL** | SPARSE — 86.9% stationary, 0.8 productive actions/10min |
+| 2 | direction-gate | FAIL (p50 76s) | **PASS** | opened 13 / closed 13 / unclosed 0, **latency p50 18.8s / p90 29.9s** |
+| 3 | survives unaided | PASS (starving) | **PASS** | 0 deaths, 0 interventions, vitals floor OK, hp 20 / food 20 at close |
+| 4 | human trail | PASS (vacuous, 1 site) | **PASS** | 3 sites (2 chop, 1 dig), clean, non-vacuous |
+
+Gate files: bench/gates/{humanbar4,humanbar,direction,trail}-soak5.json (ae62552). Latency breakdown: timeToFirstAttempt p50 18.6s
+(the 20s poll, structural), deciderCompute p90 4.2s, no standdown carryover, no self-recovered stalls — **#109 holds under a real hour;
+soak #4's failing criterion is now the cleanest pass on the board.** Criteria 3 and 4 improved in substance, not just verdict.
+
+**Why criterion 1 failed — a NEW wall, the food-KIT gate while sated:** from ~10:57Z the bot sat still for the back half of the hour.
+Ledger + runner log: `Not setting off half-kitted — I still need: food 0/2` (chopTrees' excursion kit demands 2 food items) while
+hunger was 20/20 the whole time. The FOOD rung (#108) fires on foodCount==0 && hunger ≤12 — never, because the bot was full. RESTOCK
+cannot produce food on a fresh world (no depot, no crop). So: project_stalled/kit_missing → decider re-dispatches chopTrees → the
+frozen-repeat dedup (#95/#97) correctly refuses the identical failing instruction → 7 of the last 8 episodes `skipped_frozen_repeat`
+→ stationary. Every component did its job; the system has no rung whose job is "fetch KIT food when not hungry". This is run #6's
+food-kit wall in its second form (#113 fixed the allowlist; this is acquisition).
+
+Fix shape (TODO 5l, eng-3, GATES soak #6): (a) kit-completion must route a food-KIT shortfall to huntAnimals regardless of hunger
+(with the existing widening radius + backoff), and (b) chopTrees' excursion kit should not demand food for short surface work when
+hunger ≥14 — a human walks 30 blocks to a tree without packing lunch. Re-grade of this ledger cannot change; soak #6 validates.

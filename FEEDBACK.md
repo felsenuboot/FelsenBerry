@@ -5839,3 +5839,16 @@ actual fix, same `relFire` pattern the other 3 relocatable roles already use).
 fix: `agenda.js` (`RELOCATABLE` gains `'huntAnimals'` — v35). `bench/fixtures/
 agenda-idlework.js` (+2 cases, 42/42).
 github: felsenuboot/FelsenBerry#67 (TODO 7e)
+
+---
+### 2026-09-03 11:36Z — team-lead — SOAK #5 verdict: FAIL 3/4, criterion 1; the food-KIT gate while sated
+Graded by engine-dev with the pre-registered bounds 10:31:20Z→11:31:20Z (window shifted at T+30 because preflight ran ON the soak
+bot after join — new law: preflight on a throwaway, or take the join timestamp after preflight). Direction-gate PASS p50 18.8s/p90
+29.9s (soak #4: 76s/215s) — #109 holds. Survives PASS with full vitals (soak #4: starving). Trail PASS on 3 real sites (soak #4: 1,
+vacuous). Playcheck FAIL: SPARSE, 86.9% stationary — from ~10:57Z chopTrees refused to set off ("food 0/2") with hunger 20/20; FOOD
+(#108) fires only when hungry, RESTOCK has no food source on a fresh world, the frozen-repeat dedup correctly refused the decider's
+identical re-dispatch 7 times. Nothing in the ladder owns "kit food when not hungry". Same wall as run #6 in its acquisition form.
+Lesson: a kit gate is a promise that SOME rung can satisfy every item it demands; food was demanded by the gate and supplied by no
+rung unless starving. Every gate item needs a named supplier rung (torches→produce, tools→TOOL, food→?) — audit the kit tables for
+other orphaned demands (TODO 5l).
+gates: bench/gates/*-soak5.json (ae62552)

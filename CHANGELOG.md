@@ -3,6 +3,9 @@
 Milestones, curated. Everything else: `git log`. Engine payload versions live in the files themselves.
 
 ## Unreleased — 2026-09-03 (toward soak #4, the first human-bar attempt)
+- **SOAK #5 graded: human bar FAIL 3/4** (SCOREBOARD "SOAK #5"): direction-gate now PASSES (p50 18.8s / p90 29.9s — #109 validated over a
+  real hour), survives and trail pass cleanly; playcheck SPARSE because chopTrees' kit gate demanded 2 food items while the bot was fully
+  fed and no rung fetches kit food when not hungry (TODO 5l). Run #6 (same morning): stone pickaxe at T+31m50s, first ever.
 - **SOAK #4 graded: human bar FAIL 3/4** (SCOREBOARD "SOAK #4"): PLAYING, zero deaths/zero help, clean (thin) trail; direction-gate
   missed on latency alone (p50 76s / p90 215s) — attributed to `decider.js` DRIVER_GRACE_MS keyed on the OWNER label plus the 120s
   retry gap after Andy parse-misses, not to the LLM (1–6s) or the bot. Host rebooted at T+56; graded post-hoc from the ledger.
