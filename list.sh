@@ -11,13 +11,13 @@ for PIDFILE in pids/*.pid; do
   NAME="$(basename "$PIDFILE" .pid)"
   PID="$(cat "$PIDFILE")"
   PORT="$(cat "pids/$NAME.port" 2>/dev/null || echo '?')"
-  META="$(cat "pids/$NAME.meta" 2>/dev/null || echo '?|?|')"
-  # 4-field format since #95 (owner|server|purpose|decider_exclude) -- parse all four so a
-  # DECIDER_EXCLUDE=1 bot's flag doesn't leak into the displayed PURPOSE text (it used to,
-  # visibly, as a stray trailing "|1").
-  OWNER="${META%%|*}"; REST="${META#*|}"; SERVER="${REST%%|*}"; REST="${REST#*|}"
-  PURPOSE="${REST%%|*}"; EXCLUDED="${REST#*|}"
-  [[ "$PURPOSE" == "$REST" ]] && EXCLUDED=""   # no 4th field present (older meta file)
+  META="$(cat "pids/$NAME.meta" 2>/dev/null || echo '?|?|||')"
+  # 5-field format since TODO 4b (owner|server|purpose|decider_exclude|driven) -- `read -a`
+  # into named fields rather than hand-rolled %%/## stripping: that got the 4th field right
+  # only because it was always LAST, and silently mis-split as soon as a 5th field (DRIVEN,
+  # 2026-09-03) was appended after it. Missing trailing fields (an older meta file) just read
+  # as empty, which is the correct "not excluded / not driven" default for either flag.
+  IFS='|' read -r OWNER SERVER PURPOSE EXCLUDED DRIVEN <<< "$META"
   FOUND=1
   if ! kill -0 "$PID" 2>/dev/null; then
     printf '%-14s %-8s %-6s %-13s %-21s %s\n' "$NAME" "$PID" "$PORT" "$OWNER" "$SERVER" "dead (stale pidfile)"
@@ -35,6 +35,7 @@ for PIDFILE in pids/*.pid; do
     })' 2>/dev/null || echo 'api unreachable')"
   [[ -n "$PURPOSE" ]] && STATE="$STATE — $PURPOSE"
   [[ -n "$EXCLUDED" ]] && STATE="$STATE [decider-excluded]"
+  [[ -n "$DRIVEN" ]] && STATE="$STATE [driven]"
   printf '%-14s %-8s %-6s %-13s %-21s %s\n' "$NAME" "$PID" "$PORT" "$OWNER" "$SERVER" "$STATE"
 done
 [[ $FOUND -eq 0 ]] && echo '(no bots)'

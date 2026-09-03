@@ -45,5 +45,12 @@ echo "$PORT" > "pids/$NAME.port"
 # enforced it; a formal soak window got silently contaminated by exactly this class of bot).
 # Set it whenever a bot is spawned for a quick test/verification alongside a live soak/race,
 # not for anything meant to actually do fleet work.
-echo "${OWNER:-unowned}|${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}|${PURPOSE:-}|${DECIDER_EXCLUDE:-}" > "pids/$NAME.meta"
+# 5th field (2026-09-03, TODO 4b / soak #4 postmortem): DRIVEN=1 marks a bot someone is
+# actually expected to be polling and answering direction episodes for by hand (interactive
+# work) -- decider.js grants THAT bot's driver a DRIVER_GRACE_MS head start before answering
+# for it. It is NOT the same thing as OWNER: OWNER is fleet-awareness attribution and, per
+# team law, every bot has one now -- an --agenda soak/autonomous bot is OWNED but not DRIVEN,
+# and must answer episodes immediately (see decider.js's own header for the soak #4 story of
+# what happens when this is keyed on OWNER instead). Leave unset for anything autonomous.
+echo "${OWNER:-unowned}|${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}|${PURPOSE:-}|${DECIDER_EXCLUDE:-}|${DRIVEN:-}" > "pids/$NAME.meta"
 echo "spawned $NAME (pid $PID, control port $PORT, owner ${OWNER:-unowned}, server ${MC_HOST:-100.101.197.44}:${MC_PORT:-25565}, log logs/$NAME.log)"

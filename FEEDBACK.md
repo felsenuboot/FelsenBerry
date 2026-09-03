@@ -4502,3 +4502,93 @@ grace) that keyed on the label's mere presence. Presence-of-metadata gates must 
 Verdict for the run #6 gate: non-catastrophic (behaviour criteria all pass; timing constant miss) → run #6 green.
 Human bar NOT met; soak #5 is the next attempt after the decider fix (TODO 4b) and 5c.
 gates: bench/gates/{humanbar4,humanbar,direction,trail}-soak4.json
+
+---
+### 2026-09-03 engine-dev-3 — TODO 4b: decider driver-grace re-keyed off an explicit DRIVEN
+signal, unmapped/unparsed retry no longer pays the per-bot gap (decider.js, gates soak #5)
+type: fix + fixture
+status: built, replay-verified (bench/decider-latency-replay.js, 12/12 against the REAL
+decider.js decision logic, not a reimplementation — see below), `./bench/preflight.sh 3172`
+216/216 on a fresh throwaway bot (DerpDachs, DECIDER_EXCLUDE=1, stopped after).
+what: soak #4's only human-bar miss (SCOREBOARD.md "SOAK #4", direction-gate latency p50 76s /
+p90 215s against limits of 60s/120s) was pure decider plumbing timing, not bot behaviour —
+attributed and pre-diagnosed by the team lead before I picked this up. Two independent floors:
+(a) EVERY episode close sat on a 68-85s floor, including the 0ms rule decision, because
+`decider.js`'s driver grace (`DRIVER_GRACE_MS=60000`) was keyed on `b.owner` — and since the
+OWNER/PURPOSE fleet-awareness law (2026-09-02) now puts an owner on every spawned bot, a
+driverless soak/agenda bot was made to wait out a grace period built for an actual human/driver
+that would never come, then up to one more POLL_MS (20s). (b) The p90 tail (215-221s) was the
+two `unmapped_or_unparsed` Andy-reply episodes paying the full `PER_BOT_MIN_GAP_MS` (120s)
+before their retry-once-then-skip second attempt, instead of riding the next ~20s poll.
+Fix: (a) `pids/*.meta` gets a 5th field, DRIVEN (spawn.sh: `DRIVEN=1 ./spawn.sh ...`; list.sh
+now parses all five fields via `IFS='|' read -a` instead of the old hand-rolled %%/## chain,
+which actually mis-split as soon as a 5th field existed — fixed as part of this, see its own
+comment). decider.js's driver-grace check now reads `b.driven` (from that field), not
+`b.owner`; a bot with no 5th field (an older meta file, or DRIVEN simply not passed) defaults
+to `driven:false` — same "assumed-false, not assumed-true" doctrine #95's frozen-repeat fix
+already documents in this file for missing/ambiguous data. OWNER keeps doing exactly its
+original job (fleet attribution); DRIVEN is now the ONLY thing the grace gate reads. (b) the
+per-bot rate gate (`PER_BOT_MIN_GAP_MS`) is bypassed only when the CURRENT episode (same eid)
+already has a recorded-but-not-yet-exhausted LLM miss (`state.llmMisses[dedupKey]`) — a
+same-eid retry rides the very next poll; a genuinely new episode (different eid, no prior miss
+recorded) still pays the full gap exactly as before. (c) POLL_MS 20->10s for SOAK_BOT:
+NOT changed — argued below.
+
+**Argued against, not silently skipped: (c) POLL_MS 20->10s.** With (a)+(b) landed, the
+structural bound on rule-path latency is just POLL_MS itself (20s), comfortably under both the
+60s p50 and 120s p90 human-bar limits with no further change — the replay fixture asserts this
+directly (`POLL_MS < 30000`). Halving it buys a thinner safety margin at the cost of doubling
+this decider process's own polling overhead (an httpGetJson /state round-trip per bot per
+cycle) across the WHOLE fleet, not just the one soak bot under measurement, for a margin that
+soak #4's own numbers don't show any need for — the floor was 68-85s BECAUSE of the two bugs
+above, not because POLL_MS was too slow. Leaving it at 20s; revisit only if soak #5's actual
+p50/p90 land closer to the limits than this reasoning predicts.
+
+**Fixture, and why it required a small decider.js refactor first**: decider.js is a standalone
+daemon (never a payload, no cross-process import — its own header is explicit about this) that
+self-starts unconditionally at the bottom of the file (pidfile guard, setInterval poll loop) —
+`require()`-ing it for a test used to mean either reimplementing the decision logic separately
+(drift risk against the real code) or actually spawning a real daemon process against real
+pids/logs/decider-state.json (soak-hygiene risk: test noise mixed into production dedup state
+and decisions.jsonl). Wrapped the self-start block in `if (require.main === module)` and added
+a narrow test-only `module.exports` (handleBot, discoverBots, loadRules, ruleKey, pollOnce,
+get/setState, the tuning constants) — `node decider.js` as a daemon is byte-for-byte unchanged
+behaviourally, `require('./decider.js')` from a fixture now touches nothing on disk beyond
+reading rules.json. `bench/decider-latency-replay.js` stands up a fake bot HTTP server (records
+dirDispatch/dirClose calls) and a fake Ollama HTTP server (scripted reply sequence) and drives
+the REAL `handleBot()` through four synthetic episodes: an owned-but-undriven bot dispatches on
+the very first poll (proves the OWNER-keyed bug is gone); a DRIVEN bot's grace still holds at
+forMs=0 and releases past DRIVER_GRACE_MS (proves the fix didn't just remove the gate); a
+same-eid parse-miss retries on the very next `handleBot()` call with no real 120s wait and
+still gives up after `LLM_MISS_RETRY_LIMIT` misses; a genuinely separate new episode right
+after still pays `PER_BOT_MIN_GAP_MS` (proves the bypass is scoped, not a blanket rate-gate
+removal — case 4 deliberately uses a DIFFERENT position than case 3's, since the same position
+would have correctly tripped #97's frozen_repeat detector first and never reached the rate-gate
+code at all — that overlap is TODO 5c's territory, not this fixture's). 12/12 green.
+
+**Live-fleet note, not a fix**: while this was in flight, a decider daemon was started for
+run #6 (GammelGerhard, gear-race) and picked up this WIP code before it was committed (its meta
+predates the DRIVEN field, so it now gets zero driver-grace instead of the old owner-keyed 60s
+— team lead ruled this is CORRECT behaviour for a race measuring engine autonomy, not a bug;
+no meta rewrite, no daemon restart, mid-run). Recorded here for anyone reading decisions.jsonl
+from that window who wonders why GammelGerhard's grace pattern changed mid-run.
+
+**Law-shaped lesson (the ask, restated precisely from soak #4's finding)**: a label added for
+ONE purpose (OWNER/PURPOSE fleet-awareness attribution, so a teammate reading `./list.sh` can
+tell whose bot is whose) silently became the answer to an unrelated control-plane question
+(is a driver actually going to answer this episode?) the moment a team law made that label
+universal. The gate never asked "what do I actually need to know here?" — it asked "is this
+field truthy?", and the field's truthiness stopped correlating with the question the day the
+OWNER law made it always-true. Presence-of-metadata gates must name the exact semantic they
+check (`driven`, a fact about the current moment) and never borrow a field whose presence
+answers a different, unrelated question (`owner`, a fact about attribution) just because it is
+convenient and, for now, happens to always be there. Same rot class as this file's own
+"assumed-false ≠ verified-false" — an absence of information about ONE question quietly stood
+in as an answer to a DIFFERENT one.
+fix: `decider.js` (driver-grace keys on `b.driven` not `b.owner`; unmapped/unparsed retry
+bypasses `PER_BOT_MIN_GAP_MS` for a same-eid pending retry only; self-start guarded behind
+`require.main === module` + test-only `module.exports`). `spawn.sh` (5th meta field, DRIVEN).
+`list.sh` (parses all 5 fields via `read -a`, fixing a latent mis-split the old 4th-field hack
+would have hit the moment a 5th field existed; adds a `[driven]` tag to the listing).
+`bench/decider-latency-replay.js` (new — 4 cases, 12/12, requires decider.js as a module).
+github: felsenuboot/FelsenBerry (TODO 4b; SOAK #4 direction-gate latency gate for soak #5)

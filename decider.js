@@ -13,9 +13,19 @@
 // daemon's polling/budget/LLM path, never just a naming-convention hint):
 //   1. GET /state; skip unless agenda.direction.state === 'needs_direction' (see agenda.js v22
 //      / runner.js's own /state.agenda.direction — Phase 1 of this same spec).
-//   2. Driver grace, CONDITIONAL not flat: an OWNED bot (meta names a driver) gets
-//      DRIVER_GRACE_MS before the decider answers for it — the driver wins the race by
-//      default. An unowned bot is answered immediately; no free grace for the driverless fleet.
+//   2. Driver grace, CONDITIONAL not flat: a DRIVEN bot (meta's 5th field, DRIVEN=1 at spawn —
+//      see TODO 4b / soak #4 postmortem) gets DRIVER_GRACE_MS before the decider answers for
+//      it, because someone is actually expected to be polling it and will answer first. A
+//      bot that is merely OWNED (fleet-awareness attribution — every bot has one) but NOT
+//      DRIVEN gets no grace at all: nobody is coming, so the decider answers on the next poll.
+//      Was keyed on `b.owner` alone until soak #4 (2026-09-03) caught it: since the OWNER/
+//      PURPOSE law puts an owner on EVERY bot, a driverless soak/agenda bot was made to wait
+//      out a 60s grace no driver would ever spend, inflating direction-gate latency past the
+//      human-bar limit for a reason that had nothing to do with the engine under test. Lesson
+//      (law-shaped): a label added for one purpose (fleet awareness) must never be read as
+//      the answer to an unrelated control-plane question (is someone driving?) just because
+//      it happens to always be present now — presence-of-metadata gates must name the exact
+//      semantic they check, not borrow whatever field is convenient.
 //   3. Dedup (bot,eid) against decider-state.json — one decision per episode, mechanically,
 //      and it survives a decider restart (the engine's own latches do not survive reinjection,
 //      this must).
@@ -106,7 +116,9 @@ function loadRules() {
 }
 
 // ---- bot discovery: pids/*.port (control port, written by spawn.sh) + pids/*.meta
-// (owner|server|purpose|decider_exclude, the fleet-awareness convention) ----
+// (owner|server|purpose|decider_exclude|driven, the fleet-awareness convention -- 5th field
+// added 2026-09-03, TODO 4b: extends the format, does not break older 4-field meta files
+// still on disk from before this fix, see the `fields[4]` optional-chaining-by-hand below) ----
 function discoverBots() {
   let files;
   try { files = fs.readdirSync(PIDS_DIR); } catch (e) { return []; }
@@ -119,6 +131,7 @@ function discoverBots() {
     try { port = parseInt(fs.readFileSync(path.join(PIDS_DIR, f), 'utf8').trim(), 10); } catch (e) { continue; }
     if (!port) continue;
     let owner = null;
+    let driven = false;
     // #95 soak-hygiene fix (2026-09-02): a throwaway/verification bot spawned alongside a
     // formal soak or race used to draw from the SAME shared fleet-wide LLM budget/rate gates
     // as the bot actually being measured, silently -- soak #2 was contaminated exactly this
@@ -137,9 +150,16 @@ function discoverBots() {
       const rawOwner = (fields[0] || '').trim();
       owner = (rawOwner && rawOwner !== 'unowned') ? rawOwner : null;
       excluded = Boolean((fields[3] || '').trim());
+      // Missing 5th field (an older meta file, or DRIVEN not passed at spawn) defaults to
+      // false -- "assumed-false, not assumed-true" on absent data, the same doctrine #95's
+      // frozen-repeat fix documents elsewhere in this file. A driverless bot answering
+      // immediately is the SAFE default (worst case: the decider answers first on a bot
+      // nobody was actually about to drive, a harmless CAS no-op if a driver does show up);
+      // silently granting a 60s grace to a bot nobody is driving is what caused soak #4.
+      driven = Boolean((fields[4] || '').trim());
     } catch (e) {}
     if (excluded) continue;
-    bots.push({ name, port, owner });
+    bots.push({ name, port, owner, driven });
   }
   return bots;
 }
@@ -367,8 +387,14 @@ async function handleBot(b, rules) {
   if (!dir || dir.state !== 'needs_direction' || !dir.eid) return;
   const eid = dir.eid;
 
-  // step 2: conditional driver grace -- an OWNED bot's driver wins the race by default
-  if (b.owner && (dir.forMs || 0) < DRIVER_GRACE_MS) return;
+  // step 2: conditional driver grace -- a DRIVEN bot's driver wins the race by default.
+  // Soak #4 (2026-09-03): this used to key on `b.owner`, which the OWNER/PURPOSE fleet-
+  // awareness law now sets on every bot regardless of whether anyone is actually driving --
+  // a driverless soak/agenda bot waited out a 60s grace no driver would ever use. `b.driven`
+  // is the explicit DRIVEN=1 spawn-time signal (meta 5th field); it names the semantic this
+  // gate actually needs ("is someone expected to answer this episode themselves?"), not a
+  // label that merely happens to always be present now.
+  if (b.driven && (dir.forMs || 0) < DRIVER_GRACE_MS) return;
 
   // step 3: dedup (bot,eid) -- one decision per episode, mechanically, across restarts
   state.handled = state.handled || {};
@@ -436,9 +462,19 @@ async function handleBot(b, rules) {
   if (rule) {
     decision = rule; src = 'rule'; decisionLatencyMs = 0;
   } else {
-    // step 5: rate gates BEFORE spending anything
+    // step 5: rate gates BEFORE spending anything.
+    // Soak #4 p90 (2026-09-03): PER_BOT_MIN_GAP_MS is meant for genuinely separate episodes,
+    // but an `unmapped_or_unparsed` Andy reply used to pay it too -- a parse-miss retry (same
+    // eid, retry-once-then-skip still in play, see LLM_MISS_RETRY_LIMIT below) was made to
+    // wait the full 120s gap for its second attempt instead of just riding the next POLL_MS,
+    // costing 215-221s episodes. `pendingRetry` is true only for a SAME-eid miss already
+    // recorded this episode (`state.llmMisses[dedupKey]` set by the miss branch further down,
+    // < LLM_MISS_RETRY_LIMIT so it hasn't given up yet) -- a brand-new episode's dedupKey has
+    // no entry there, so it still pays the full gap exactly as before.
+    const dedupMisses = (state.llmMisses || {})[dedupKey] || 0;
+    const pendingRetry = dedupMisses > 0 && dedupMisses < LLM_MISS_RETRY_LIMIT;
     const lastAt = (state.lastCallAt || {})[b.name] || 0;
-    if (Date.now() - lastAt < PER_BOT_MIN_GAP_MS) return;   // this bot's spacing hasn't elapsed; try again next poll, not a permanent skip
+    if (!pendingRetry && Date.now() - lastAt < PER_BOT_MIN_GAP_MS) return;   // this bot's spacing hasn't elapsed; try again next poll, not a permanent skip
     // #95 soak-hygiene: the designated SOAK_BOT bypasses the shared fleet cap entirely, both
     // directions -- unrelated fleet activity (a concurrent race, say) can never delay it, and
     // its own calls never eat into the budget everyone else shares.
@@ -510,26 +546,43 @@ async function pollOnce() {
   saveState(state);
 }
 
-// ---- pid-file guard (graybridge.js's own pattern) ----
-try { fs.mkdirSync(PIDS_DIR, { recursive: true }); } catch (e) {}
-try {
-  if (fs.existsSync(PID_FILE)) {
-    const oldPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
-    let alive = false;
-    try { process.kill(oldPid, 0); alive = true; } catch (e) { alive = false; }
-    if (alive) { log(`refusing to start: decider already running (pid ${oldPid})`); process.exit(1); }
-    log(`stale pidfile (pid ${oldPid} not running) -- taking over`);
-  }
-  fs.writeFileSync(PID_FILE, String(process.pid));
-} catch (e) { log('pidfile guard warning (continuing anyway): ' + e.message); }
-const cleanupPid = () => { try { fs.unlinkSync(PID_FILE); } catch (e) {} };
-process.on('exit', cleanupPid);
-process.on('SIGINT', () => { cleanupPid(); process.exit(0); });
-process.on('SIGTERM', () => { cleanupPid(); process.exit(0); });
+// ---- self-start ONLY when run directly (`node decider.js`), never on require() -- lets
+// bench/decider-latency-replay.js (TODO 4b fixture) load the real decision logic in-process
+// against a synthetic bot + fake Ollama, with none of the daemon's side effects (pidfile,
+// setInterval, touching the real pids/logs/decider-state.json) ----
+if (require.main === module) {
+  // ---- pid-file guard (graybridge.js's own pattern) ----
+  try { fs.mkdirSync(PIDS_DIR, { recursive: true }); } catch (e) {}
+  try {
+    if (fs.existsSync(PID_FILE)) {
+      const oldPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+      let alive = false;
+      try { process.kill(oldPid, 0); alive = true; } catch (e) { alive = false; }
+      if (alive) { log(`refusing to start: decider already running (pid ${oldPid})`); process.exit(1); }
+      log(`stale pidfile (pid ${oldPid} not running) -- taking over`);
+    }
+    fs.writeFileSync(PID_FILE, String(process.pid));
+  } catch (e) { log('pidfile guard warning (continuing anyway): ' + e.message); }
+  const cleanupPid = () => { try { fs.unlinkSync(PID_FILE); } catch (e) {} };
+  process.on('exit', cleanupPid);
+  process.on('SIGINT', () => { cleanupPid(); process.exit(0); });
+  process.on('SIGTERM', () => { cleanupPid(); process.exit(0); });
 
-log(`decider.js starting -- poll every ${POLL_MS / 1000}s, driver grace ${DRIVER_GRACE_MS / 1000}s, fleet cap ${FLEET_CAP_PER_HOUR}/hr, model ${ANDY_MODEL} via ${OLLAMA_HOST}:${OLLAMA_PORT}${SOAK_BOT ? `, SOAK_BOT=${SOAK_BOT} (exempt from fleet cap, both directions)` : ''}`);
-checkCpuPinned().then((g) => {
-  if (g.loaded && !g.ok) log(`WARNING: ${ANDY_MODEL} is already loaded with size_vram=${g.vram} (on GPU) -- the LLM path will refuse to call until this is fixed; rule.json hits are unaffected`);
-});
-setInterval(() => { pollOnce().catch((e) => log('poll cycle error: ' + e.message)); }, POLL_MS);
-pollOnce().catch((e) => log('initial poll error: ' + e.message));
+  log(`decider.js starting -- poll every ${POLL_MS / 1000}s, driver grace ${DRIVER_GRACE_MS / 1000}s, fleet cap ${FLEET_CAP_PER_HOUR}/hr, model ${ANDY_MODEL} via ${OLLAMA_HOST}:${OLLAMA_PORT}${SOAK_BOT ? `, SOAK_BOT=${SOAK_BOT} (exempt from fleet cap, both directions)` : ''}`);
+  checkCpuPinned().then((g) => {
+    if (g.loaded && !g.ok) log(`WARNING: ${ANDY_MODEL} is already loaded with size_vram=${g.vram} (on GPU) -- the LLM path will refuse to call until this is fixed; rule.json hits are unaffected`);
+  });
+  setInterval(() => { pollOnce().catch((e) => log('poll cycle error: ' + e.message)); }, POLL_MS);
+  pollOnce().catch((e) => log('initial poll error: ' + e.message));
+}
+
+// ---- test-only surface (bench/decider-latency-replay.js): the real decision logic, not a
+// reimplementation. Never imported by any production code path (decider.js is a standalone
+// daemon, never a payload -- see the file header). `setState`/`getState` let a fixture reset
+// the module-scoped dedup/rate-gate state between cases without touching decider-state.json
+// on disk (state is only ever persisted by pollOnce -> saveState, which no fixture calls).
+module.exports = {
+  handleBot, discoverBots, loadRules, ruleKey, pollOnce,
+  getState: () => state, setState: (s) => { state = s; },
+  POLL_MS, DRIVER_GRACE_MS, PER_BOT_MIN_GAP_MS, LLM_MISS_RETRY_LIMIT, FLEET_CAP_PER_HOUR,
+};
