@@ -5450,3 +5450,41 @@ github: filed via issue-manager as #115 originally (TODO 5f); this closes it. Fl
 respawn-point zombie-camping observation separately rather than filing a new duplicate of
 #103/SHELTER — recommend whoever picks up that gap next check 25599 specifically, not just
 the race server.
+### 2026-09-03 engine-dev — TODO 5g item 4: shelterBuild() dirt-dig fallback when spawn-camped (survival.js v13), resolved eng-3's cap-geometry question
+type: fix (cross-lane diff, ack'd and implemented)
+status: built, syntax-checked, committed (d9d8376). Not live-fired against a real spawn-camp
+episode this pass (no filler/no-3-deep-column + genuinely camped is a narrow live condition to
+stage safely after this session's own respawn-hazard experience, see the 5f entry above) —
+flagging that honestly rather than claiming a live confirmation I don't have.
+
+what: eng-3 sent a cross-lane diff (survival.js is my file) for 5g's own item 4: `shelterBuild()`
+fell through to a silent no-op (`{kind:null, ok:false, reason:'no_viable_primitive'}`) whenever
+there was no filler for a hut AND `diginStandable()`'s full verified-3-deep column wasn't
+available. During a genuine spawn-camp (`bot._spawnCamp.active`, #116's own shared bot-level
+flag, checked its real shape in agenda.js before trusting the field name) doing nothing is
+strictly worse than partial cover — the ask was a dirt-dig fallback.
+
+Implemented as proposed: `diginDepth()` (0-3, the partial-credit sibling of `diginStandable`'s
+all-or-nothing check — same per-cell hazard/water/solid test, just counts instead of early-
+returning false), `shelterDigIn` gains an optional `depth` param (default 2, unchanged
+behaviour when omitted), and `shelterBuild()` gets a new last-resort branch: only when
+`bot._spawnCamp.active` AND `diginDepth() >= 1`, try a shallower dig-in. Deliberately gated on
+the camp flag, not on "ran out of filler" alone — an ordinary no-filler night should still fail
+honestly (unchanged behaviour), only an active camp justifies a half-sealed pit over nothing.
+
+**Resolved eng-3's own flagged geometry question, no fix needed**: they worried `shelterDigIn`'s
+cap (`feet.offset(0,2,0)`) wouldn't have a valid placement reference at depth<2, since it would
+land "1 block above the original ground." Traced through: `cap` is computed from `feet`,
+re-read FRESH after the real dig completes — so it is always exactly 2 above the ACTUAL resting
+feet position (1 above the bot's own head), for any depth, not a hardcoded absolute offset from
+the start position. The ring cells' own reference (one level below the ring, at the ring's own
+horizontal offset — never the center) is the UNDISTURBED terrain surrounding the single dug
+column, solid at whatever absolute Y that lands, because `digDownInto` only ever touches the
+center 1x1 column and never the footprint around it — same mechanism, same guarantee, at any
+depth. A depth=1 dig-in's ring/cap does end up one block above original grade instead of at it,
+which looks odd on paper, but is mechanically identical to depth=2's own already-proven case one
+level up. No special-casing needed, confirmed by re-deriving the existing (#105, ShltrQA
+fixture) comment's own reasoning generally rather than assuming it only held for depth=2.
+fix: `survival.js` (`diginDepth`, `shelterDigIn(depth=2)`, `shelterBuild()`'s spawn-camp branch
+— v13).
+github: felsenuboot/FelsenBerry#116 (TODO 5g item 4)
