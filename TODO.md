@@ -76,7 +76,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    escalation WALL_OFF-if-filler → one bare-hand attempt when cornered ≤1.5 / hp<4 and reachable → FLEE_AWAY; fist outcome ledgered.
    Three more live bugs fixed en route (9s of unopposed damage before escalation; sticky "desperate" re-picking fists 5×). **Still gates
    soak #6:** induced-stress-sequencing.sh not yet 3/3 — no deaths, but FLEE_AWAY (pre-existing) retreats in the open on raw distance
-   and takes near-unopposed damage (hpMin 1.3 / 0.5 vs ≥6 wanted). 5n-b: FLEE_AWAY gets LOS-biased retreat (design first). Armed path
+   and takes near-unopposed damage (hpMin 1.3 / 0.5 vs ≥6 wanted). 5n-b (#124): FLEE_AWAY gets LOS-biased retreat (design first). Armed path
    diff-unchanged, live kill trace not yet re-watched.
 5q. **EAT/REFLEX rung thrash** (eng-3, agenda, after 5p): EAT_CRITICAL↔REFLEX↔EAT alternating per tick once BREAK_LOS survives long enough
    for hunger cycling (engine-dev 5n trace). Hysteresis between EAT and REFLEX ownership; fixture in agenda-ladder.
