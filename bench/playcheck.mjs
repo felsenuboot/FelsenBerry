@@ -39,6 +39,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { attributeStalls } from './lib/stall-attribution.mjs';
+import { summarizeChestEvents, computePositionTrace } from './lib/ledger-gaps.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(DIR, '..');
@@ -136,7 +137,12 @@ function summarize(botName) {
                                         // against task_end.digs (which is per-task only).
   let itemsGained = 0;
   const itemsGainedByName = {};
-  let itemsDeposited = 0;
+  // #69 gap 1 (2026-09-03): itemsDepositedFromTaskInference is the OLD, imperfect inference
+  // (depositToChest task_end.collected, which #69's own text warns "may not represent the
+  // same thing consistently across deposit paths") — kept for transparency/comparison, no
+  // longer the authoritative number. See itemsDeposited/itemsWithdrawn below, sourced from the
+  // real ev:'chest' ledger events telemetry.js has been emitting all along.
+  let itemsDepositedFromTaskInference = 0;
   let logsChopped = 0;
   let structuresPlaced = 0;
   let animalsKilled = 0;
@@ -156,6 +162,10 @@ function summarize(botName) {
   // soak #5 follow-up (2026-09-03): the raw material for stallAttribution() below, collected
   // here alongside everything else this loop already reads (one pass, no second ledger scan).
   const dirOpens = [], dirCloses = [], notes = [];
+  // #69 gaps 1+2 (2026-09-03): both are ALREADY WIRED in telemetry.js (real ev:'chest'/ev:'pos'
+  // records confirmed live) -- the actual gap was that nothing ever read them. Collected here,
+  // same single pass, and summarized below via bench/lib/ledger-gaps.mjs.
+  const chestRecs = [], posRecs = [];
 
   for (const r of recs) {
     if (r.ev === 'dig_batch') blocksMined += r.digs || 0;
@@ -164,6 +174,8 @@ function summarize(botName) {
     if (r.ev === 'direction' && r.op === 'open') dirOpens.push(r);
     if (r.ev === 'direction' && r.op === 'close') dirCloses.push(r);
     if (r.ev === 'note' && r.agenda) notes.push(r);
+    if (r.ev === 'chest') chestRecs.push(r);
+    if (r.ev === 'pos') posRecs.push(r);
     if (r.ev === 'goto' && r.tid == null) distanceTraveled += r.moved || 0;
     if (r.ev === 'task_end') {
       taskCount++;
@@ -178,7 +190,7 @@ function summarize(botName) {
         itemsGainedByName[name] = (itemsGainedByName[name] || 0) + n;
         if (LOG_ITEM.test(name) && r.skill === 'chopTrees') logsChopped += n;
       }
-      if (r.skill === 'depositToChest') itemsDeposited += taskItems;
+      if (r.skill === 'depositToChest') itemsDepositedFromTaskInference += taskItems;
       // Soak-#4 human-bar prep: a genuine RESTOCK depot search that comes up short
       // (checked several chests, none had what was needed — `outcome:'ok', result.
       // stocked:false`) reports `moved:0, digs:0, placed:0, collected:{}` even after
@@ -204,6 +216,24 @@ function summarize(botName) {
   const chat = readChat(botName);
   const chatCount = chat.lines.length;
 
+  // #69 gaps 1+2: real chest totals + a real, task-independent position trace. itemsDeposited
+  // FALLS BACK to the old task-inference only when this bot's window has ZERO chest events at
+  // all (an older ledger predating M.chest()'s call sites, or a genuine window where nothing
+  // was ever deposited) — real events, once present, are always the authoritative source; never
+  // silently summed together with the inference (that would double-count on any overlap).
+  const chestSummary = summarizeChestEvents(chestRecs);
+  const itemsDeposited = chestSummary.events ? chestSummary.deposited : itemsDepositedFromTaskInference;
+  const posTrace = computePositionTrace(posRecs, SINCE, NOW);
+  // percent of the KNOWN portion of the trace (stationary+moving, excluding the unknown tail/
+  // head before the first sample or after the last) that was real, measured stationary time --
+  // deliberately NOT divided by the whole window, which would let a thin sample (most of the
+  // window "unknown") silently dilute toward either extreme. `coverage` reports what fraction
+  // of the window the trace actually covers, so a reader can judge how much to trust the pct --
+  // same "don't overclaim a thin sample" doctrine as trail.mjs's own vacuous flag.
+  const knownMs = posTrace.stationaryMs + posTrace.movingMs;
+  const realStationaryPct = knownMs > 0 ? Math.round((posTrace.stationaryMs / knownMs) * 1000) / 10 : null;
+  const posTraceCoverage = posTrace.windowMs > 0 ? Math.round((knownMs / posTrace.windowMs) * 1000) / 10 : null;
+
   // soak #5 follow-up: "the gate file should attribute the stationary time by cause... so the
   // next soak's verdict names its wall without hand-reading decisions.jsonl" — computed only
   // when the verdict ISN'T PLAYING (a healthy hour has nothing to attribute, and running this
@@ -217,11 +247,19 @@ function summarize(botName) {
     windowMs: WINDOW_MS,
     blocksMined, logsChopped, structuresPlaced, animalsKilled,
     itemsGained, itemsGainedByName, itemsDeposited,
+    itemsWithdrawn: chestSummary.withdrawn,
+    itemsDepositedFromTaskInference,
+    chestEvents: chestSummary.events,
     distanceTraveled: Math.round(distanceTraveled * 10) / 10,
     deaths, panics,
     taskCount, productiveTasks, noOpTasks,
     noOpFraction: taskCount ? Math.round((noOpTasks / taskCount) * 1000) / 1000 : null,
     stationaryPct,
+    // #69 gap 2: a REAL, task-independent position trace — closes the exact blind spot #69
+    // named ("a bot technically inside a task but wedged/frozen would still count as active").
+    // null when there's no position-trace data in the window at all (an older ledger, or a
+    // window shorter than the trace's own sampling cadence) — never a fabricated number.
+    realStationaryPct, posTraceCoverage, posTraceSamples: posTrace.samples,
     productiveActionsPer10Min: Math.round(per10 * 10) / 10,
     stallAttribution,
     chatCount,
@@ -276,7 +314,9 @@ if (has('json')) {
     if (s.noOpFraction != null) detail.push(`no-op tasks: ${Math.round(s.noOpFraction * 100)}% (${s.noOpTasks}/${s.taskCount})`);
     detail.push(`productive actions/10min: ${s.productiveActionsPer10Min}`);
     detail.push(`chat lines: ${s.chatCount}${s.chatGap ? ' (log file missing — GAP)' : ''}`);
-    if (s.itemsDeposited) detail.push(`deposited: ${s.itemsDeposited} items`);
+    if (s.itemsDeposited) detail.push(`deposited: ${s.itemsDeposited} items${s.chestEvents ? '' : ' (task-inference, no chest events this window)'}`);
+    if (s.itemsWithdrawn) detail.push(`withdrawn: ${s.itemsWithdrawn} items`);
+    if (s.realStationaryPct != null) detail.push(`real stationary: ${s.realStationaryPct}% (position trace, ${s.posTraceCoverage}% window coverage, n=${s.posTraceSamples})`);
     console.log('    ' + detail.join(' | '));
     if (s.stallAttribution) {
       const ec = s.stallAttribution.episodeCauses, ro = s.stallAttribution.rungOwnership;
@@ -287,15 +327,17 @@ if (has('json')) {
   }
   console.log('---');
   console.log('LEDGER GAPS (things this instrument could not read from the existing ledger):');
-  console.log('  - no continuous position stream outside task/goto spans: "stationary" is inferred');
-  console.log('    from task_end.ms coverage of the window, not a real position trace. A bot that');
-  console.log('    is technically inside a task but wedged/frozen would still count as "active" time');
-  console.log('    unless it also failed the observable-output check (see noOpFraction).');
-  console.log('  - chest deposits: telemetry.js defines M.chest() but nothing calls it — deposit');
-  console.log('    counts here come from depositToChest task_end.collected instead, which may not');
-  console.log('    be populated the same way by every deposit path.');
+  console.log('  - #69 gaps 1+2 (chest deposits, position trace) are CLOSED as of 2026-09-03: both');
+  console.log('    ev:\'chest\' and ev:\'pos\' are real, already-emitted ledger events (telemetry.js');
+  console.log('    was already calling M.chest() from skills.js/farmskills.js; the actual gap was');
+  console.log('    that no grader read either stream) — see itemsDeposited/itemsWithdrawn/');
+  console.log('    realStationaryPct above. stationaryPct (the verdict-feeding number) is UNCHANGED');
+  console.log('    on purpose, still task-coverage-based — realStationaryPct is reported alongside');
+  console.log('    it, not substituted for it, so the verdict\'s own calibration isn\'t silently');
+  console.log('    altered by this fix (a genuine calibration question, not this fix\'s call to make).');
   console.log('  - chat "spam" is reported as a raw line count, not classified no-op vs meaningful —');
   console.log('    that would need either a chat-content event in the ledger or a text-pattern guess');
   console.log('    this instrument deliberately avoids. noOpFraction (ledger-grounded) is the closest');
   console.log('    proxy: a high chat count alongside a high noOpFraction is the "spam" signature.');
+  console.log('    STILL OPEN (#69 gap 3) — no ledger-grounded fix attempted here.');
 }
