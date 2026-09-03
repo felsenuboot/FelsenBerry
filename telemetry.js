@@ -467,7 +467,12 @@ function install(bot, opts = {}) {
   M.craft = (item, times, made, reason) => emit('craft', { tid: M.task ? M.task.tid : null, item, want: times, got: made, reason: reason || null });
   M.chest = (kind, at, moved) => emit('chest', { tid: M.task ? M.task.tid : null, kind, at, moved });
   M.danger = (state, prev, score, threat) => emit('danger', { state, prev, score, threat: threat || null, pos: pos3() });
-  M.panic = (phase, branch, hp) => emit('panic', { phase, branch, hp, pos: pos3() });
+  // #121/5n: `extra` is OPTIONAL and additive (existing 3-arg callers are unaffected) -- lets
+  // a branch's own return value (already a plain, JSON-safe object -- survival.js's own
+  // g.lastEvent.out reads the identical shape) ride along on the 'recovered' phase, so a
+  // grader can read e.g. BREAK_LOS's new `how:'fist', hits, threatHpDelta` from the ledger
+  // instead of only from a live /eval read of g.lastEvent.
+  M.panic = (phase, branch, hp, extra) => emit('panic', { ...(extra && typeof extra === 'object' ? extra : {}), phase, branch, hp, pos: pos3() });
 
   M.snapshot = () => ({
     run, written: M.written, dropped: M.dropped, writeErrors: M.writeErrors,
