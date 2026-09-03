@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "4262c7629ed8",
+  "session_id": "84e92e28-accf-4788-8150-54b0242cfc06",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T09:42:31.406563066Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "agenda.js",
+    "bench/fixtures/foods-huntspecies.js",
+    "bench/preflight.sh",
+    "decider.js",
+    "foods.js",
+    "skills.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "0122f52ec590",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 592,
+    "cache_creation_tokens": 350812,
+    "cache_read_tokens": 68036649,
+    "output_tokens": 141511,
+    "api_call_count": 296
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T09:42:31.256495747Z",
+    "agent_lines": 169,
+    "agent_removed": 23,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 169,
+    "total_lines_changed": 192,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 73,
+      "user_lines_removed": 0,
+      "agent_lines_added": 435,
+      "agent_lines_removed": 23,
+      "user_added_per_file": {
+        "FEEDBACK.md": 73
+      }
+    }
+  ]
+}

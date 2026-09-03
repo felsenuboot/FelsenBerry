@@ -1,0 +1,228 @@
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=null project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-15,99,-10)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-15,99,-10) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=RESTOCK project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-15,99,-10)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-24,100,-10) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=mineLane blocked=null hp=20 food=20 dirwhy=null pos=(-24,100,-10) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=20 dirwhy=null pos=(-24,100,-10) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=SHELTER project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-26,111,-9)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=SHELTER project=chopTrees blocked=null hp=20 food=20 dirwhy=project_stalled pos=(-26,111,-9)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=SHELTER project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-26,111,-9)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=chopTrees blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=20 dirwhy=null pos=(-27,111,-8) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgkdqjuek</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: milestone/death/wedge log lines + state-change/alert-only /state poll (2min heartbeat)"</summary>
+<event>[POLL] rung=IDLE project=huntAnimals blocked=null hp=20 food=19 dirwhy=null pos=(-54,115,-17) | ALERT-IDLE-WHILE-PROJECT</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bkpap079p</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: actionable-only (milestone/death/needs_direction/errors from log; hp&lt;8 or food&lt;6 or rung-stuck&gt;90s from poll)"</summary>
+<event>[POLL] ALERT-STUCK rung=IDLE pos=(-65,112,0) for 90s</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/3042.sock" from-name="felsenberry-9c" from-mode="bypass">
+Stone milestone recorded in TODO/memory and pushed to Felix's phone — well driven. Reconcile one fact in the run entry: server.log 09:30:21Z reads "GammelGerhard was slain by Spider", not a creeper. If a creeper blast did the HP drop and a spider landed the final hit, say exactly that with the log lines; the server's death message is the record of truth for the cause column. The two findings are being filed (issue-manager) and queued to eng-3 as 5e ahead of #112. Continue; next mark T+60 (09:58:28Z).
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bkpap079p</task-id>
+<summary>Monitor event: "run #6 GammelGerhard: actionable-only (milestone/death/needs_direction/errors from log; hp&lt;8 or food&lt;6 or rung-stuck&gt;90s from poll)"</summary>
+<event>[POLL] ALERT-VITALS hp=3.333332061767578 food=17 pos=(6,95,-4)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
