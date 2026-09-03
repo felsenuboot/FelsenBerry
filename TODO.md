@@ -77,8 +77,8 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    threatsNamed=2, "Also zombie..." corroborated in the real chat log each time.
 6. **Gear-race run #6** LIVE 08:58:28Z→cap 10:28:28Z — **STONE PICKAXE T+31m50s, FIRST EVER (stone wall broken)**; death #1 creeper 1.9s later, #103 respawn episode fired live; 10 steering calls at T+32. (test-driver, GammelGerhard, world-race6, Race book v2) — GREEN-LIT 2026-09-03 08:55Z (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. **POST-SOAK-#5 QUEUE** (from issue-manager's 2026-09-03 tracker triage; order by blast radius on the human bar):
-   a. #74 relocateToWork false-success (reports ok with 0 m moved) — the REMEDY rung (#110) now depends on it; a lying primitive corrupts escalation + soak telemetry. eng-3.
-   b. #73 chopTrees oak-only thrash — the decider dispatches `chopTrees{types:['oak']}`; a birch/spruce spawn re-creates soak #4's wood freeze. eng-3.
+   a. ~~#74 relocateToWork false-success~~ DONE (d48baa9 — success now requires dist ≥ hop*0.5 (pure `S._relocateVerified`, 9/9); boxed_in path live-confirmed twice; NO clean long-relocate live demo on 25599's worn terrain — getPathTo returned partial 4/5 on open ground, noted honestly).
+   b. ~~#73 chopTrees oak-only~~ DONE (d48baa9 — skills already species-agnostic; the bug was decider.js mapAndyCommand hardening Andy's one named species into a restriction → now types:'any'; 17/17 replay cases; lands for the NEXT decider start, soak #5's daemon predates it).
    c. #71 RESTOCK torch deadlock (no charcoal path) — same silent supply-chain class as #113/#108. eng-3.
    d. #95 direction-episode rot follow-ups — adjacent to #109/#110/#112. eng-3 + engine-dev grader.
    e. #67 role-default work no-ops at base — next step off #88. eng-3.
