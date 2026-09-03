@@ -1299,6 +1299,17 @@ diff file is committed alongside this entry (force-added past `logs/`'s gitignor
 truth in case engine-dev-3's working file changes again before they commit a real WIP hash for it.
 Slip process-honest, accepted by team-lead; run continues.
 
+**Comparability caveat, ruled with eng-3 (team-lead, 2026-09-03): decider grace 0s (4b WIP).**
+Because the daemon running this race carries the 4b fix, GammelGerhard — a driven bot, this
+session IS its driver — gets ZERO driver grace on direction episodes: the decider answers on the
+next poll (~20s) instead of waiting out `DRIVER_GRACE_MS` for me. Ruled to stand as-is (no meta
+edit, no restart). Consequence for the steering-call count: if the decider dispatches an episode
+before I steer it myself, that's ENGINE work, not a driver steering call — only what I issue
+myself via `setProject` counts toward this run's autonomy metric. **This makes run #6 NOT directly
+comparable to runs #1-#5 on decider-latency terms** (those all ran under the old 60s-flat-if-owned
+grace, now retired) — flagging so a future reader doesn't read this run's steering-call tally
+against the old baseline without the asterisk.
+
 **STATUS: LIVE, racing.**
 
 ## SOAK #4 — first formal HUMAN-BAR attempt: **FAIL (3 of 4)** (team-lead, graded 2026-09-03 08:53Z)
