@@ -4917,3 +4917,40 @@ filters on" without root-causing it — this is that root cause). Recommend SCOR
 fallback be corrected for future runs; not editing that section myself mid-race (it's live steering doctrine, not
 a static record) — flagging for whoever writes Race book v3 or the next SCOREBOARD pass.
 github: felsenuboot/FelsenBerry (Race book v2 correction; also explains run #2's unresolved discrepancy note)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 5d: PROJECT standDown/stall-clock reset on setProject
+(agenda v32, run #6 live finding)
+type: fix + fixture
+status: built, live-verified (real tick loop), `bench/fixtures/agenda-ladder.js` 52/52 (up
+from 46/46, 6 new cases), `bench/preflight.sh` 230/230 on a fresh throwaway bot (WabbelWaldo,
+DECIDER_EXCLUDE=1, stopped after), on 25599 only — GammelGerhard/25600 untouched.
+what: test-driver caught this live on run #6 (FEEDBACK ~09:12Z/09:14Z): `A.standDown.PROJECT`
+and `A.direction.lastProductiveAt` are both keyed on the RUNG id, with no way for a fresh
+`setProject()` call (driver OR decider) to say "this is a NEW attempt, don't count my
+predecessor's failure against me." A redirect issued while PROJECT was still cooling down from
+the OLD project's own failure sat inert for the REST of that inherited cooldown (measured live:
+~20-30s dead, `dmtlb2m212` closed at 128665ms — entirely standdown carryover, not decision
+time), and once it finally started, the direction layer's E3a stall window had ALREADY been
+ticking since before the new project ever ran a single tick, so it could open a false
+`project_stalled` episode for a project that had not had a real chance yet.
+fix: `A.setProject` — already the file's own designated "this is fresh intent" choke point
+(every driver/decider/promotion call funnels through it, per its own header comment) — now
+resets `A.unproductive.PROJECT`/`A.standDown.PROJECT`/`A.standDownCount.PROJECT` to a clean
+slate AND restarts the direction stall clock (`A.direction.lastProductiveAt = now()`) every
+time, not just on the zero-gap promotion path that already did exactly this (the promotion
+branch's own 3-line reset is now redundant and removed — one reset, one place, every caller
+gets it). Deliberately does NOT touch `A.owner`: an external setProject can legitimately arrive
+while some OTHER rung (RESTOCK, TOOL) currently owns the body, and forcibly nulling A.owner
+here would interrupt unrelated in-flight work — PROJECT's own re-arbitration happens naturally
+via choose() on its next fire().
+Live-verified against the real tick loop, not just the dry-run fixture: induced the exact
+inherited-standdown shape (standDown/standDownCount/unproductive set, lastProductiveAt stale by
+200s) on a live bot, called setProject — all four fields confirmed cleared in the SAME /eval
+round-trip (quiet:0, standDownCount.PROJECT:0, unproductive.PROJECT:0, standDown:{}).
+`bench/fixtures/agenda-ladder.js`: 6 new cases (PROJECT correctly blocked before the fix,
+4 direct-field assertions on setProject's reset, PROJECT firing immediately after).
+fix: `agenda.js` (`A.setProject`'s reset block; promotion branch's duplicate 3 lines removed —
+v32). `bench/fixtures/agenda-ladder.js` (+6 cases, a new `TF` direct-field-assertion helper
+alongside the existing rung-outcome `T`).
+github: felsenuboot/FelsenBerry#112 (TODO 5d)

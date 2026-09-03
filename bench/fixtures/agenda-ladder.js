@@ -15,6 +15,8 @@ const A = globalThis.__agenda;
 const savedProject = A.project, savedOwner = A.owner, savedBlocked = A.blocked;
 const savedSD = A.standDown, savedShort = A._restockShort, savedAt = A._restockShortAt;
 const savedRemedy = A.remedy;
+const savedSDCount = A.standDownCount, savedUnproductive = A.unproductive;
+const savedLastProductiveAt = A.direction.lastProductiveAt;
 const out = { version: A.version, cases: [] };
 
 // a "healthy at work" baseline; each case overrides only what it is testing
@@ -41,6 +43,9 @@ const T = (label, over, expect) => {
     latched: got && got.latched, fired: got && got.fired, err,
     PASS: !err && got && got.rung === expect });
 };
+// direct-field assertion (5d: internal bookkeeping a rung outcome alone can't observe —
+// standDown/unproductive being CLEARED, not just "PROJECT happens to fire this tick").
+const TF = (label, cond) => { out.cases.push({ label, PASS: Boolean(cond) }); };
 
 A.owner = null; A.blocked = null; A.standDown = {};
 A._restockShort = null; A._restockShortAt = 0;
@@ -175,6 +180,25 @@ try {
   T('2nd depot_reach failure -> REMEDY fires for a non-wood class too', {}, 'REMEDY');
   A.remedy = {};
 
+  // 5d (#112, test-driver's run-#6 live finding): a setProject() redirect issued while
+  // PROJECT is still cooling down from the PREVIOUS project's own failure used to sit inert
+  // for the rest of that inherited cooldown, then earn a false project_stalled episode from a
+  // stall-window clock that had already been ticking before the new project ever ran.
+  A.owner = null;
+  A.standDown = { PROJECT: Date.now() + 60000 };
+  A.standDownCount = { PROJECT: 2 };
+  A.unproductive = { PROJECT: 1 };
+  A.direction.lastProductiveAt = Date.now() - 200000;   // older than DIRECTION_STALL_MS (180000)
+  T('PROJECT standing down from a PREVIOUS project -> blocked, IDLE runs', {}, 'IDLE');
+  A.setProject({ skill: 'come', args: { x: 0, y: 60, z: 0 } });
+  TF('setProject clears the inherited PROJECT standDown timer', !A.standDown.PROJECT);
+  TF('setProject resets standDownCount.PROJECT to 0', (A.standDownCount.PROJECT || 0) === 0);
+  TF('setProject resets unproductive.PROJECT to 0', (A.unproductive.PROJECT || 0) === 0);
+  TF('setProject restarts the direction stall clock (lastProductiveAt no longer stale)',
+    Date.now() - A.direction.lastProductiveAt < 5000);
+  T('the SAME redirect now fires PROJECT immediately, not still blocked', {}, 'PROJECT');
+  A.standDown = {}; A.standDownCount = {}; A.unproductive = {};
+
   out.passed = out.cases.filter((c) => c.PASS).length;
   out.failed = out.cases.filter((c) => !c.PASS).map((c) => `${c.label}: expected ${c.expect}, got ${c.rung}`);
   return out;
@@ -182,4 +206,6 @@ try {
   A.project = savedProject; A.owner = savedOwner; A.blocked = savedBlocked;
   A.standDown = savedSD; A._restockShort = savedShort; A._restockShortAt = savedAt;
   A.remedy = savedRemedy;
+  A.standDownCount = savedSDCount; A.unproductive = savedUnproductive;
+  A.direction.lastProductiveAt = savedLastProductiveAt;
 }

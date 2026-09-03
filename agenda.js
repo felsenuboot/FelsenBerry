@@ -1417,14 +1417,13 @@ const tick = () => {
         // one-shot project is).
         if (A._promoteCheck(p, A.nextProject)) {
           // re-arbitration hygiene, verbatim from the prior art (bots-llm/planner.js's
-          // advance()): without clearing these, the unproductive detector below reads the
-          // FRESH promoted project as "completed twice without meeting its own condition"
+          // advance()): without clearing A.owner here, the unproductive detector below reads
+          // the FRESH promoted project as "completed twice without meeting its own condition"
           // (it is judging the OLD project's stale counters) and stands PROJECT down before
-          // the promoted project gets a real turn.
+          // the promoted project gets a real turn. The standDown/unproductive counter reset
+          // itself now lives in A.setProject (5d, #112) — every caller gets it, not just this
+          // one, so it is no longer duplicated here.
           A.owner = null;
-          A.unproductive.PROJECT = 0;
-          delete A.standDown.PROJECT;
-          A.standDownCount.PROJECT = 0;
           const nx = A.nextProject; A.nextProject = null;
           dirEmit('promote', { from: p.skill, to: nx.skill, queuedForMs: now() - nx.stagedAt });
           A.direction.promoted++;
@@ -1624,6 +1623,35 @@ A.setProject = (spec) => {
     // gets rewritten to the remainder on each resume
     totalWanted: res ? res.total(spec.args || {}) : null, progress: 0 };
   A.blocked = null;
+  // 5d (TODO, #112, test-driver's run-#6 live finding): standDown/unproductive bookkeeping is
+  // keyed on the RUNG id ('PROJECT'), not on which project is currently staged under it — a
+  // setProject() call used to have no way to signal "this is a fresh attempt, don't count my
+  // predecessor's failure against me." A driver (or decider) redirect issued while PROJECT was
+  // still cooling down from the OLD project's own failure sat inert for the REST of that old
+  // cooldown (a fresh `come` measured live: ~20-30s dead before it ever got to run), and once it
+  // finally started, the direction layer's own stall-window clock had already been ticking since
+  // before the new project ever executed a tick — earning a false `project_stalled` episode
+  // whose reported latency is entirely standdown carryover, not decision time (test-driver's
+  // `dmtlb2m212`, 128665ms). setProject IS "fresh intent" by this function's own header comment
+  // above — every caller (driver, decider, this file's own promotion call below) means it, so
+  // the reset belongs HERE, once, not duplicated at every call site (the promotion branch used
+  // to inline exactly this — same three lines — only for ITS OWN call; every other setProject
+  // caller had the identical problem and no fix). Never clears A.owner: an external setProject
+  // can legitimately arrive while some OTHER rung (RESTOCK, TOOL) currently owns the body, and
+  // forcibly nulling A.owner from here would interrupt that unrelated in-flight work — owner
+  // re-arbitration happens naturally via choose() on PROJECT's own next fire().
+  A.unproductive.PROJECT = 0;
+  delete A.standDown.PROJECT;
+  A.standDownCount.PROJECT = 0;
+  // The direction layer's own E3a stall window (`quiet = now - lastProductiveAt`, gated on
+  // `!running`) is exactly as vulnerable to inherited staleness: test-driver's `come` sat
+  // inert (nothing running, PROJECT blocked by the OLD project's standdown) while `quiet` kept
+  // accumulating from whenever the OLD project last looked productive — so by the time `come`
+  // was finally ABLE to run, the window had often already crossed DIRECTION_STALL_MS, opening
+  // `project_stalled` for a project that had not had one real tick yet. A fresh directive IS
+  // itself evidence something just moved — same doctrine markProductive already applies to
+  // every other forward-moving event — so it restarts the clock exactly like those do.
+  A.direction.lastProductiveAt = now();
   // 1-deep queue, staged at decision time (the decider/driver always answers current+next —
   // no progress-threshold pre-staging). Team-lead's ruling (2026-09-02) on the open question
   // this used to flag: a plain setProject with no `next` DROPS any stale staged one by
