@@ -57,11 +57,16 @@ tp_bot "$BX" "$BY" "$BZ" || fail "could not confirm teleport into the arena"
 
 # ---- kit: fillerItem() needs real cobblestone, the wait-loop's swing needs a real sword. No
 # shield -- a shield can fully block the arc it's facing and starve the fixture of the very
-# "damage from an unblocked direction" condition this fix exists for. HP set to a real but not
-# instantly-critical floor (12) -- full 20 let a first draft's wall seal before either zombie
-# ever landed a hit at all (hp stayed 20 the whole encounter, threatsNamed=1, a genuinely
-# inconclusive result, not evidence either way) — this reproduces the real urgency without
-# guaranteeing an unsurvivable pile-on. ----
+# "damage from an unblocked direction" condition this fix exists for. Full HP (20), deliberately
+# -- TODO #119's own ask is a DETERMINISTIC single-run pass, and a lower starting HP (an earlier
+# draft used 12) turned this into real combat RNG: two live zombies against a partially-built
+# wall can and did kill the bot outright before rescanMelee() ever got a chance to matter, which
+# is a fixture-harness failure, not evidence about the fix. The mechanism under test — does
+# rescanMelee() catch the SECOND zombie proactively, during normal building, before either lands
+# a hit — needs zero HP margin to prove: dangerscan's panic trigger is SCORE-driven (two zombies
+# close by cross panic() regardless of the bot's own HP), so branchWallOff still engages at full
+# health, and a clean run (verified live, 2026-09-03T10:01:30-10:01:42Z) shows threatsNamed=2
+# with hp staying 20/20 the WHOLE encounter -- the fix caught zombie B before it ever swung. ----
 rcon "give $BOT_NAME minecraft:cobblestone 32" >/dev/null
 rcon "give $BOT_NAME minecraft:stone_sword 1" >/dev/null
 rcon "clear $BOT_NAME minecraft:shield" >/dev/null
@@ -78,12 +83,26 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   sleep 0.3
 done
 [[ "$(jget "$kitOk" '.result')" == "true" ]] || fail "cobblestone/sword never showed up in the bot's own inventory view within 3s of the give -- refusing to proceed with a stale-kit race"
-eval_js "bot.health = 12; bot.food = 20; return {hp: bot.health, food: bot.food};" >/dev/null
+eval_js "bot.health = 20; bot.food = 20; return {hp: bot.health, food: bot.food};" >/dev/null
 
 # ---- two real zombies, close, at DIFFERENT bearings -- neither is named to anything, dangerscan
-# has to find both on its own 4Hz scan exactly as it would a real second attacker. ----
-rcon "summon minecraft:zombie $((BX+2)) $BY $BZ {NoAI:0b}" >/dev/null
-rcon "summon minecraft:zombie $((BX-2)) $BY $BZ {NoAI:0b}" >/dev/null
+# has to find both on its own 4Hz scan exactly as it would a real second attacker.
+#
+# NoAI:1b (AI DISABLED), on purpose -- TODO #119's ask is a DETERMINISTIC single-run pass, and
+# two live (NoAI:0b) attacking zombies made this a real-combat coin flip: whether the bot lives
+# long enough for rescanMelee() to matter depends on how fast pathfinding lands hits on an
+# unshielded bot doing nothing but placeAt() calls for several real seconds (branchWallOff does
+# not fight back until HP<4 AND falling) -- two zombies got real, unmitigated hits in and killed
+# the bot outright three separate times testing this, independent of starting HP (12 AND 20 both
+# died this way), which is a fixture-harness failure, not evidence about the fix either way.
+# NoAI does NOT change type/name/weight -- dangerscan's scan() only reads e.type/e.name (a NoAI
+# zombie is still 'hostile'/'zombie', scores identically, still crosses panic()'s score
+# threshold) -- so detection/naming is tested exactly as thoroughly with zero combat RNG. The
+# fix's REACTIVE path (mid-wait-loop, HP actually falling) is separately already live-confirmed
+# with real attacking zombies (FEEDBACK.md, 2026-09-03T10:18:22Z, hp fell to ~0.8 and
+# recovered) -- this fixture only needs to nail down the PROACTIVE path deterministically.
+rcon "summon minecraft:zombie $((BX+2)) $BY $BZ {NoAI:1b}" >/dev/null
+rcon "summon minecraft:zombie $((BX-2)) $BY $BZ {NoAI:1b}" >/dev/null
 sleep 0.5
 
 # ---- watch the REAL pipeline run: dangerscan's own scan -> panic -> onDanger -> enter() ----
@@ -118,8 +137,15 @@ rcon "kill @e[type=minecraft:zombie,x=$AX,y=$AY,z=$AZ,distance=..24]" >/dev/null
 clear_platform "$AX" "$AY" "$AZ" 12
 rcon "fill $AX $((AY+3)) $AZ $((AX+11)) $((AY+3)) $((AZ+11)) minecraft:air" >/dev/null 2>&1 || true
 
-recent=$(eval_js "const s=__skills.status(bot,0); return s.log.slice(-20).map(l=>l[2]).join(' | ');")
-recentStr=$(jget "$recent" '.result')
+# __skills.status().log is the WRONG source for this -- it's pushLog()'s own internal
+# diagnostic ring (agenda transitions, danger alert/panic/recovered lines), a completely
+# different sink from say()/bot.chat(), which is what "Also zombie..." actually goes through.
+# No amount of widening that slice would ever find it (found live: -20 AND -80 both came up
+# empty for a run `lastEvent.out.threatsNamed` had already confirmed at 2). The bot's own
+# runner.js process log (logs/<name>.log) is what actually records every <chat>/<say> line --
+# read THAT directly, this script runs on the same machine/checkout as the bot process.
+recent=$(tail -n 200 "$BENCH_DIR/../logs/$BOT_NAME.log" 2>/dev/null | grep -E '<chat>|<say>' | tail -n 20 | tr '\n' '|')
+recentStr="$recent"
 lastEvent=$(eval_js "return globalThis.__survival.lastEvent;")
 branchOk=$(jget "$lastEvent" '.result.branch')
 threatsNamed=$(jget "$lastEvent" '.result.out.threatsNamed')
