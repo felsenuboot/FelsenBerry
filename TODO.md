@@ -68,8 +68,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    Spawn: eng-3, OWNER=engine-dev-3 PURPOSE="soak #5" MC_PORT=25600 port 3162 --agenda, DRIVEN unset, SOAK_BOT on a fresh decider daemon.
    Window = server.log join timestamp + 60 min, lead holds. Inspector (engine-dev) at T+55; grade after close ping:
    `node bench/humanbar4.mjs --bot <name> --since <join> --until <join+60m> --inspector-port <p> --label soak5`. Pass = /goal met.
-5j. **Cook/smelt skill** (#118, eng-3, soak-hour task on 25599): furnace path for raw meat (reuse producer.js station lookup + fuel),
-   argue saturation math in FEEDBACK before wiring into FOOD; ship unwired if not worth it.
+5j. ~~Cook/smelt skill~~ DONE unwired (#118, a7df20b — produce({resource:'cooked_meat'}) cooks all held raw meat incl. chicken; open-container inventory-count bug fixed (furnace output slot counted as inventory before takeOutput); preflight 264/264, producer-cook 2/2). NOT wired into FOOD: auto-eat's watcher eats raw on pickup, and EAT (4) outranks FOOD (6.5) the tick foodCount>0 — priority inversion proven in a new agenda-ladder case. Follow-ups: cooking-in-progress flag gating EAT (design); furnace auto-craft needs a table within 4 blocks and never places one (inherited from smeltCharcoal).
 5k. ~~wall-off-multithreat fixture deterministic~~ DONE (#119, a177a4a — three real harness bugs: NoAI:0b real-combat RNG
    killed the bot outright 3x independent of starting HP, switched to NoAI:1b (dangerscan scores by type/name, unaffected,
    zero death risk); corroborating chat check read the WRONG log source (`__skills.status().log`'s internal diagnostic
