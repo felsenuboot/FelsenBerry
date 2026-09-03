@@ -72,7 +72,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    project — mineLane/safeDescend straight down from inside the shelter, torching, never breaking the seal upward — and re-check
    dawn/threat exits each cycle. Not a criterion-1 calibration change: the bar is "playing", and sheltered idling is not playing.
    Fixture in agenda-ladder (sealed + night → underground project dispatched; dawn → exit); live on 25599 with RCON night.
-5n. **BREAK_LOS re-fires forever against a melee-range skeleton — unarmed bot dies 2/2** (engine-dev, survival.js, HIGH, GATES soak #6;
+5n. **BREAK_LOS re-fires forever against a melee-range skeleton — unarmed bot dies 2/2** (#121, engine-dev, survival.js, HIGH, GATES soak #6;
    engine-dev #32 pass 7cd4183: CREEPER branch confirmed clean for the first time; BREAK_LOS: skeleton at 0.5–0.8 blocks, same
    "breaking line of sight" line every ~250 ms, no cell to step to, unarmed → counter-attack never fires → dead, twice). Fix shape:
    a branch that makes no progress for N cycles must ESCALATE, never loop — order: WALL_OFF if filler; else fists (a human punches a
