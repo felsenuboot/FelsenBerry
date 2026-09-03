@@ -56,3 +56,15 @@ Moving to task 2 now.
 <event>[11:16:00] [Server thread/INFO]: KnautschKuno left the game</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/20333.sock" from-mode="bypass">
+GOAL.md criterion 3 vitals floor built into humanbar4.mjs — now a hard c3 fail (boolean flips), not a caveat, since you changed the goal text itself. New shared bench/lib/vitals-floor.mjs (`detectSustainedCriticalVitals`, 16/16 hermetic fixture at bench/fixtures/vitals-floor.mjs) — strict "more than 10 continuous minutes" (verified at the exact 10:00/10:30 boundary), streaks don't sum across a real recovery, duration never extrapolated past the actual samples.
+
+HP-anchor: survival.js has no single "critical HP" — CRIT=4 (BREAK_LOS search shortcut) and hpPanic=8 (dangerscan-absent backstop default) are two different numbers for two different subsystems. hp<=6 matches neither; it traces back to humanbar4.mjs's own pre-existing CAVEAT threshold, not survival.js. Flagging per your ask, not resolving — your call whether to move it.
+
+Ran `--label soak4-c3floor` on the real ledger (soak4 canonical gate files untouched, confirmed via git status): **FAIL** — food=0 held continuously 08:13:32.519Z → 08:46:01.118Z (the last logged reading before the reboot cut the run off). That's **32.5 minutes, not ~26** — your dispatch estimate was off; measured strictly between first and last food=0 sample, no extrapolation to --until or the reboot instant (both would push it higher still). Under the new criterion soak #4's retroactive verdict would be 2/4, not 3/4 — recorded in FEEDBACK as "what the bar would have said," soak #4's frozen grade unchanged.
+
+Full writeup in FEEDBACK.md ("GOAL.md criterion 3 vitals floor built into humanbar4.mjs..."). Moving to task 2 (latency breakdown) now — will read decider.js's post-4b state and the #112 standdown-carryover finding before designing the decisions.jsonl schema ask to engine-dev-3.
+</cross-session-message>
