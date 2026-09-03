@@ -49,12 +49,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    no food rule, ROLE_WORK.hunter doesn't apply to role:null (#88 residual), Andy didn't supply it. Build a FOOD rung
    (foodItems==0 && hunger ≤ ~12 → huntAnimals w/ widening radius → harvest/farm fallback → backoff) + a zero-token
    rules.json entry. Starvation ended runs #1/#2 too.
-5c. **Same-remedy-repeats-across-positions escalation** (#110, eng-3, from soak #4 — CORRECTED finding): the soak bot never
-   held a tool; every wood-gather attempt FROZE (ledger `frozen` wedge events), the direction layer worked (episodes
-   opened/closed) but the decider kept reassigning chopTrees from each new position and the bot re-froze. The
-   frozen-repeat dedup keys on position so it can't catch it. Design: N same-remedy failures across positions →
-   escalate (bigger relocate / different remedy class); pairs with the held #95 follow-ups. Also: MampfManfred after
-   the grade = a NATURAL "frozen while gathering wood" specimen — diagnose live (R2 tooling).
+5c. ~~Same-remedy-repeats-across-positions escalation~~ DONE (#110; landed inside 16604e7 by a shared-index commit race — content is eng-3's: A.remedy class counters wood_gather/depot_reach, REMEDY rung prio 4.8, tier 1 = relocateToWork hops 64, tier 2 = directed 128-block findBlock + come; ledger event `remedy_escalate`; agenda-ladder 46/46, preflight 224/224; live-verified tiers on 25599). Corrected diagnosis: the (-21,108) wedges were RESTOCK failing to REACH THE DEPOT (route), the (-45,114) site was clean wood-search failure — both now classes of the same mechanism. Grader for `remedy_escalate` = engine-dev (soak #5).
 5d. **PROJECT standDown backoff keyed on rung, not project** (#112, eng-3, from run #6 live, test-driver FEEDBACK ~09:14Z): a driver/decider
    `setProject()` redirect issued while PROJECT is cooling down from the PREVIOUS project's failure sits inert for the rest of that
    cooldown, then gets its own false `project_stalled` episode (one showed 128s "latency" that is standdown carryover). Fix: key the
@@ -81,6 +76,8 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
 - Instrument is scorekeeper; predictions get scored AT the prediction; deferred-gap comments are
   promissory notes (two honored tonight); ensureTool is NOT test-inert by default (opts.depot:false
   in fixtures); a TODO comment is not a tracker item.
+
+- **Shared-index commit law** (2026-09-03, learned by a race): everyone commits on ONE working tree, so `git add X && git commit` commits whatever anyone else has staged. Commit with a pathspec on the commit itself: `git commit -m ... -- <files>` (or `git commit <files>`), never a bare `git commit`.
 
 - **Push discipline**: every commit auto-pushes via .git/hooks/post-commit (installed 2026-09-02 after 113 commits sat unpushed for a day). If a clone lacks the hook, `git push` after every commit is law; check .git/push.log if GitHub looks stale.
 
