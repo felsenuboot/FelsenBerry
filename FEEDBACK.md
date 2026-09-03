@@ -5121,3 +5121,75 @@ AGENDA_EVENT log lines. Verified via `bench/decider-latency-replay.js` (12/12, d
 unaffected) and `bench/preflight.sh` 242/242 (agenda-direction fixture unaffected by the new
 field — additive, no existing assertion reads the full open-event shape strictly).
 github: felsenuboot/FelsenBerry#113, #114 (TODO 5e)
+### 2026-09-03 engine-dev — task 3: FOOD rung hunts and eats (confirmed), but EAT/EAT_CRITICAL can PERMANENTLY DEADLOCK a starving role-less bot when they exhaust their food before clear() — issue filed
+type: bug (safety-relevant, agenda.js)
+status: confirmed live, reproducible, NOT fixed (agenda.js is eng-3's lane; issue filed rather
+than touched) — commits at test time: skills v62/agenda v30 at HEAD 872aa07 (post-#113/#114:
+shared FOODS allowlist + huntAnimals species widening BOTH live on the bot under test)
+
+what: spawned `HungrigHeinz` (OWNER=engine-dev, DECIDER_EXCLUDE=1, --agenda, role-less/no
+project, port 3172) on 25599, teleported to (250,80,250) — ~347 blocks from Trail4Insp2
+(9,85,-2), the only other bot on that server; GammelGerhard/run #6 untouched on the separate
+25600 race server. Forced hunger via `effect give ... minecraft:hunger 1000 9` (no vanilla
+command sets food directly) to reach the FOOD rung's `foodCount===0 && food<=12` trigger
+without waiting out a real multi-hour drain.
+
+**Part 1 confirmed live, exactly as asked**: at food=12, agenda chose FOOD (prio 6.5), the
+bot said "Hunting 1x cow/pig/sheep/chicken/rabbit. Nothing personal." (#114's species-widened
+default), killed a cow, said "Hunt over: 1/1 kills. Haul: 1 leather, 2 beef", and
+mineflayer-auto-eat consumed the raw beef within ~1s of the kill (food climbed 9->12->15;
+`/eval` confirmed the beef left the inventory). **This is the #108 acceptance case, reproduced
+role-less, hunting AND eating in one uninterrupted live sequence** — task 3's stated bar, met.
+
+**But it does not hold up under repetition — a real, reproducible deadlock**: `EAT` (prio 4,
+`fire: food<=17 && foodCount>0`, `clear: food>=19`) and `EAT_CRITICAL` (prio 2, same shape at
+food<=6) both call `eatInline()` directly (not through the `__skills` task system), which
+swallows every outcome and unconditionally returns `'ate'` whether anything was actually eaten
+or not. `choose()`'s owner-latch (`if (owner && !safeClear(owner,s) && demanded.prio >=
+owner.prio) return owner`) keeps the CURRENT owner in place as long as nothing MORE urgent
+(lower prio number) is currently firing — it never re-checks whether the owner's OWN fire()
+condition is still true. So the moment EAT or EAT_CRITICAL eats its LAST food item without
+reaching the food>=19 clear threshold (routine — a single raw beef/mutton rarely refills a
+starving bot that far), it is stuck: `fire()` is now false (foodCount=0) so it can never be
+re-selected as `demanded`, but `clear()` is also false (nothing left to eat), so it never
+releases either. `FOOD` (prio 6.5, the ONLY rung that can actually fix this by hunting more)
+cannot preempt a HIGHER-priority latched owner — by design, that's what keeps a real emergency
+from being interrupted by a lower rung, but here the "higher-priority" owner is not doing
+anything, just holding the body inert.
+
+**Live-observed severity, both tiers**: 
+1. EAT got stuck first (after the first hunt, food fell back toward 0 faster than one meal
+   could sustain it against the forced hunger effect) — HP drained 20->10 over ~35s of dead
+   time before an UNRELATED nightfall SHELTER trigger (prio 2.5, "Digging in for the night")
+   happened to preempt it and reset ownership, letting FOOD finally fire again (the direction
+   layer DID notice: an `unproductive_idle` episode opened after the 120s idle window and
+   closed `self_recovered` at 146113ms once the second hunt landed — a real, large latency
+   number a future soak's grader would need to explain, same shape as #112's standdown
+   carryover but a DIFFERENT root cause, worth keeping distinct in any future attribution work).
+2. The SECOND hunt (a sheep, "2 mutton") pushed food to EAT_CRITICAL's range (prio 2), which
+   ate one mutton and got stuck the SAME way at food=0/foodCount=0 — and this time **nothing
+   rescued it**: SHELTER (2.5) cannot preempt prio-2 EAT_CRITICAL, so only REFLEX/POSTURE
+   (0/1, real combat threats) could, and none occurred at this location. Confirmed stuck for
+   65+ continuous real seconds (owner unchanged, food unchanged at 0, hp flat at 10) with no
+   sign of self-recovery before the check ended — this is not a slow recovery, it is a genuine
+   deadlock with no engine-internal escape path other than luck.
+
+**Why this matters beyond this one bot**: #108's own acceptance was "one cow" — a single
+successful hunt — which is exactly the case this file also reproduces cleanly. The deadlock
+only shows up on the SECOND cycle, after the first meal's food gain undershoots the clear()
+floor, which is the ORDINARY case for a bot that was already badly starved (a single food item
+restoring ~3-8 hunger points against a food<=17/6 fire floor and a food>=19 clear ceiling)
+rather than an edge case — the exact scenario a role-less starving bot (the current gear-race
+fleet's own shape, #88) hits after its FIRST successful hunt, not some rare double-failure.
+fix (not built here, agenda.js is eng-3's lane): `EAT`/`EAT_CRITICAL`'s `clear()` needs a
+second exit condition beyond `food>=19` — e.g. also clear (and hand back to `choose()`) once
+`foodCount===0` and `eatInline()` had nothing to eat, so a rung that CAN'T make progress
+releases the body instead of latching on a stale `fire()` snapshot. Alternatively, `choose()`'s
+owner-latch could re-check `safeFire(owner,s)` every tick rather than trusting the fire()
+evaluation that won it ownership originally — a more general fix (this is the SAME shape as
+the file's own "GENERAL completed but did not achieve" detector, just for a rung whose OWN
+fire() condition falsified rather than one whose task completed while fire() stayed true).
+github: filed via issue-manager (see their tracker sync) — flagging severity as high: this is
+a starvation-death risk for any role-less bot (the current unassigned fleet shape, #88) that
+survives its first hunt but not its second meal shortfall, i.e. the ORDINARY continuation of
+exactly the scenario #108 was built to fix.
