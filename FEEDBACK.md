@@ -5772,3 +5772,70 @@ fix: `producer.js` (`mineProduct`'s existence pre-check, moved `oreIds`/`noun` c
 ahead of `ensureTool` — v9). `bench/fixtures/producer-torch-fuel.js` (new). `bench/
 preflight.sh` (added `producer-torch-fuel` to the fixture list).
 github: felsenuboot/FelsenBerry#71 (TODO 7c)
+
+---
+### 2026-09-03 engine-dev-3 — TODO 7e: role-default work no-ops at base — huntAnimals was
+missing from the barren-relocate trigger (#67, agenda v35)
+type: fix + fixture
+status: built, live-verified (real hunter-role bot, real barren hunt, real relocate trigger),
+`bench/fixtures/agenda-idlework.js` +2 cases (42/42), `bench/preflight.sh` 277/277 on
+throwaway bots (25599 only). Nothing near 25600 (soak #5) throughout — confirmed still fine.
+
+**Design check first, per the lead's own instruction ("report before commit if the design
+touches ROLE_WORK routing")**: this fix does NOT touch `ROLE_WORK` (the role→skill mapping)
+at all — it's a one-line addition to `RELOCATABLE`, a separate, downstream set that decides
+which finished-skill outcomes are eligible for the existing barren-relocate trigger. No role's
+default work skill changed, no role:null routing was added or altered (that remains #88's own,
+separate, open question) — concluded this doesn't cross into "#88 territory" and proceeded
+without a blocking pause, same reasoning basis as 7c's own scoped fix earlier today.
+
+what: audited every `ROLE_WORK` entry against this file's own barren classifier
+(`idleWorkOutcome`) and its RELOCATABLE eligibility list, expecting to find a "protected floor"
+gap per the literal brief — found instead that chopTrees/mineLane/huntAnimals all throw
+`not_found` (a `BARREN_ERRS` code) on zero yield regardless of WHY (nothing found at all, or
+everything found was protected — `chopTrees`'s own zero-felled throw fires either way), and
+harvestGrass/safeDescend/spawnProof all return a zero-yield SUCCESS graded by their own
+skill-specific check in `idleWorkOutcome` — every one of them reaches `'barren'` correctly, no
+classifier gap anywhere. The REAL gap: `RELOCATABLE` (the set deciding which barren outcomes
+actually trigger a walk to fresh terrain) was missing `huntAnimals` — `ROLE_WORK.hunter`'s own
+default work. A hunter standing on genuinely fauna-less ground (hunting has no "protected"
+concept, only "nothing found") was correctly classified `'barren'` every single cycle but could
+never ACT on it — the exact no-op-loop shape this whole `#67b` section exists to prevent for
+every OTHER role, just never extended to cover this one.
+
+fix: `huntAnimals` added to `RELOCATABLE`. `spawnProof` (builder's own base-lighting chore)
+deliberately stays OUT — audited and confirmed it's correctly excluded already: it's a fixed,
+intentionally-LOCAL job (light YOUR OWN base, not scan for a scarce resource), and `#72`'s own
+`A._baseChoreLit` latch already makes `ROLE_WORK.builder` fall through to `chopTrees` (which
+IS relocatable) once the chore has nothing left to do — "relocate to light a different base"
+was never the right response and nothing needed to change there.
+
+**Live-verified** (throwaway hunter-role bot, `--role hunter --agenda`, 25599, isolated
+platform far from the soak): gave it a sword+torches to clear TOOL's own kit gate first (a
+real prerequisite chain that initially blocked the test — a hunter with no weapon never gets
+past TOOL to even ATTEMPT huntAnimals, an unrelated but real thing to know when setting this
+kind of test up). Then watched it live: `"Hunting 1x cow. Nothing personal."` → `"failed:
+huntAnimals — no cow within 32 blocks"` (the correct barren classification) → **`"Local ground
+worked out — moving to fresh terrain."`** (the fix firing — relocateToWork dispatched, exactly
+the mechanism every other role already had) → resumed hunting after the relocate attempt,
+matching the SAME backoff-then-retry-original-work shape `bench/fixtures/agenda-idlework.js`'s
+own existing cases already prove for the other roles. The relocate itself did not physically
+move the bot on this specific isolated test platform — the SAME pre-existing `ctx.reachable`
+pathfinding characteristic already documented honestly in today's `#74`/TODO 7a entry (small/
+isolated terrain struggles to find a routable candidate), not a flaw in this fix; the TRIGGER
+this task exists to add is what was being tested, and it fired correctly.
+
+**Minor tooling gotcha found live, not fixed (out of scope, flagging for the record)**:
+`runner.js`'s `parseArgs` blindly consumes the NEXT token as every `--flag`'s value, including
+valueless flags like `--agenda` — `./spawn.sh <name> <port> --agenda --role hunter` silently
+eats `--role` as `--agenda`'s own "value" and drops `hunter` entirely (role never gets set).
+`--role hunter --agenda` (role BEFORE the valueless flag) works correctly. Worth knowing for
+anyone spawning a role-testing bot; not touching `runner.js`'s arg parser here.
+
+`bench/fixtures/agenda-idlework.js`: +2 cases — `huntAnimals not_found -> barren` (classifier,
+confirms no gap there) and `barren hunter relocates (huntAnimals is now relocatable)` (the
+actual fix, same `relFire` pattern the other 3 relocatable roles already use).
+
+fix: `agenda.js` (`RELOCATABLE` gains `'huntAnimals'` — v35). `bench/fixtures/
+agenda-idlework.js` (+2 cases, 42/42).
+github: felsenuboot/FelsenBerry#67 (TODO 7e)

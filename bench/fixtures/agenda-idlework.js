@@ -60,6 +60,10 @@ try {
   T('harvestGrass cut>0 -> worked', O('harvestGrass', { cut: 5 }, null), 'worked');
   T('mineLane dug 0 -> barren', O('mineLane', { dug: 0 }, null), 'barren');
   T('mineLane dug>0 -> worked', O('mineLane', { dug: 16 }, null), 'worked');
+  // TODO 7e (#67): huntAnimals throws not_found on 0 kills (skills.js, same shape as
+  // chopTrees/mineLane) — already correctly classified via the ERROR path, no gap in the
+  // classifier itself (unlike RELOCATABLE's own membership, tested further down).
+  T('huntAnimals not_found (0 kills) -> barren', O('huntAnimals', null, { code: 'not_found' }), 'barren');
   T('kit_missing is OTHER, never barren', O('chopTrees', null, { code: 'kit_missing' }), 'other');
   T('relocate that moved -> worked', O('relocateToWork', { relocated: true }, null), 'worked');
   T('relocate found nothing -> barren', O('relocateToWork', { relocated: false }, null), 'barren');
@@ -94,6 +98,13 @@ try {
   T('barren miner on surface relocates (safeDescend is relocatable)', relFire('miner', { pos: { x: 0, y: 70, z: 0 } }), 'relocateToWork');
   A._barren = 1; A._relocateBackoff = 0;
   T('barren miner underground relocates (mineLane is relocatable)', relFire('miner', { pos: { x: 0, y: 40, z: 0 } }), 'relocateToWork');
+  // TODO 7e (#67, next step off #67b): the actual gap this task fixes. Before, a barren
+  // hunter (correctly classified via the throw path above) kept re-running the identical
+  // failing search from the identical position forever — huntAnimals was missing from
+  // RELOCATABLE itself, so the trigger this whole block exists to prove never got a chance
+  // to fire for this one role, even though its OWN barren-ness was never in question.
+  A._barren = 1; A._relocateBackoff = 0;
+  T('barren hunter relocates (huntAnimals is now relocatable)', relFire('hunter'), 'relocateToWork');
 
   // an inherently-LOCAL job never relocates, however barren
   A._barren = 5; A._relocateBackoff = 0;

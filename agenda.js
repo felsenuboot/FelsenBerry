@@ -121,7 +121,8 @@ const A = {
   // dead-end release) each landed without bumping this literal field — soak #5 prep caught the
   // drift (FEEDBACK.md's own commit messages claimed v31-v34 all along; /state was still
   // reporting v30). Bumped now to match reality before pre-registering the soak window.
-  version: 34, enabled: true,
+  // v34 -> v35: TODO 7e — RELOCATABLE gains 'huntAnimals'.
+  version: 35, enabled: true,
   owner: null, ownerSince: 0, busy: false, busySince: 0, busyStuck: 0,
   project: null, activeTaskId: null, pendingPreempt: null,
   lastSense: null, blocked: null, calmSince: 0,
@@ -684,7 +685,23 @@ const torchInline = async () => {
 // the same empty scan is the "five bots frozen" bug one level up. So we GRADE each finished
 // IDLE work run, count consecutive barren outcomes, and once the ground is proven empty walk the
 // bot to fresh terrain (the relocateToWork skill) before letting it try its trade again.
-const RELOCATABLE = new Set(['chopTrees', 'harvestGrass', 'mineLane', 'safeDescend']);
+// TODO 7e (#67, next step): `huntAnimals` (ROLE_WORK.hunter's own default work) was missing
+// from this set — audited every ROLE_WORK entry against this file's OWN classification (see
+// `idleWorkOutcome` below): chopTrees/mineLane/huntAnimals all THROW `not_found` (a BARREN_ERR)
+// on zero yield, harvestGrass/safeDescend/spawnProof all return a zero-yield SUCCESS graded by
+// their own skill-specific check below — every one of them correctly reaches a `'barren'`
+// classification and correctly increments `A._barren`. `huntAnimals` was the one skill that
+// reached `'barren'` (via the throw path, no gap there) but then could never actually ACT on
+// it, because it was absent from THIS set — a hunter standing on genuinely fauna-less ground
+// (no protection involved; hunting has no "protected" concept, only "nothing found") kept
+// re-running the identical failing search from the identical position forever, the exact
+// no-op-loop shape this section exists to prevent for every other role. `spawnProof`
+// deliberately stays OUT of this set: it is a fixed, intentionally-local base chore (light
+// YOUR OWN base), not a scan for a scarce resource — #72's own `A._baseChoreLit` flag already
+// makes ROLE_WORK.builder fall through to chopTrees (which IS in this set) once the chore
+// reports nothing left to do, so "relocate to light a DIFFERENT base" was never the right
+// response and nothing here needed to change for it.
+const RELOCATABLE = new Set(['chopTrees', 'harvestGrass', 'mineLane', 'safeDescend', 'huntAnimals']);
 const BARREN_ERRS = new Set(['not_found', 'no_target', 'none']);   // "nothing of the kind here"
 // #89: a project's own error code, once p.blocked (PROJECT's act(), 3 failed attempts),
 // that means "cannot get there" rather than "nothing to find" or "missing kit/tool" — the
