@@ -3731,3 +3731,180 @@ four of #105's exit/trigger claims are measured, not just argued. No survival-su
 (unchanged since the primitives entry — this session made no further code edits, verification only).
 fix: n/a — verification only, no code changed.
 github: felsenuboot/felcrew-mcp#105 (acceptance bar for the primitives half now fully measured)
+
+### 2026-09-03 engine-dev-3 — gear-progression drive argued (team-lead's re-eval ask): confirmed
+in code first, fix shape is inside TOOL, not a new rung
+type: proposal (doctrine: argue before building)
+status: hypothesis confirmed by reading the actual code path, not guessed; building next per this
+design
+what: team-lead's re-eval hypothesis — nothing in the engine proactively upgrades tool tier — is
+correct, traced to the exact line. `S.ensureTool` (skills.js) does: 1) `bestOwned(bot, need)` — if
+the bot already holds ANYTHING satisfying the requested tool CLASS, return it immediately as
+`how:'held'`, full stop; 2) only when nothing satisfies the class at all does it fall through to
+`payableTier`/`craftToolChain`, which already correctly prefers the MOST DURABLE affordable tier
+(stone over wooden — `tierFrom`'s own doctrine, landed for the underground-kit work). So the
+tier-choice machinery a racer needs already exists and is already correct; it simply never RUNS
+for a bot that already holds a WORKING lower tier, because step 1 never asks "is there something
+better I could afford" — only "do I have anything at all." A racer holding a wooden pickaxe and 24
+cobblestone (run #3's own ledger) satisfies `bestOwned` on the first check and never reaches the
+tier logic. This is exactly the "durable-first + tier-by-price already exist — this is the
+proactive trigger they lack" framing from the re-eval.
+
+**Fix shape (small, reuses existing primitives, no new rung)**: agenda.js's TOOL rung (id:'TOOL',
+prio 5) already owns "is the active tool class in good enough shape" — this is the SAME question,
+one tier further, so it belongs there rather than a new rules.json/episode mechanism (option (a)
+in the re-eval). `S.tierFor(cls, items, tableInReach)` is already exposed as a pure test hook
+that answers "what's the best AFFORDABLE tier for this class right now" from a snapshot's items,
+independent of what's currently held — exactly the missing "could I do better" question. Plan:
+
+1. `sense()` computes one new field, same way `s.tools`/`s.toolCounts` already are (every rung
+   predicate input has to come through the snapshot — the deterministic-replay rule
+   `bench/fixtures/agenda-ladder.js` polices): `s.upgrade = {cls, to} | null` — `to` is
+   `S.tierFor(c, items, tableInReach)` for the active class `c`, set only when it's `'stone_'+c`
+   AND the currently-held tool (`s.tools[c].name`) is missing or `'wooden_'`-prefixed. Bounded to
+   wooden->stone on purpose: that's `tierFrom`'s own bootstrappable boundary (iron/diamond need a
+   furnace/ore chain `craftToolChain` doesn't cover), matching the re-eval's explicit "pickaxe->
+   stone now, sword/axe follow" scope. `S.tierFor`'s first arg for a plain class string
+   ('pickaxe' etc.) never touches `S._lastBot` internally (`needSpec`'s fast-path returns before
+   any bot read) — confirmed by reading `needSpec`, so no live-bot-staleness risk from calling it
+   inside a snapshot-only function.
+2. TOOL's `fire()` gains one more OR, ordered LAST (a broken/missing tool always outranks a mere
+   upgrade — unchanged priority): `if (s.upgrade) return true;`. `clear()` gains the mirrored
+   early gate `if (s.upgrade) return false;`, or the rung would fire once then immediately clear
+   on the next tick before `act()` ever ran (its existing "tool present & healthy" check knows
+   nothing about tiers).
+3. `act()` gains one more branch, checked before the generic `else if (c) target = c;` catch-all
+   (which would otherwise swallow the fire without doing anything, since it doesn't set
+   `spare:true` and `ensureTool` would just re-report "held"): `else if (s.upgrade) { target =
+   s.upgrade.cls; spare = true; }`. Reusing `spare:true` — already built for the kit gate's
+   backup-pickaxe case — is deliberate, not a repurposing hack: it is EXACTLY "skip the
+   already-own-one short-circuit, go acquire (craft) one for real," which is precisely what an
+   upgrade needs. `ensureTool`'s own `payableTier`/`craftToolChain` escalation ladder does the
+   rest unmodified — it was already durable-first-correct, it just never used to be asked. The
+   old wooden tool stays in the bag afterward (a spare, not discarded) — matches human play, and
+   costs nothing to leave alone.
+
+**Verification plan**: a new fixture case (wooden pickaxe held + 3 cobblestone + 2 sticks + table
+in reach -> `s.upgrade` fires, TOOL crafts+equips stone, `s.upgrade` clears on the next sense())
+against the real `__agenda.step()`/`sense()` machinery, not a hand-rolled predicate test — same
+doctrine `bench/fixtures/agenda-ladder.js`'s other cases already use. `bench/preflight.sh` must
+stay green after (a new case raises the total past 203, not break the existing 203).
+fix: proposed here; building next (agenda.js v26).
+github: n/a yet — will file/reference once built and verified, per team-lead's steer this is
+sequenced ahead of soak #4 as a benchmark-relevant engine gap, not a standalone bug report.
+
+### 2026-09-03 engine-dev — #106 hypothesis traced against the real ledger (read-only): LIGHT
+never fires outdoors (disconfirms my own earlier guess); a real, smaller torch-over-placement
+signal found in a DIFFERENT consumer than the one I flagged
+type: measurement (read-only, no code touched — per team-lead's instruction)
+status: hypothesis checked, one part disconfirmed, a related real signal found instead
+what: traced every consumer of dangerscan's raw `.light` (agenda.js's LIGHT/POSTURE, plus
+independent direct readers) and checked the open hypothesis from #106's own comment — "LIGHT
+may be firing on a near-constant always-dark signal outdoors" — against real ledger data
+(`logs/metrics-*.jsonl`, cross-checked, not assumed).
+
+**LIGHT structurally cannot and empirically does not fire while surface-exposed — my own
+hypothesis was wrong, correcting it here rather than letting it stand.** `agenda.js`'s LIGHT
+rung (`fire: (s) => s.surfaceExposed === false && ...`) hard-gates on `surfaceExposed===false`
+— a field this session's own testing has repeatedly confirmed reliable (geometry-backed,
+unaffected by the `.light` bug). Counted every `note:{agenda:"LIGHT"}` ledger line across the
+whole fleet (435 firings) against the temporally-nearest `task_start`'s own `sky` field: a
+naive nearest-in-time match showed 36 "surface" firings, but hand-tracing several showed this
+is a PROXY ARTIFACT, not a real bug — `sky` is a snapshot taken at TASK START, and safeDescend/
+mineLane routinely start on the surface and end underground mid-task, so the nearest snapshot
+is stale by the time LIGHT actually fires. Cross-checked by position continuity (the task_end's
+own `pos` matches the immediately-following task_start's `pos` exactly when the bot didn't move
+in between) on every residual case sampled: real sky at fire-time was `false` every time
+checked. **Zero confirmed instances of LIGHT firing while genuinely surface-exposed.** `POSTURE`
+firing while `sky:true` (82/86 cases) is NOT the same question — POSTURE's own rung fires on
+`dangerState==='alert'` alone, regardless of location; only its internal torch-placement
+sub-action is light-gated, and the ledger has no separate line for that sub-action, so this
+session couldn't measure it in isolation. Correcting #106's own comment: the "LIGHT firing on a
+stuck outdoor signal" risk I raised does not hold as stated.
+
+**A real, smaller signal, in a consumer #106 didn't originally name: `ctx.autoTorch`
+(skills.js), used by safeDescend/mineLane, reads raw `bot.blockAt().light` directly — not via
+dangerscan at all, but the exact same underlying data-source bug.** Its own periodic schedule
+places a torch every 8 digs OR immediately if the raw light read is low. Counted actual torch
+consumption against actual digs across every safeDescend/mineLane task_end record fleet-wide
+(scoped to a single `run` per bot and sanity-capped against restock/session artifacts —
+several bots showed torches "consumed" with near-zero digs in the same window, an inventory-
+tracking artifact from restocks crossing a run boundary, discarded rather than counted): overall
+rate **0.163 torches/dig** against the design's own implicit 1-per-8 (**0.125**) target — about
+30% over, with the two bots carrying a real sample size (SoloSauhund, n=213 digs, rate 0.155;
+SchrottSepp, n=126 digs, rate 0.206) both landing modestly, not dramatically, above target.
+**A real, if modest, criterion-4 cost** (a few extra torches along mined shafts) — consistent
+with, and now measured rather than assumed under, basekeeping.js's own standing "a few extra
+torches is a non-issue" doctrine. Not the dramatic fleet-wide "always dark outdoors" scar my
+own comment speculated about; a real but bounded one, in a different place than I first guessed.
+fix: n/a — measurement only, no code touched (agenda.js/dangerscan.js untouched per instruction).
+github: felsenuboot/FelsenBerry#106 (hypothesis result posted as a comment, correcting my own
+earlier speculation with what the ledger actually shows)
+
+### 2026-09-03 engine-dev — #106 fixture built (`bench/fixtures/light-composite.sh`), PASSING —
+and a bigger, unplanned finding: raw block light does not reliably reflect a REAL torch on this
+server either, so the composite's proposed underground fallback needs revising
+type: fixture (fixture-only per instruction, dangerscan.js/agenda.js untouched) + a correction to
+#106's own proposed fix
+status: fixture green, reproducible (re-ran twice, identical result); one part of the ORIGINAL
+proposed fix (posted in the prior #106 entry) is now known not to be safe as stated
+what: wrote the fixture team-lead asked for — a daytime-surface bot must read bright, a night-
+surface bot (same spot, only the clock changes) and an underground bot must read dark — so
+eng-3's composite lands against a test, not another paper claim. `bench/fixtures/
+light-composite.sh`, styled on `craft-terrain-seek.sh`/`dangerscan-canopy.sh`'s own
+RCON-forceload-and-fill conventions.
+
+**Real fixture-hygiene finding along the way, fixed in the fixture itself, worth flagging for
+every future QA-bot fixture on this server**: a bare, unarmed QA bot's own `survival.js` reflex
+is live by default (part of the standard auto-inject stack) — mid-build, a real mob encounter
+triggered WALL_OFF's own no-filler bail on repeat, drained the bot to 0 HP, and respawned it at
+world spawn, silently invalidating every position the fixture assumed. Added a `stop_survival()`
+helper (mirrors `stop_idleguard()`'s own already-established doctrine in `common.sh`, EVALUATION.
+md's "no idleguard during a measured scenario"), re-armed after every relog since a
+reconnect/respawn re-runs the full auto-inject stack fresh.
+
+**Second real finding, also fixed in the fixture**: `build_platform`'s own default clear (feet
+to feet+2) is not tall enough for a reliable "definitely open sky" claim — a first attempt at
+y=90 landed under real, natural cave/dripstone terrain starting at y+3, which correctly read as
+enclosed (not a fixture bug, a bad choice of Y). Moved to y=220 with an extra-tall clear to
+feet+26 (`columnOpen`'s own scan window, matching `dangerscan-canopy.sh`'s established margin).
+
+**Third, the one that mattered for correctness: every read needs a relog AFTER arriving at the
+destination, not before.** An in-place teleport (no relog) leaves the client's cached light
+data from wherever the bot WAS, not where it now is — confirmed repeatedly rebuilding this
+fixture (a "day" reading came back dark, a "surface" reading came back enclosed, both symptoms
+of stale post-teleport data, both cleared once the relog moved to strictly AFTER the
+teleport). This matches, and sharpens, #105's own established technique.
+
+**Cases 1-3 pass cleanly and reproducibly, proving the actual #106 claim**: same platform, same
+position, ONLY `time set` changed between reads — `effectiveLight` genuinely flips from 15
+(day) to 0 (night), which raw `.light` alone never did (that transition IS the bug #105/#106
+found). Underground-no-torch correctly reads dark via the geometry-gated fallback.
+
+**Case 4 (underground WITH a real torch) does NOT read bright, and this is bigger than a
+fixture quirk.** Tried three ways — RCON `setblock`, a genuine `bot.placeBlock()` (equipped and
+placed by the bot itself, not an admin command), and a 10+-second settle plus a full relog —
+all three left `bot.blockAt(pos).light` reading a stuck 0 immediately adjacent to a confirmed-
+present torch (`blockAt().name === 'torch'`, not just an RCON claim). This is a WORSE
+manifestation than basekeeping.js's own documented #17 ("stays 0 next to a FRESHLY placed
+torch" implies transient) — on this server, over the timeframes tested, it looks closer to
+permanently stuck. **Consequence for the fix proposed in the prior #106 entry**: the
+underground branch's fallback (`rawBlockLight`) is NOT proven safe by this measurement — it
+inherits the exact same unreliable field the whole #106 investigation started from, in the one
+place I'd assumed it was "good enough" (basekeeping's own doctrine, which is about torch-
+DISTANCE bookkeeping specifically BECAUSE it does not trust a light readback for this reason).
+**Revised recommendation**: the underground branch should not trust a raw light read AT ALL —
+follow basekeeping.js's own already-proven pattern instead (track placed/known torch positions
+in CODE, use a light read only as a cheap initial filter, never as confirmation) rather than
+extending the composite's trust to a field this fixture just showed doesn't hold up even for a
+real, confirmed, settled-in torch. Not built here — flagging for whoever implements the
+composite (eng-3, dangerscan.js's owner) to weigh against the simpler original proposal.
+Case 4 is left in the fixture as an INFORMATIONAL, non-gating check (prints its result, doesn't
+fail the suite) — its purpose is now evidence for this recommendation, not a claim this fixture
+enforces.
+
+fix: `bench/fixtures/light-composite.sh` (new). No dangerscan.js/agenda.js changes — per
+instruction, this is eng-3's to apply, and lands against a different underground design than
+originally proposed.
+github: felsenuboot/FelsenBerry#106 (fixture + the revised underground recommendation posted as
+a comment)
