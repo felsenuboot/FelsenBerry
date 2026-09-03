@@ -4482,3 +4482,23 @@ fix: `agenda.js` (new FOOD rung, `A._foodHuntFails` + huntAnimals harvest-block 
 `FOODS` raw-meat additions — v30). `bench/fixtures/agenda-ladder.js` (4 new cases: fires
 independent of role/project, respects EAT/RESTOCK precedence, 38/38).
 github: felsenuboot/FelsenBerry#108 (filed and closed with this fix)
+
+---
+### 2026-09-03 08:55Z — team-lead — SOAK #4 human-bar verdict: FAIL 3/4, the miss is decider plumbing timing
+Post-hoc grade (host rebooted at T+56; server restarted from saved world, fresh inspector, exact pre-registered bounds).
+PASS: playcheck PLAYING (12.1% stationary, 5.5/10min); survives unaided (0 deaths, 0 human interventions — but hp10/food0,
+agenda v27 predates #108); trail clean (1 dig site, 0 chop sites — never completed a chop, see TODO 5c).
+FAIL: direction-gate latency p50 76s / p90 215s (limits ≤60 / <120). Episodes opened 10, closed 10, 0 unclosed, 9.4 LLM/hr.
+
+Attribution — two independent reads agree: Andy's per-call latency in decisions.jsonl is 1.0–6.3s, yet the ledger's
+`direction close` latency_ms sits at a 68–85s FLOOR for EVERY close, including the 0ms rule decision and the agenda's own
+frozen_repeat closes. decider.js: `if (b.owner && (dir.forMs||0) < DRIVER_GRACE_MS) return;` with DRIVER_GRACE_MS=60000 —
+`b.owner` is the OWNER field from pids/*.meta, which the fleet-awareness law now puts on EVERY bot. So the driverless soak
+bot waits a 60s driver grace nobody will use, then up to POLL_MS=20s → p50 76s. p90: the two `unmapped_or_unparsed`
+episodes (dmtl8vqp06, dmtl9yfoo10) waited PER_BOT_MIN_GAP_MS=120s for their second attempt → 215–221s.
+Lesson (law-shaped): a label added for one purpose (fleet awareness) silently changed a control-plane decision (driver
+grace) that keyed on the label's mere presence. Presence-of-metadata gates must name the semantic they check
+(`driven`, not `owner`). Same rot class as "assumed-false ≠ verified-false".
+Verdict for the run #6 gate: non-catastrophic (behaviour criteria all pass; timing constant miss) → run #6 green.
+Human bar NOT met; soak #5 is the next attempt after the decider fix (TODO 4b) and 5c.
+gates: bench/gates/{humanbar4,humanbar,direction,trail}-soak4.json

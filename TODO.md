@@ -1,5 +1,7 @@
 # Breaking point 2026-09-02 ~23:55 — WIND-DOWN for model switch (successor: Fable 5.1)
 
+**2026-09-03 08:46Z: host REBOOTED mid-soak-#4 (clean systemd reboot); lead session + team + bots died. Lead resumed 08:49Z from the FelsenBerry checkout (new session), infra re-raised (25599 server, ollama, inhibitor), soak #4 graded post-hoc — see queue item 4.**
+
 Canonical checkout: ~/ghq/github.com/felsenuboot/FelsenBerry (~/minecraft/bots = symlink; servers in ~/minecraft/). GitHub: felsenuboot/FelsenBerry (renamed from felcrew-mcp 2026-09-02).
 Everything stopped by user order mid-night-shift. All findings/state in FEEDBACK.md
 (append-only), SCOREBOARD.md (races + laws + Race book v2 + retrospective), the tracker
@@ -36,10 +38,14 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
 2. ~~Gear-progression drive~~ DONE (#107, fc6cef5 — TOOL rung upgrades wooden→stone when payable; depot-walk inversion fixed).
 3. ~~SHELTER rung~~ DONE (51b39d0; #105 primitives 79e0e1e with all four exits live-fired e51744b).
 3b. ~~#106 light composite~~ DONE (c3149b3 — surface isDay·skyLight; underground = torch-position scan; autoTorch raw-light trigger removed; 210/210).
-4. **SOAK #4 = first formal HUMAN-BAR attempt** (after 1-3 + preflight): fresh crude name, --agenda, SOAK_BOT on the
-   decider, canonical timestamp, 60 min hands-off, `node bench/humanbar4.mjs --bot <name> --since <ISO> --until <ISO>
-   --inspector-port <port> --label soak4` (ALL FOUR criteria, one verdict; trail check runs FIRST — drops despawn in 5 min;
-   engine-dev spawns the inspector bot at ~T+55: DECIDER_EXCLUDE=1, no --agenda, parked far away). Lead holds the timer. Pass = /goal met.
+4. ~~SOAK #4 = first formal HUMAN-BAR attempt~~ GRADED 08:53Z post-hoc (host rebooted 08:46Z at T+56): **FAIL 3/4** — playcheck
+   PLAYING, survives unaided (starving: hp10/food0), trail clean (thin: 0 chops), **direction-gate FAIL on latency p50 76s/p90 215s**.
+   Attributed (SCOREBOARD "SOAK #4"): decider DRIVER_GRACE_MS keyed on OWNER label (every bot has one now) + 120s retry gap after
+   Andy parse-misses — plumbing timing, not behaviour. Verdict NON-CATASTROPHIC → run #6 green. Next attempt = soak #5 after 4b+5c.
+4b. **Decider latency fix** (eng-3, decider.js, GATES soak #5): (a) driver grace only for an ACTUAL driver (explicit meta flag /
+   driver-registered signal), never for the OWNER label — driverless bots answer on the next poll; (b) an `unmapped_or_unparsed`
+   retry rides the next POLL_MS, not PER_BOT_MIN_GAP_MS; (c) consider POLL_MS 20→10s for SOAK_BOT. Fixture: decisions replay with
+   synthetic episodes asserting close latency < 30s on the rule path. Then metrics.mjs --direction-gate on a 20-min dry soak.
 5. **#106 stuck `.light` field** (engine-dev): block light reads constant 0 day/night; dangerscan's field may be the same →
    LIGHT/POSTURE may run on a false "always dark". Investigate, propose fix (isDay + skyLight geometry composite).
 5b. ~~FOOD-ACQUISITION DRIVE~~ DONE (#108, e4a2cca+42ba208 — FOOD rung prio 6.5, role/project-independent; hunt kit gate force:true; raw-meat allowlist; 216/216). Original note: soak #4's role:null bot hit food 0 / HP 10 at T+30 — rules.json has
@@ -52,7 +58,7 @@ An active session /goal exists: "a minecraft bot behaving like a human" (Felix m
    frozen-repeat dedup keys on position so it can't catch it. Design: N same-remedy failures across positions →
    escalate (bigger relocate / different remedy class); pairs with the held #95 follow-ups. Also: MampfManfred after
    the grade = a NATURAL "frozen while gathering wood" specimen — diagnose live (R2 tooling).
-6. **Gear-race run #6** (test-driver, GammelGerhard reserved, world-race6, Race book v2) after soak #4's verdict (5b landed).
+6. **Gear-race run #6** (test-driver, GammelGerhard reserved, world-race6, Race book v2) — **GREEN-LIT 2026-09-03 08:55Z** (soak #4 non-catastrophic; 5b landed). Launch on the race server 25600.
 7. #103 respawn-opens-episode (eng-3); held #95 follow-ups if soak data asks; #104 low.
 
 ## 2. Standing (unchanged)

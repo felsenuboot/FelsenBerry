@@ -1271,3 +1271,42 @@ real-time `server.log` tail for `GammelGerhard`, per Race book v2's trigger tabl
 
 **STATUS: prep complete, standing by for team-lead's green light on run #6 (gated on soak #4's
 verdict per the queue).**
+
+## SOAK #4 — first formal HUMAN-BAR attempt: **FAIL (3 of 4)** (team-lead, graded 2026-09-03 08:53Z)
+
+Bot `MampfManfred` (3160/25599, --agenda, agenda v27 / skills v61 / survival v11, SOAK_BOT on the decider, Andy-4 local).
+Window 07:49:42.327Z → 08:49:42.327Z as pre-registered. **The host was rebooted (clean systemd reboot) at 08:46:12Z, T+56:30** —
+bot, inspector and lead session all died; ledger's last record 08:46:06Z. Graded POST-HOC per the pre-registered fallback
+("the ledger persists — grade with those exact bounds"): server restarted from its saved world, fresh inspector `Trail4Insp2`
+(3171, DECIDER_EXCLUDE, no --agenda), exact staged command:
+`node bench/humanbar4.mjs --bot MampfManfred --since 2026-09-03T07:49:42.327Z --until 2026-09-03T08:49:42.327Z --inspector-port 3171 --exclude-zones "-3,5,30" --label soak4`
+(exclusion zone = Respawn103 contamination, 07:53Z–08:01Z, box x −9…18 z −7…8; it excluded 0 of the bot's own sites).
+
+| # | criterion | verdict | number |
+|---|---|---|---|
+| 1 | playcheck PLAYING | **PASS** | 12.1% stationary, 5.5 productive actions/10min |
+| 2 | direction-gate | **FAIL** | opened 10 / closed 10 / unclosed 0, **latency p50 76s (≤60 required), p90 215s (<120 required)**, LLM 9.4 calls/hr |
+| 3 | survives unaided | PASS (caveat) | deaths 0, non-decider interventions 0 of 18; last vitals hp 10/20 food 0/20 — pinned, not safe |
+| 4 | human trail | PASS (thin) | 1 site checked (1 dig cluster, **0 chop clusters** — the bot never completed a chop), 0 floating logs / stranded drops / naked shafts |
+
+Gate files: bench/gates/humanbar4-soak4.json, humanbar-soak4.json, direction-soak4.json, trail-soak4.json.
+
+**Why criterion 2 failed — attributed from decisions.jsonl + the ledger's `direction` records, NOT the LLM:**
+- Andy's own call latency was 1–6.3s on every LLM decision. The episode latency is structural: every episode closed at a
+  ~68–85s floor — including the zero-millisecond RULE decision (eid dmtl87qib1: 77s) and the three `frozen_repeat`
+  closes (68–73s). `decider.js` has `DRIVER_GRACE_MS = 60000` gated on `b.owner` (pids/*.meta OWNER field), and since the
+  OWNER/PURPOSE spawn law every bot HAS an owner — so the driverless soak bot was made to wait a driver grace it can never
+  use, plus up to one `POLL_MS` (20s). That is the p50.
+- The p90 (215s, 221s) = the two episodes where Andy's reply was `unmapped_or_unparsed`; the retry is spaced by
+  `PER_BOT_MIN_GAP_MS = 120000`, so a miss costs a further 2+ minutes before the second attempt (one then dispatched,
+  one closed `decider_exhausted`).
+- Fix shape (eng-3, decider lane): driver grace must key on an actual driver (explicit meta flag / driver-registered
+  signal), not on the fleet-awareness OWNER label; a parse-miss retry should ride the next poll, not the 120s gap.
+  Both are timing constants — no bot-behaviour change. Re-grade of the SAME ledger cannot change (latency is what it was);
+  the fix is validated by the next soak.
+
+**Verdict for the run #6 gate: NON-CATASTROPHIC** — playcheck PLAYING, zero deaths, zero human help, clean trail; the
+single miss is decider plumbing timing. Run #6 is GREEN-LIT. The human bar itself is NOT met: soak #5 (after the decider
+fix + #108 FOOD + 5c escalation) is the next attempt. Also on record: the bot never held a tool all hour (every
+wood-gather froze, TODO 5c), so criterion 4 passed on a vacuously thin trail and criterion 3 passed while starving —
+both are honest PASSes by the instrument's definition and both are called out here so nobody reads 3/4 as "nearly human".

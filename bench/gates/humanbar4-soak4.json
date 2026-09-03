@@ -1,0 +1,48 @@
+{
+  "label": "soak4",
+  "bot": "MampfManfred",
+  "since": "2026-09-03T07:49:42.327Z",
+  "until": "2026-09-03T08:49:42.327Z",
+  "at": "2026-09-03T08:53:30.276Z",
+  "pass": false,
+  "criteria": {
+    "playcheck": {
+      "pass": true,
+      "verdict": "PLAYING"
+    },
+    "directionGate": {
+      "pass": false,
+      "opened": 10,
+      "closed": 10,
+      "unclosed": 0
+    },
+    "survivesUnaided": {
+      "pass": true,
+      "deaths": 0,
+      "humanInterventions": 0,
+      "deciderInterventions": 18,
+      "humanInterventionDetail": [],
+      "lastVitals": {
+        "t": "2026-09-03T08:46:01.118Z",
+        "hp": 10,
+        "food": 0
+      },
+      "vitalsCritical": true
+    },
+    "trail": {
+      "pass": true,
+      "verdict": "PASS",
+      "reasons": [],
+      "sitesChecked": 1,
+      "sitesSeen": {
+        "chopClusters": 0,
+        "digClusters": 1
+      },
+      "vacuous": false
+    }
+  },
+  "artifacts": {
+    "humanbar": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/humanbar-soak4.json",
+    "trail": "/home/felix/ghq/github.com/felsenuboot/FelsenBerry/bench/gates/trail-soak4.json"
+  }
+}

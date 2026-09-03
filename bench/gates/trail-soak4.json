@@ -1,0 +1,32 @@
+{
+  "label": "soak4",
+  "bot": "MampfManfred",
+  "since": "2026-09-03T07:49:42.327Z",
+  "until": "2026-09-03T08:49:42.327Z",
+  "at": "2026-09-03T08:53:30.118Z",
+  "verdict": "PASS",
+  "reasons": [],
+  "findings": {
+    "floatingLogs": [],
+    "strandedDrops": [],
+    "nakedShafts": [],
+    "sitesChecked": 1
+  },
+  "ledgerStrandedTotal": 0,
+  "torchRate": 0,
+  "sitesSeen": {
+    "chopClusters": 0,
+    "digClusters": 1
+  },
+  "excludeZones": {
+    "zones": [
+      {
+        "x": -3,
+        "z": 5,
+        "r": 30
+      }
+    ],
+    "excludedChopSites": 0,
+    "excludedDigSites": 0
+  }
+}
