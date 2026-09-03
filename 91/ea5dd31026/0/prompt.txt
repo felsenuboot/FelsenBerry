@@ -1073,3 +1073,15 @@ Status: 5m-b design ACK'd (thanks for the lane-mouth-only optimization — imple
 
 Blocked on the survival.js wiring itself: engine-dev is still mid-edit on branchFleeAway (LOS-bias), uncommitted in the shared tree. Messaged them to flag before I stage; no reply yet. Waiting rather than risk another cross-stage collision. Will proceed the moment they clear or you rule it, same as last time.
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/403814.sock" from-mode="bypass">
+5q (#125) DONE, committed+pushed 5573e06. agenda.js v37->v38: A.reflexClearSince (real tick()-side state, stamped on a genuine REFLEX->other transition) gates EAT's (prio 4 only) fire() with a 4000ms dwell — EAT_CRITICAL (prio 2, true emergency) deliberately untouched per #117's "no engine-internal escape" doctrine, so a starving bot's response is never delayed by this.
+
+Caught a real bug in my own first draft before landing: I initially picked 1500ms (matching MIN_SWITCH_MS) — but TICK_MS=2000 and choose() only runs once per tick, so ANY dwell shorter than one tick interval is a structural no-op against real tick cadence (by the next tick, TICK_MS has already elapsed regardless). A hermetic fixture with injected `now` values would have happily passed 1500ms too, since it never exercises real tick spacing — caught by reasoning through tick(), not by the test. Settled on 4000ms (2 ticks + jitter margin).
+
+7 new agenda-ladder cases, live-run via preflight against a fresh --agenda bot: agenda-ladder 96/96, preflight 303/303. No live reproduction of the actual thrash sequence — TODO's own deliverable was "fixture in agenda-ladder", and the sense()-side of this fix is trivial (reflexClearSince is stamped directly, not derived from a live read), so there's no separate live-computation half the way SHELTER's shelterShould/shelterActive needed. FEEDBACK written.
+
+Status check: still holding on 5m-b (survival.js) — engine-dev hasn't replied on the branchFleeAway commit point yet (their FleeTest6/FleeTest7 bots are live-testing on 25599 right now, run 2/3). Will resume 5m-b the moment they clear it.
+</cross-session-message>
