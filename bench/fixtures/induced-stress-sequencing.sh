@@ -36,6 +36,16 @@ STRESS_ARENA_BARE="${STRESS_ARENA_BARE:-0}"
 # bot's start (local ~6,6) / skeleton's spawn (local ~10,6) sightline so BREAK_LOS still
 # gets its triggering shot -- these exist for the RETREAT, not to block the initial
 # encounter. Cleared by the fixture's own clear_platform call (same y range).
+#
+# #121/5n-b (live-caught during FLEE LOS-bias verification, 2026-09-03): a SECOND skeleton
+# (a distinct entity id, not a re-scan of the first) showed up mid-run on the pillared arena
+# despite the glowstone ceiling -- exactly the natural-hostile-spawning-compounds-the-
+# deliberate-encounter bug this fixture's own header already warns about avoiding, just
+# reintroduced by the pillars themselves: a solid column between the floor and a single
+# light source 3 blocks up can leave a locally-dark pocket right at its own base that the
+# flat, obstruction-free ORIGINAL arena never had. A torch on top of every pillar (light 14
+# radiating from directly above each one) closes that gap without changing the pillar's own
+# footprint or its role as retreat cover.
 scatter_stress_pillars() {
   local x0="$1" y="$2" z0="$3"
   local -a offs=("1,1,2" "9,2,1" "2,9,2" "9,9,1" "5,10,2")
@@ -43,6 +53,7 @@ scatter_stress_pillars() {
   for o in "${offs[@]}"; do
     IFS=',' read -r dx dz h <<<"$o"
     rcon "fill $((x0+dx)) $y $((z0+dz)) $((x0+dx)) $((y+h-1)) $((z0+dz)) minecraft:stone" >/dev/null
+    rcon "setblock $((x0+dx)) $((y+h)) $((z0+dz)) minecraft:torch" >/dev/null
   done
 }
 

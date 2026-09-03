@@ -1,4 +1,25 @@
-// survival v15 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+// survival v16 payload (inject via POST /eval, idempotent) — REPLACES panicguard.js.
+//
+// v16 (#121, TODO 5n-b, 2026-09-03): branchFleeAway used to chase pure raw distance
+// (GoalInvert/GoalFollow) with zero line-of-sight awareness -- a ranged mob with a clear shot
+// keeps shooting through the entire retreat regardless of distance gained. Live-caught: hpMin
+// 1.3 and 0.5 across two clean-sequencing runs (correct rung order, BREAK_LOS fired, no
+// thrash, no death from anything else) on the stress fixture's bare-platform arena variant.
+// FIRST version of this fix (preferred the nearest cell that merely broke LOS, no distance
+// floor) went 0/2 live -- real deaths, ground-truth log showed the skeleton reaching point-
+// blank shortly after the bot "hid" only 0.8-1.9 blocks away. Reworked per the lead's revised
+// ruling: distance is PRIMARY, LOS-break a bonus, never a trade-down -- `findFleeTarget` scores
+// every standable cell in an 8-direction x 2-6 block search (wider than BREAK_LOS's own tight
+// 1-block corner-step ring) as (distance gained) + (LOS bonus if it also blocks sight), and
+// disqualifies anything below a +2 block hard floor even if it breaks LOS. Falls back to the
+// original distance-maximizing goal, unchanged, when nothing qualifies -- the bare-ground case
+// has nothing to find by construction, documented as an expected non-gating loss on the
+// fixture's own STRESS_ARENA_BARE variant. Also force-asserts sprint every tick (the lead's
+// second check: `allowSprinting` on the movements config only PERMITS the pathfinder to
+// sprint, doesn't confirm it holds the control state through frequent goal changes) and
+// records what actually happened, not just what was requested. Return shape gains `losBreak`,
+// `sprint`, `sprintRatio` -- additive, `gained`/`cornered` unchanged, so the existing
+// `dangerSettled` FLEE_AWAY+cornered exclusion in enter() needs no change.
 //
 // v15 (#120 follow-up, TODO 5m, 2026-09-03): soak #5's stall attribution (1f6df70) showed
 // SHELTER owning 27.7 of 60 minutes with nothing happening inside it but a sleep/eat poll — a
@@ -228,7 +249,7 @@ const readHome = () => {
 };
 
 const g = {
-  enabled: true, version: 15,
+  enabled: true, version: 16,
   home: readHome(),
   active: false, branch: null, lastBranch: null, lastEvent: null,
   fires: 0, recovered: 0, failures: 0, lastEnd: 0, startedAt: 0,
@@ -1226,35 +1247,124 @@ const branchWalkOff = async (t) => {
   return { branch: 'WALK_OFF', escalated: true, from: from ? [from.x, from.y, from.z] : null, moved };
 };
 
+// #121/5n-b (FLEE LOS-bias), SECOND pass (2026-09-03, lead's revised ruling after the first
+// version went 0/2 live -- real deaths). The first draft preferred the NEAREST cell that merely
+// broke LOS, no floor on how far it actually was from the threat -- against a skeleton with
+// real AI (repositions, closes distance, not a static shooter), a close hiding spot got
+// overrun within seconds; ground-truth log evidence showed the skeleton reaching POINT-BLANK
+// (0.5-0.8 blocks) shortly after the bot "hid" only 0.8-1.9 blocks away. Distance is now
+// PRIMARY, LOS-break a bonus, NEVER a trade-down: score = (dist(cell,threat) - currentDist) +
+// (losBlocked ? FLEE_LOS_BONUS : 0), and any cell scoring below FLEE_MIN_GAIN(+2 blocks) of
+// raw distance is disqualified outright even if it breaks LOS. The bot runs AWAY and takes
+// cover along the way, it does not run TO cover. Considers every standable cell in the search
+// grid (not just LOS-blocked ones, unlike the first draft), so a plain "just farther away"
+// cell can still win when nothing nearby both gains real distance AND breaks LOS. Same 8
+// compass directions x 2-6 block radii x small vertical band as the first draft (wider than
+// BREAK_LOS's own tight 1-block corner-step ring -- FLEE has more room and more time). Returns
+// null when nothing qualifies (the bare-platform case, by construction) -- the caller's raw-
+// distance fallback is then exactly what it always was, never worse than before either fix.
+const FLEE_MIN_GAIN = 2;
+const FLEE_LOS_BONUS = 3;
+const findFleeTarget = (threatPos, currentDist) => {
+  const p = bot.entity.position;
+  const threatEye = threatPos.offset(0, 1.4, 0);
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  let best = null, bestScore = -Infinity, bestLos = false;
+  for (const [dx, dz] of dirs) {
+    const len = Math.hypot(dx, dz);
+    const ux = dx / len, uz = dz / len;
+    for (const r of [2, 3, 4, 5, 6]) {
+      const cx = Math.floor(p.x + ux * r), cz = Math.floor(p.z + uz * r);
+      for (const dy of [1, 0, -1, 2, -2]) {
+        const cy = Math.floor(p.y) + dy;
+        const cell = new Vec3(cx, cy, cz);
+        const at = bot.blockAt(cell), above = bot.blockAt(cell.offset(0, 1, 0)), below = bot.blockAt(cell.offset(0, -1, 0));
+        if (!at || !above || !below) continue;
+        if (isSolid(at) || isSolid(above) || !isSolid(below)) continue;  // leaf_litter is walkable
+        const gain = dist(cell, threatPos) - currentDist;
+        if (gain < FLEE_MIN_GAIN) break;   // found standable ground here, but a trade-down -- skip
+        const los = losBlocked(threatEye, cell.offset(0.5, 1.6, 0.5));
+        const score = gain + (los ? FLEE_LOS_BONUS : 0);
+        if (score > bestScore) { bestScore = score; best = cell; bestLos = los; }
+        break;   // found standable ground for this (dx,dz,r) -- don't scan more y here
+      }
+    }
+  }
+  return best ? { cell: best, losBreak: bestLos, gain: bestScore } : null;
+};
+
 const branchFleeAway = async (t) => {
   say('! Nothing left to fight or wall off with - running for it.');
   const ent = entOf(t);
   const mv = bot.pathfinder.movements;
   const prevSprint = mv ? mv.allowSprinting : null;
+  let losBreakUsed = false;
+  // #121/5n-b: the lead's own second check -- is the bot actually SPRINTING, or just allowed
+  // to? `mv.allowSprinting=true` (pre-existing, below) only tells the PATHFINDER sprinting is
+  // permitted; it doesn't confirm the control state is actually held during execution, and
+  // frequent goal changes (this fix re-picks every ~1.2s) are a plausible way for that to get
+  // dropped. Forced explicitly here rather than trusting pathfinder's own judgment, AND
+  // observed independently via bot.controlState.sprint every tick so the ledger reports what
+  // actually happened, not just what was requested.
+  let sprintSeenTrue = false;
+  let sprintTicks = 0, sprintTrueTicks = 0;
   try {
     if (mv) { mv.allowSprinting = true; bot.pathfinder.setMovements(mv); }
+    try { bot.setControlState('sprint', true); } catch (e) {}
     const startD = ent && ent.position ? dist(bot.entity.position, ent.position) : 0;
-    if (ent) {
-      try { bot.pathfinder.setGoal(new goals.GoalInvert(new goals.GoalFollow(ent, 12)), true); } catch (e) {}
-    }
+    let goalKind = null;   // 'los' | 'distance' -- avoids re-issuing an identical goal every tick
+    const setDistanceGoal = (live) => {
+      if (goalKind === 'distance') return;
+      try { bot.pathfinder.setGoal(new goals.GoalInvert(new goals.GoalFollow(live, 12)), true); } catch (e) {}
+      goalKind = 'distance';
+    };
+    if (ent) setDistanceGoal(ent);   // an immediate goal from tick 0, exactly as before this fix
     const t0 = Date.now();
     let best = 0;
+    let lastPick = 0;
     while (Date.now() - t0 < 8000) {
       await sleep(250);
+      try { bot.setControlState('sprint', true); } catch (e) {}   // re-assert every tick -- cheap, and
+      sprintTicks++;                                              // guards against pathfinder dropping it
+      if (bot.controlState && bot.controlState.sprint) { sprintTrueTicks++; sprintSeenTrue = true; }
       const live = entOf(t);
       if (!live || !live.position) break;                       // despawned / died / lost us
       const d = dist(bot.entity.position, live.position);
       if (d > best) best = d;
       if (d >= 12) break;
       if (bot.health <= 0) break;
+      // re-pick on a ~1.2s cadence, not every 250ms tick -- pathfinder replanning has a real
+      // cost, and the geometry (mob position, which cells are still valid) doesn't change
+      // meaningfully faster than this. Re-reads the threat's CURRENT position every time,
+      // same #65 lesson as BREAK_LOS: a mob that's moved makes a stale plan wrong.
+      if (Date.now() - lastPick > 1200) {
+        lastPick = Date.now();
+        const pick = findFleeTarget(live.position, d);
+        if (pick) {
+          losBreakUsed = losBreakUsed || pick.losBreak;
+          try { bot.pathfinder.setGoal(new goals.GoalNear(pick.cell.x, pick.cell.y, pick.cell.z, 1), true); } catch (e) {}
+          goalKind = 'los';
+        } else {
+          setDistanceGoal(live);
+        }
+      }
       // cornered: no distance gained in 1.5s -> shield is the only remaining counter
       if (Date.now() - t0 > 1500 && d <= startD + 0.5) { await shieldUp(live); }
     }
     const live = entOf(t);
     const gained = Math.round((live && live.position ? dist(bot.entity.position, live.position) : best) * 10) / 10;
-    return { branch: 'FLEE_AWAY', gained, cornered: gained < 3 };
+    // #121/5n-b: `losBreak` reports whether a distance-qualifying, LOS-breaking cell was ever
+    // found/used this encounter; `sprint`/`sprintRatio` report the lead's own sprint check --
+    // lets a grader (and future debugging) separate "genuinely no cover nearby", "cover
+    // existed but wasn't needed", and "wasn't even sprinting" as three different failure
+    // shapes instead of one opaque low `gained` number.
+    return {
+      branch: 'FLEE_AWAY', gained, cornered: gained < 3, losBreak: losBreakUsed,
+      sprint: sprintSeenTrue, sprintRatio: sprintTicks ? Math.round((sprintTrueTicks / sprintTicks) * 100) / 100 : null,
+    };
   } finally {
     try { bot.pathfinder.setGoal(null); } catch (e) {}
+    try { bot.setControlState('sprint', false); } catch (e) {}
     shieldDown();
     if (mv && prevSprint !== null) { mv.allowSprinting = prevSprint; try { bot.pathfinder.setMovements(mv); } catch (e) {} }
   }
@@ -1914,7 +2024,7 @@ g.restore = () => {
 // gone, but every presence check still says it is installed — the exact failure that let
 // three bots die inside driver polling gaps. Go stale loudly instead.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.survival = { version: 15, boundAt: Date.now(), stale: false };
+REG.survival = { version: 16, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.survival.stale = true;
@@ -1925,7 +2035,7 @@ bot.once('end', () => {
 });
 
 return {
-  installed: true, version: 15, home: g.home,
+  installed: true, version: 16, home: g.home,
   dangerscan: Boolean(globalThis.__danger),
   skills: Boolean(globalThis.__skills),
   idleguard: Boolean(globalThis.__idleguard),
