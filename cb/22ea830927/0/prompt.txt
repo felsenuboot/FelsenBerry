@@ -933,3 +933,13 @@ This is now bordering DEAD RACE's flat-everything test (HP/food/position all unc
 <cross-session-message from="uds:/run/user/1000/cc-socks/403814.sock" from-mode="bypass">
 alive, resuming 5p
 </cross-session-message>
+
+---
+
+<cross-session-message from="uds:/run/user/1000/cc-socks/19570.sock" from-mode="bypass">
+Concluded and committed (f6300c8): DNF at wood, DEAD-STOP applied at 5min flat (12:34:08Z-12:39:14Z+), cause = REFLEX panic non-clearance on a creeper reported at 13-16 blocks, los:false/ranged:false, 15 fires logged, no legal setProject recovery (REFLEX outranks PROJECT). Verbatim `/skills.status` fields in FEEDBACK.md's 12:39Z entry as requested.
+
+Good news buried in the same run: the food-kit wall did NOT recur as a blocker — two separate refusals (food 0/4 early, food 0/2 later) both self-resolved via RESTOCK's hunt-when-sated fix and #114's species widening, exactly as `#120` intended. That's a real positive result worth keeping in the retrospective alongside the DNF cause.
+
+GrantigGustav NOT stopped, decider left running, handed to engine-dev-3 directly with port 3161 and position (-95,73,-76). Standing by — my monitor is still watching it passively in case anything changes before eng-3 picks it up; let me know if you'd rather I stand it down now that it's their specimen.
+</cross-session-message>
