@@ -4182,3 +4182,60 @@ fix: `agenda.js` (`sense()`'s `s.shelterShould`/`s.shelterActive`, new SHELTER r
 `bench/fixtures/agenda-ladder.js` (6 new cases: fire/priority-ordering/latch-via-clear, 32/32).
 github: felsenuboot/FelsenBerry#105 (this closes eng-3's half — engine-dev's primitives half was
 already closed)
+
+### 2026-09-03 engine-dev-3 — #106 built and verified (dangerscan v6, skills.js v62): raw
+`.light` replaced everywhere it was trusted as truth, per engine-dev's revised diagnosis
+type: fix + fixture + live verification
+status: built per team-lead's revised spec (surface composite + underground torch-position
+scan + autoTorch spacing-only), engine-dev's `bench/fixtures/light-composite.sh` updated to
+test the real shipped code and its case 4 promoted from informational to a hard gate — now
+passing (3/3 consecutive live runs) — `bench/preflight.sh` 210/210, `dangerscan-canopy.sh`
+unaffected (verified — columnOpen itself untouched)
+what: dangerscan.js's `lightInfo()` no longer returns raw block light as `light` (what
+`g.light`/agenda.js's `s.light`/`__skills.status().bot.light` all already consumed) — engine-
+dev's investigation (this issue's own comment thread) found it unreliable in BOTH directions:
+stuck at 0 in open daylight, AND stuck at 0 immediately next to a real, bot-placed, confirmed-
+present torch after a full relog and 10s+ settle. Neither direction is trustworthy, so it
+can't even serve as a cheap pre-filter — any gate keyed off it inherits the same failure. Two
+independently-reliable primitives replace it entirely:
+- **Surface** (`surfaceExposed:true`): `skyLight` (geometry, verified responsive) gated by
+  `bot.time.isDay` (verified immediate) — the composite this issue was originally named for,
+  mirroring #105's own fix for the identical field pair.
+- **Underground/enclosed** (`surfaceExposed:false`): NOT a raw-light fallback (engine-dev's
+  live testing already disproved that as safe — see this issue's comments). Follows
+  basekeeping.js's own already-proven "coverage is torch-DISTANCE, not a light readback"
+  pattern instead: a bounded `bot.findBlock` scan for a real torch block within
+  `TORCH_COVER` (12, matching basekeeping's own constant). This is a live world query, not a
+  persisted position ledger — a mined or decayed torch is correctly reflected on the very
+  next scan, for free, which a remembered-list would not give without extra bookkeeping.
+- Raw block light is kept as a new, separate `rawLight` field (dangerscan snapshot/status/
+  `__danger`) for diagnostics — never consumed as truth by anything downstream.
+- `unknown` (unloaded chunk, `surfaceExposed:null`) still returns `light:null` — the existing
+  "never guess" doctrine, unchanged.
+
+**`ctx.autoTorch` (skills.js, used by safeDescend/mineLane) — a separate consumer #106 later
+named, not fed through dangerscan at all.** It read `bot.blockAt().light` directly and used it
+to force an EARLY torch placement (bypassing its own `every`-call spacing counter) whenever
+that raw value read below 8 — exactly the unreliable-when-stuck-low field, so on this server
+it was firing early on nearly every call. Measured against real ledger data (engine-dev, this
+issue): 0.163 torches/dig vs. the 0.125 (1-per-8) design target, ~30% over-placement. Fixed by
+deleting the raw-light early-trigger entirely, not swapping it for dangerscan's new composite
+— the existing `every`-call counter already IS the "distance since last placed torch" spacing
+rule this primitive is supposed to follow; the bug was a SECOND, unreliable trigger racing it,
+not a wrong formula needing a better light source.
+
+**Fixture note**: engine-dev's `light-composite.sh` originally called the raw-light-fallback
+formula inline (a stand-in for wherever it eventually shipped) and treated its own case 4
+(underground WITH a real torch) as informational-only, since raw light didn't detect it.
+Updated to call `__danger.scan()` directly — the actual shipped function, not a parallel
+reimplementation — and promoted case 4 to a hard gate: the torch-position scan (unlike raw
+light) correctly reads bright next to that same real torch, because it never reads a light
+VALUE for that branch at all. 3 consecutive live passes. One flaky first run during this
+session's own testing (case 1's `skyLight` read 0 on a chunk freshly loaded moments after a
+forced relog, self-corrected on retry) — a chunk-settle timing artifact of this same
+environment's documented light-packet slowness, not a logic bug; not chased further since the
+fixture already carries extensive relog/settle handling for exactly this class of flake.
+fix: `dangerscan.js` (`lightInfo()` composite + `rawLight` field — v6), `skills.js`
+(`ctx.autoTorch` — raw-light early-trigger removed, v62). `bench/fixtures/light-composite.sh`
+(read_composite calls the real `__danger.scan()`, case 4 promoted to a hard gate).
+github: felsenuboot/FelsenBerry#106 (closing)

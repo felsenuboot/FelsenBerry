@@ -56,7 +56,7 @@ if (G.__skills && G.__skills.currentTask && G.__skills.currentTask.running) {
   }
 }
 
-const ENGINE_VERSION = 61;
+const ENGINE_VERSION = 62;
 const LOG_MAX = 100;
 const LOG_SLICE = 20;
 
@@ -1116,21 +1116,26 @@ function makeCtx(bot, task) {
     // House rule (2b): torch discipline. Call once per unit of progress (a dug
     // block, a descend step, ...) with a per-task `state` object the caller owns
     // (`{}` at task start — carries sinceTorch/warnedNoTorches across calls).
-    // Places a torch every `every` calls OR immediately if the current block's
-    // light level is low (mob-spawn risk), whichever comes first. Tries the floor
+    // Places a torch every `every` calls — distance-since-last-placed-torch, the
+    // design's own spacing rule (1-per-`every` progress steps). Tries the floor
     // first, then the four side walls, so it works in both shafts and open rooms.
     // Never throws; returns {placed:false, reason:'no_torches'|'no_reference'} on
     // a miss. 'no_torches' is logged ONCE per task (not spammed every check) so
     // drivers see a clear restock signal in status/log without chat noise.
+    //
+    // #106: used to ALSO force an early placement whenever the current block's raw
+    // `.light` read below 8 — measured against real ledger data at ~30% over-
+    // placement (0.163 torches/dig vs the 0.125 = 1-per-8 design target), traced to
+    // that raw light field being broadly unreliable on this server (stuck low even
+    // in bright, already-torched cells — see dangerscan.js v6's own #106 fix and
+    // FEEDBACK.md). Removed entirely rather than swapped for dangerscan's new
+    // composite: the spacing counter below already IS the distance-since-last-torch
+    // rule this primitive is supposed to follow, so the fix is dropping the
+    // unreliable second trigger, not replacing it with another light read.
     async autoTorch(state, every = 7) {
       state.sinceTorch = (state.sinceTorch || 0) + 1;
       const here = bot.entity.position.floored();
-      let lowLight = false;
-      try {
-        const hb = bot.blockAt(here);
-        lowLight = hb && typeof hb.light === 'number' && hb.light < 8;
-      } catch (_) {}
-      if (state.sinceTorch < every && !lowLight) return { placed: false };
+      if (state.sinceTorch < every) return { placed: false };
       const torch = bot.inventory.items().find((i) => ['torch', 'copper_torch', 'soul_torch'].includes(i.name));
       if (!torch) {
         if (!state.warnedNoTorches) {

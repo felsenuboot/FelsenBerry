@@ -1,4 +1,14 @@
-// dangerscan v5 payload (inject via POST /eval, idempotent).
+// dangerscan v6 payload (inject via POST /eval, idempotent).
+//
+// v6 (#106): raw `.light` (block light) turned out to be broadly unreliable on this server —
+// stuck at 0 in open daylight, AND stuck at 0 immediately next to a real, confirmed-present
+// torch after a full relog — not trustworthy in either direction, so it can't even serve as
+// a cheap pre-filter. `light`/`g.light` (what everything downstream already consumed) is now
+// a COMPOSITE: surface uses skyLight+bot.time.isDay (both independently verified reliable,
+// #105's own fix), underground/enclosed uses a bounded findBlock scan for a real torch block
+// within TORCH_COVER (basekeeping.js's own already-proven "coverage is torch-distance, not a
+// light readback" pattern) instead of trusting any light value. The old raw sample is kept
+// separately as `rawLight`, for diagnostics only — never as truth. See lightInfo() below.
 //
 // v5 (#68 field finding): columnOpen()'s surfaceExposed check didn't distinguish forest
 // canopy (leaves) from a real ceiling (stone/dirt/etc), so chopTrees under any tree canopy
@@ -26,7 +36,7 @@
 // Provides:
 //   globalThis.__danger.score / .state ('calm'|'alert'|'panic') / .threats[]
 //   globalThis.__danger.on(fn)   -> state-change callbacks (survival.js subscribes)
-//   __skills.status() gains  bot.held {name,dur%}, bot.light/skyLight/surfaceExposed,
+//   __skills.status() gains  bot.held {name,dur%}, bot.light/rawLight/skyLight/surfaceExposed,
 //                            and a top-level danger block — drivers get it for free.
 // Resolves FEEDBACK: "tool durability invisible in status", the signal half of
 // "come/goto silently tunnels underground", "elevation overhang blind spot".
@@ -37,10 +47,10 @@
 if (globalThis.__danger && globalThis.__danger.restore) { try { globalThis.__danger.restore(); } catch (e) {} }
 
 const g = {
-  enabled: true, version: 5,
+  enabled: true, version: 6,
   score: 0, state: 'calm', threats: [], nearest: null,
   scans: 0, errors: 0, lastScan: 0, lastStateChange: 0,
-  light: null, skyLight: null, surfaceExposed: null,
+  light: null, rawLight: null, skyLight: null, surfaceExposed: null,
   held: null,
   listeners: [],
   // survival-doctrine section 3 table. All constants live here so field tuning is one /eval.
@@ -137,15 +147,56 @@ const columnOpen = (feet) => {
 // skyLight to read dark on cue. columnOpen is pure given a blockAt accessor, so testing it
 // directly bypasses that server-timing flakiness entirely.
 g.columnOpen = columnOpen;
+
+// #106: `.light` (raw block light) is not trustworthy AT ALL on this server, in either
+// direction — live-verified (FEEDBACK.md 2026-09-02/03): reads a stuck 0 in broad open-sky
+// daylight, AND stays stuck at 0 immediately next to a real, confirmed-present, bot-placed
+// torch after a full relog and 10s+ settle. Neither "trust it when it says bright" nor
+// "trust it when it says dark" holds, so raw light cannot serve even as a pre-filter here —
+// any gate keyed off it would be exactly as unreliable as reading it directly. Two
+// independently-reliable primitives replace it, matching #105's own fix and basekeeping.js's
+// own already-proven doctrine for the exact same field:
+//  - surface (surfaceExposed:true): `skyLight` (real, geometry-backed, verified responsive)
+//    gated by `bot.time.isDay` (real, immediately-updating) — the composite this issue is
+//    named for.
+//  - underground/enclosed (surfaceExposed:false): basekeeping.js's own "coverage is torch-
+//    DISTANCE, not a light readback" pattern (its own header, since #17) — a bounded
+//    findBlock scan for a real torch BLOCK within TORCH_COVER, not a light value. This is
+//    the "track torch positions in code" fix team-lead specified after basekeeping's own
+//    doctrine was re-confirmed necessary (light unreliable even as a filter here, not just
+//    as confirmation).
+const TORCH_NAMES = ['torch', 'wall_torch', 'soul_torch', 'soul_wall_torch', 'copper_torch', 'copper_wall_torch', 'redstone_torch', 'redstone_wall_torch'];
+const TORCH_COVER = 12;   // taxicab-ish reach for findBlock's maxDistance — matches basekeeping.js's COVER (block light >=1, the real spawn threshold)
+let _torchIds = null;
+const torchIds = () => {
+  if (_torchIds) return _torchIds;
+  try {
+    _torchIds = TORCH_NAMES.map((n) => (bot.registry.blocksByName[n] || {}).id).filter((v) => v != null);
+  } catch (e) { _torchIds = []; }
+  return _torchIds;
+};
+// A bounded, live world query — not a persisted position ledger. A torch that gets mined or
+// decays is correctly reflected on the very next scan, which a remembered-position list would
+// not give for free; findBlock over a 12-block radius on an already-loaded chunk is cheap
+// (the same order of cost as the 3-point block sampling already run every scan).
+const torchNearby = (feet) => {
+  try {
+    const ids = torchIds();
+    if (!ids.length) return null;                // registry not ready yet — unknown, not "no"
+    return bot.findBlock({ matching: ids, maxDistance: TORCH_COVER, count: 1 }) != null;
+  } catch (e) { return null; }
+};
+const isDaylight = () => { try { return bot.time ? Boolean(bot.time.isDay) : null; } catch (e) { return null; } };
+
 const lightInfo = () => {
   try {
     const p = bot.entity.position;
     const feet = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
-    let light = null, sky = null;
+    let raw = null, sky = null;
     for (const s of [feet, feet.offset(0, 1, 0), feet.offset(0, 2, 0)]) {
       const b = bot.blockAt(s);
       if (!b) continue;
-      if (typeof b.light === 'number') light = Math.max(light == null ? 0 : light, b.light);
+      if (typeof b.light === 'number') raw = Math.max(raw == null ? 0 : raw, b.light);
       let sv = null;
       try { sv = bot.world.getSkyLight ? bot.world.getSkyLight(s) : null; } catch (e) {}
       if (typeof sv !== 'number' && typeof b.skyLight === 'number') sv = b.skyLight;
@@ -155,8 +206,18 @@ const lightInfo = () => {
     let exposed = sky != null && sky > 0 ? true : null;
     let viaColumn = false;
     if (exposed === null) { exposed = columnOpen(feet); viaColumn = true; }
-    return { light, skyLight: sky, surfaceExposed: exposed, skyViaColumn: viaColumn };
-  } catch (e) { return { light: null, skyLight: null, surfaceExposed: null, skyViaColumn: false }; }
+    // effective (composited) light — this is what `light`/`g.light`/agenda.js's s.light mean
+    // from here on; `raw` is kept separately (rawLight) for diagnostics only, never as truth.
+    let light = null;
+    if (exposed === true) {
+      const day = isDaylight();
+      light = day == null ? null : (day ? sky : 0);
+    } else if (exposed === false) {
+      const near = torchNearby(feet);
+      light = near == null ? null : (near ? 15 : 0);
+    }
+    return { light, rawLight: raw, skyLight: sky, surfaceExposed: exposed, skyViaColumn: viaColumn };
+  } catch (e) { return { light: null, rawLight: null, skyLight: null, surfaceExposed: null, skyViaColumn: false }; }
 };
 
 const scan = () => {
@@ -215,7 +276,7 @@ const scan = () => {
 
   out.score = Math.round(out.score * 100) / 100;
   out.threats.sort((a, b) => b.s - a.s);
-  out.light = li.light; out.skyLight = li.skyLight;
+  out.light = li.light; out.rawLight = li.rawLight; out.skyLight = li.skyLight;
   out.surfaceExposed = li.surfaceExposed; out.skyViaColumn = li.skyViaColumn;
   return out;
 };
@@ -250,7 +311,7 @@ const tick = () => {
     const r = scan();
     g.score = r.score; g.threats = r.threats.slice(0, 6);
     g.nearest = r.threats.length ? r.threats[0] : null;
-    g.light = r.light; g.skyLight = r.skyLight;
+    g.light = r.light; g.rawLight = r.rawLight; g.skyLight = r.skyLight;
     g.surfaceExposed = r.surfaceExposed;   // geometry-backed, not a bare light read
     g.skyViaColumn = Boolean(r.skyViaColumn);
     g.held = heldInfo();
@@ -288,7 +349,7 @@ g.scan = scan;               // one-shot, for manual /eval inspection
 g.clearPanic = () => { g.state = 'calm'; g.lastStateChange = Date.now(); }; // survival.js calls this on recovery
 g.snapshot = () => ({
   score: g.score, state: g.state, threats: g.threats, held: g.held,
-  light: g.light, skyLight: g.skyLight, surfaceExposed: g.surfaceExposed,
+  light: g.light, rawLight: g.rawLight, skyLight: g.skyLight, surfaceExposed: g.surfaceExposed,
   scans: g.scans, errors: g.errors,
 });
 
@@ -303,6 +364,7 @@ if (S && typeof S.status === 'function' && !S.status.__dangerWrapped) {
       if (st && st.bot && !st.bot.disconnected) {
         if (g.held) st.bot.held = g.held;
         st.bot.light = g.light;
+        st.bot.rawLight = g.rawLight;
         st.bot.skyLight = g.skyLight;
         st.bot.surfaceExposed = g.surfaceExposed;
       }
@@ -343,7 +405,7 @@ g.restore = () => {
 // reports a comfortable "calm" forever — worse than not running. Stop on our bot's 'end'
 // and say so; re-injection (or P0.2 auto-inject-on-spawn) rebinds to the live bot.
 const REG = (globalThis.__payloads = globalThis.__payloads || {});
-REG.dangerscan = { version: 5, boundAt: Date.now(), stale: false };
+REG.dangerscan = { version: 6, boundAt: Date.now(), stale: false };
 bot.once('end', () => {
   try {
     REG.dangerscan.stale = true;
@@ -356,7 +418,7 @@ g.timer = setInterval(tick, g.intervalMs);
 tick();
 
 return {
-  installed: true, version: 5, intervalMs: g.intervalMs,
+  installed: true, version: 6, intervalMs: g.intervalMs,
   statusWrapped: g.statusWrapped, skillsPresent: Boolean(S),
   weightsKnown: Object.keys(g.weights).length,
   first: g.snapshot(),

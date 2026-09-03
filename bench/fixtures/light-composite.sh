@@ -9,18 +9,23 @@
 # doctrine already hardened `surfaceExposed` against exactly this staleness class but never
 # extended it to `.light` itself, which agenda.js's LIGHT/POSTURE consume raw.
 #
-# Proposed fix (posted to #106, not applied -- dangerscan.js is engine-dev-3's file):
-#   effectiveLight = surfaceExposed ? (isDay ? skyLight : 0) : rawBlockLight
-# This fixture tests THAT FORMULA directly (computed inline here, standing in for wherever
-# dangerscan.js eventually implements it) against three real, live-measured scenarios, so the
-# composite lands against a test rather than another paper claim:
+# SHIPPED fix (dangerscan.js v6): raw `.light` turned out unreliable in BOTH directions, not
+# just stale-when-dark -- an underground room with a real, confirmed-present, bot-placed torch
+# (10s+ settle, full relog) still read stuck at 0 (see case 4's own history below). So the
+# underground branch does NOT fall back to raw block light either -- it follows
+# basekeeping.js's own already-proven "coverage is torch-distance, not a light readback"
+# pattern: a bounded findBlock scan for a real torch BLOCK within TORCH_COVER.
+#   effectiveLight = surfaceExposed ? (isDay ? skyLight : 0) : (torchNearby ? 15 : 0)
+# This fixture calls the REAL __danger.scan() directly (see read_composite below) against
+# four real, live-measured scenarios, so the composite lands against the actual shipped code:
 #   1. Surface, broad daylight -> bright (>=8, "no torch needed")
 #   2. Surface, real night (SAME spot, only the clock changes -- no block change, no relight
 #      dependency) -> dark (<8, "needs a torch") -- this is the core of the fix: flipping ONLY
 #      `bot.time.isDay` must flip the composite, which raw `.light` alone never did
-#   3. Underground/enclosed, no torch -> dark (<8) via the raw-block-light fallback
-#   4. Underground/enclosed, WITH a torch -> bright (>=8) -- proves the underground branch's
-#      raw-block-light fallback is not just "always dark", it responds to a real light source
+#   3. Underground/enclosed, no torch -> dark (<8)
+#   4. Underground/enclosed, WITH a real torch within TORCH_COVER -> bright (>=8) -- proves the
+#      torch-position scan actually detects a real light source (unlike raw block light, which
+#      this fixture's own history below shows does NOT, even right next to one)
 #
 # Case 4's torch is placed BEFORE the bot is present, and the bot is FORCE-RELOGGED (kicked,
 # not just teleported) before every read that follows a world change -- not paranoia:
@@ -66,25 +71,18 @@ relog_bot() {
   return 1
 }
 
-# composite reads {isDay, surfaceExposed, skyLight, rawLight} and computes the proposed
-# formula itself -- see header. Real reads only: bot.time.isDay, __danger.surfaceExposed
-# (dangerscan's own geometry field, unaffected by this bug), and bot.blockAt().skyLight /
-# .light sampled at feet/head, mirroring dangerscan's own lightInfo() sampling.
+# composite: calls the REAL dangerscan.js scan()/lightInfo() directly (g.scan, exposed for
+# manual /eval inspection) rather than reimplementing the formula here -- this tests the
+# actual shipped code, not a parallel guess at it. One-shot, no polling delay: scan()'s
+# return value carries {light, rawLight, skyLight, surfaceExposed} fresh, independent of the
+# background 4Hz tick() timing.
 read_composite() {
   eval_js "
-    const p = bot.entity.position.floored();
-    let sky = null, raw = null;
-    for (const s of [p, p.offset(0,1,0)]) {
-      const b = bot.blockAt(s);
-      if (!b) continue;
-      if (typeof b.skyLight === 'number') sky = Math.max(sky==null?0:sky, b.skyLight);
-      if (typeof b.light === 'number') raw = Math.max(raw==null?0:raw, b.light);
-    }
     const d = globalThis.__danger;
-    const surfaceExposed = d ? d.surfaceExposed : null;
+    if (!d || typeof d.scan !== 'function') return { error: 'no __danger.scan' };
+    const r = d.scan();
     const isDay = bot.time ? Boolean(bot.time.isDay) : null;
-    const effectiveLight = surfaceExposed ? (isDay ? sky : 0) : raw;
-    return { isDay, surfaceExposed, skyLight: sky, rawLight: raw, effectiveLight };
+    return { isDay, surfaceExposed: r.surfaceExposed, skyLight: r.skyLight, rawLight: r.rawLight, effectiveLight: r.light };
   "
 }
 
@@ -160,27 +158,11 @@ c3=$(jget "$r3" '.result.effectiveLight'); c4=$(jget "$r4" '.result.effectiveLig
 [[ "$c1" != "null" && "$c1" -ge 8 ]] || fail "case 1 (surface, day) composite light is $c1, expected >=8 -- a daytime surface bot should read bright"
 [[ "$c2" != "null" && "$c2" -lt 8 ]] || fail "case 2 (surface, night) composite light is $c2, expected <8 -- a night surface bot should read dark (this is the actual #105/#106 bug: raw .light never made this transition on its own)"
 [[ "$c3" != "null" && "$c3" -lt 8 ]] || fail "case 3 (underground, no torch) composite light is $c3, expected <8"
+# Case 4 is now a HARD gate (was informational against the older raw-block-light-fallback
+# proposal, which this session's own live testing showed did NOT reliably detect a real torch
+# -- see the git history of this fixture for that finding). The shipped fix instead scans for
+# a real torch BLOCK (bot.findBlock within TORCH_COVER), which is immune to the light-packet
+# staleness bug entirely -- it never reads a light value for this branch at all.
+[[ "$c4" != "null" && "$c4" -ge 8 ]] || fail "case 4 (underground, WITH a real torch) composite light is $c4, expected >=8 -- the torch-position scan should detect a real, confirmed-present torch block regardless of the light-packet staleness bug"
 
-# Case 4 is INFORMATIONAL, not a hard gate -- live-caught building this fixture: a REAL torch
-# (bot-confirmed present via blockAt().name === 'torch', not just an RCON claim) still read
-# `light:0` even after a full relog and 10+s settle, tried multiple ways (RCON setblock, then
-# a genuine bot.placeBlock). This is worse than basekeeping.js's own documented #17 ("stays 0
-# next to a FRESHLY placed torch", implying transient) -- on this server it looks closer to
-# permanently stuck, matching #106's own core finding that `.light` is broadly unreliable here,
-# not just for the day/night case #106 sets out to fix. Consequence, reported honestly rather
-# than papered over: the underground half of the originally-proposed composite
-# (`rawBlockLight` as the enclosed-branch fallback) is NOT proven safe by this fixture -- it
-# inherits the same unreliable field #106 already flagged, just in the one place `.light` was
-# assumed to still be "good enough" (basekeeping.js's own doctrine). Recommending, not building
-# here: the underground branch should follow basekeeping.js's OWN already-proven pattern
-# instead -- track placed/known torch positions in CODE and use a light read only as the
-# cheap initial filter (basekeeping.js's own header: "a greedy loop that re-reads light... would
-# loop forever or over-torch") -- rather than trusting a raw light readback to ever confirm a
-# torch actually lit an underground cell.
-if [[ "$c4" != "null" && "$c4" -ge 8 ]]; then
-  echo "case 4 (underground, with torch): composite=$c4 -- reads bright, as hoped" >&2
-else
-  echo "case 4 (underground, with torch): composite=$c4 -- did NOT read bright; matches this session's live finding that raw block light does not reliably reflect a real torch on this server (see fixture header). Not failing the suite on this -- it's evidence for the recommendation above, not a regression in anything this fixture is meant to gate." >&2
-fi
-
-pass "skyLight+isDay composite reads correctly for the day/night transition (surface day=$c1, night=$c2) and the underground-dark case (no-torch=$c3) -- the #106 fix's actual claim is proven. Underground-with-torch=$c4 is informational only (see stderr) -- raw block light's own reliability near a real torch is a separate, larger finding, not gated by this fixture."
+pass "skyLight+isDay composite reads correctly for the day/night transition (surface day=$c1, night=$c2), the underground-dark case (no-torch=$c3), and the underground-lit case via torch-position scan (with-torch=$c4)"
