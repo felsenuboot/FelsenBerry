@@ -6314,3 +6314,59 @@ fix: bench/fixtures/induced-stress-sequencing.sh (arena + STRESS_ARENA_BARE)
 commit: b92f6a8
 github: felsenuboot/FelsenBerry#121 (TODO 5n / 5n-b) — arena prep landed; FLEE_AWAY LOS-
 bias itself still pending eng-3's file handoff
+
+---
+### 2026-09-03 12:39Z — test-driver — run #7 DEAD-STOP: REFLEX panic re-enters indefinitely on a creeper at 13-16 blocks, `los:false`, `ranged:false` — not a real proximate threat, no legal driver recovery
+Caught live on GrantigGustav (gear-race run #7, world-race7), concluding the run via DEAD RACE = DEAD STOP (Felix's
+law): position, HP, and food all held EXACTLY flat for 5+ consecutive minutes (12:34:08Z → 12:39:14Z+) with a
+diagnosed cause and no legal `setProject` recovery.
+
+**Mechanism, verbatim from `__skills.status(bot,0)`'s own log and structured fields at the moment of conclusion**:
+```
+danger: {"score":2.2,"state":"panic","threats":[{"name":"creeper","d":15,"s":1.13,"los":false,"ranged":false,
+  "id":3952,"pos":[-90,75,-62]}]}
+survival: {"state":"panic:deciding","branch":"WALL_OFF","fires":15,"recovered":13,"failures":1,"standdown":null}
+bot: {"pos":[-95,73,-76],"hp":6.8,"food":16,"dim":"overworld","held":{"name":"dirt","count":7},
+  "light":0,"rawLight":0,"skyLight":0,"surfaceExposed":false}
+log tail: 'danger panic (1.94): creeper at 16.3' -> 'panic_enter (danger) hp=7 threat=creeper at 16.3' ->
+  'panic_recovered branch=WALL_OFF hp=7 — driver decides resume vs abort' -> (repeat, distance oscillating
+  13.6-16.3, `los` never true, `ranged` never true) x 15 fires over ~15 minutes total, the last several minutes
+  with zero other activity at all.
+```
+The bot is fully sealed underground (`surfaceExposed:false`, all three light fields 0 — genuinely enclosed, not a
+sensor artifact) holding only `dirt x7` (its own WALL_OFF filler). A creeper 13-16 blocks away, never in line of
+sight, never ranged (creepers have no ranged attack regardless), is re-triggering `danger.state:panic` every
+cycle — `pick()`'s own danger-scoring apparently treats raw distance-based proximity as sufficient for `panic`
+regardless of whether the threat could plausibly reach the bot (walled in, no LOS, no path). Each `panic_enter` ->
+`WALL_OFF` -> `panic_recovered` cycle completes in isolation (WALL_OFF "succeeds" — the bot IS walled in already)
+but nothing ever declares the incident over, because the SAME distant creeper is still "detected" on the very
+next tick. `#96`'s zero-defense floor and `#100`'s post-victory standdown are not implicated — this isn't a
+combat loss or noisy chat spam, it's the danger-detection layer itself refusing to downgrade from `panic` for a
+threat that was never actually credible.
+
+**Why no `setProject` could fix it**: no `needs_direction` episode opens for most of this cycle (`direction.state`
+stayed `cooldown` for the bulk of the 5-minute window) — the decider never sees a decision point either. One
+episode DID open late (`dmtlihbe06`, `project_stalled`, 12:38:48Z) and the decider answered in ~20s with
+`chopTrees` (dispatch mechanically correct, `#109`'s fast-answer behavior working exactly as designed) — but
+REFLEX (this panic loop) outranks `PROJECT` in the rung ladder, so the dispatch was immediately re-preempted on
+the very next `panic_enter`. This is structurally the same shape as `#112`'s standdown-carryover finding
+(a lower-priority rung's fresh instruction getting swallowed by a higher-priority rung that won't release) but
+one tier up the ladder and with a different root cause (REFLEX's OWN fire condition never clearing, not a stale
+backoff timer).
+
+**Not filing a proposed fix shape** (survival.js/dangerscan.js, eng-3's lane) — candidates worth eng-3 evaluating,
+not proposed as verified: (a) `pick()`'s panic-entry condition should probably require SOME plausible path to the
+bot (LOS, or a ranged capability, or proximity below some threshold that accounts for solid terrain between);
+(b) alternatively, `panic_recovered`'s "driver decides resume vs abort" framing suggests the ORIGINAL design
+intent was for something (a driver, or an automatic policy) to explicitly resolve "is this really over" rather
+than silently re-entering on the next tick — if that resolution step was never wired up, this may be a genuine
+missing mechanism, not just a scoring threshold tuned wrong.
+
+**Driver response**: held all `setProject` calls once the pattern was clear (a redirect couldn't reach PROJECT
+while REFLEX kept reclaiming it) rather than spamming ineffective steering calls. Concluded DNF at wood (stone
+never reached this run — the bot was still mid-excursion when this loop began) via DEAD RACE = DEAD STOP, per
+team-lead's explicit agreement this met the rule's own terms. **Not stopping the bot** — team-lead's instruction:
+GrantigGustav becomes engine-dev-3's live specimen on 25600 exactly as it stands (port 3161, position
+(-95,73,-76)), decider left running, for live forensics against a real, reproducible instance of the loop.
+github: felsenuboot/FelsenBerry (new — REFLEX panic non-clearance on a non-proximate creeper; survival.js/
+dangerscan.js, eng-3's lane)

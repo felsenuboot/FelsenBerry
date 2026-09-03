@@ -1725,6 +1725,45 @@ run #6).
 hp<8/food<6-with-worsening-or-10min-heartbeat, rung-stuck>90s, `needs_direction` opened, server
 errors), per Race book v2's trigger table and branch plans.
 
+**T+~15-30m: food-kit refusals appeared and self-resolved (`#120` working as designed).** Four
+`food 0/4` refusals (12:04:51Z-12:08:25Z) narrowed to `food 3/4` by 12:10:28Z via RESTOCK's own
+hunt-when-sated fix — the exact wall that ended run #6 self-healed here instead of blocking forever.
+Hunting also benefited from `#114`'s species-widening fix directly: `Hunt over: 1/1 kills. Haul: 1
+brown_wool, 2 mutton` (12:11:04Z) via the default `cow/pig/sheep/chicken` search, no species
+workaround needed. A second, smaller refusal (`food 0/2`, 12:30:11Z, the excursion tier — team-lead's
+read: the short-trip exemption needs hunger>=14 and the bot was at 12-15) also resolved via another
+hunt kill by 12:34:06Z (food climbing 12->14->16). **The food-kit wall did NOT recur as a hard
+blocker this run** — a real, positive result for `#120`.
+
+## RUN #7 CONCLUDED — DEAD-STOP 2026-09-03 12:39Z. DNF at wood (stone never reached).
+
+**Cause, precisely, per DEAD RACE = DEAD STOP's own terms (diagnosed cause, no legal recovery, 5
+consecutive minutes flat)**: an unannounced combat encounter around 12:28Z (no mob named by
+dangerscan before HP crashed 19.3->6.8; wall sealed successfully) left the bot at HP 6.8, sealed
+underground (`surfaceExposed:false`). From 12:34:08Z (the moment food's post-hunt climb to 16
+stopped) to 12:39:14Z+ — over 5 minutes — HP, food, AND position all held EXACTLY flat, with
+`survival.js` re-entering `panic` every 10-50s on a creeper reported at 13-16 blocks, `los:false`,
+`ranged:false` (never actually visible, never capable of a ranged hit) — 15 panic-enter cycles logged,
+each one "recovering" via `WALL_OFF` (already sealed, so a no-op) only to re-enter on the SAME distant,
+non-threatening creeper the very next tick. One `needs_direction` episode opened late (12:38:48Z) and
+the decider answered in ~20s with `chopTrees` (`#109` working exactly as designed) — but REFLEX
+outranks `PROJECT`, so the dispatch was immediately re-preempted by the next panic cycle. **No legal
+`setProject` could reach the body while this held** — full mechanism, verbatim status fields, and the
+reasoning for why this is a genuinely new finding (not `#96`/`#99`/`#100`/`#112`) are in FEEDBACK.md
+(12:39Z entry).
+
+**Not stopping the bot** — team-lead's explicit instruction: GrantigGustav becomes engine-dev-3's live
+specimen on 25600 exactly as it stands (port 3161, position (-95,73,-76), HP 6.8, food 16), decider
+left running, for live forensics against a real, reproducible instance of the loop.
+
+**Final milestone table**: wooden pickaxe **T+1m13s** (2nd-fastest, essentially tied with run #6's
+T+1m15s); stone/iron/diamond not reached. Steering calls: 1 (the opening `mineLane`) — held all
+further calls once the panic-loop pattern was clear, since REFLEX would have immediately preempted
+any redirect. Deaths: 0 (the run ended alive, walled in, at HP 6.8). **Findings**: the food-kit wall
+did NOT recur as a blocker (positive result for `#120`); a NEW finding — REFLEX/`panic` non-clearance
+on a non-proximate creeper — ended the run instead. One real bug found, one real fix validated, in a
+single ~39-minute run.
+
 ## SOAK #5 — second HUMAN-BAR attempt: **FAIL (3 of 4)** (team-lead, graded by engine-dev 2026-09-03 11:33Z)
 
 Bot `SchnoddSchorsch` (3162 on 25600/world-soak5, --agenda, DRIVEN unset, SOAK_BOT decider pid 180453). Stack skills 63 / agenda 34 /
