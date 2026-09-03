@@ -6,6 +6,9 @@ Milestones, curated. Everything else: `git log`. Engine payload versions live in
 - **SOAK #4 graded: human bar FAIL 3/4** (SCOREBOARD "SOAK #4"): PLAYING, zero deaths/zero help, clean (thin) trail; direction-gate
   missed on latency alone (p50 76s / p90 215s) — attributed to `decider.js` DRIVER_GRACE_MS keyed on the OWNER label plus the 120s
   retry gap after Andy parse-misses, not to the LLM (1–6s) or the bot. Host rebooted at T+56; graded post-hoc from the ledger.
+- **Decider latency fix** (2fea6d8): driver grace keys on an explicit `DRIVEN=1` spawn meta flag (5th field) instead of the
+  OWNER label; an unparsed-reply retry rides the next 20s poll instead of the 120s per-bot gap; `bench/decider-latency-replay.js`
+  drives the real daemon logic (12/12).
 - **#107 gear-progression drive** (agenda TOOL rung): a bot now crafts the better tool tier the moment materials
   are in hand (wooden→stone pickaxe, live-verified); root cause was `bestOwned()` short-circuiting before the tier
   machinery was ever asked. Also fixed: the pre-craft depot check walking the bot away from its own materials. Extended to **sword and axe**
